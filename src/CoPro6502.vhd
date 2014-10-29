@@ -130,7 +130,7 @@ architecture BEHAVIORAL of CoPro6502 is
 -------------------------------------------------
 
     signal cpu_R_W_n  : std_logic;
-    signal cpu_addr   : std_logic_vector (15 downto 0);
+    signal cpu_addr   : std_logic_vector (23 downto 0);
     signal cpu_din    : std_logic_vector (7 downto 0);
     signal cpu_dout   : std_logic_vector (7 downto 0);
     signal cpu_IRQ_n  : std_logic;
@@ -166,8 +166,7 @@ begin
         NMI_n           => cpu_NMI_n,
         R_W_n           => cpu_R_W_n,
         Sync            => open,
-        A(23 downto 16) => open,
-        A(15 downto 0)  => cpu_addr(15 downto 0),
+        A(23 downto 0)  => cpu_addr(23 downto 0),
         DI(7 downto 0)  => cpu_din(7 downto 0),
         DO(7 downto 0)  => cpu_dout(7 downto 0)
     );
@@ -194,13 +193,13 @@ begin
 
     p_cs_b <= '0' when cpu_addr(15 downto 3) = "1111111011111" else '1';
 
-    rom_cs_b <= '0' when cpu_addr(15 downto 11) = "11111" else '1';
+    rom_cs_b <= '0' when cpu_addr(15 downto 11) = "11111" and cpu_R_W_n = '1' and bootmode = '1' else '1';
 
-    ram_cs_b <= '0' when p_cs_b = '0' and rom_cs_b = '0' else '1';
+    ram_cs_b <= '0' when p_cs_b = '1' and rom_cs_b = '1' else '1';
 
     cpu_din <=
         p_data_out   when p_cs_b = '0' else
-        rom_data_out when rom_cs_b = '0' and bootmode = '1' else
+        rom_data_out when rom_cs_b = '0' else
         ram_data     when ram_cs_b = '0' else
         x"f1";
 
@@ -210,8 +209,8 @@ begin
     ram_oe <= ram_oe_int;
     ram_wr_int <= not ((not ram_cs_b) and (not cpu_R_W_n) and Phi2);
     ram_wr <= ram_wr_int;
-    ram_addr <= "000" & cpu_addr;
-    ram_data <= cpu_dout when cpu_R_W_n = '1' else "ZZZZZZZZ";
+    ram_addr <= "000" & cpu_addr(15 downto 0);
+    ram_data <= cpu_dout when cpu_R_W_n = '0' else "ZZZZZZZZ";
 
     fcs <= '1';
     
