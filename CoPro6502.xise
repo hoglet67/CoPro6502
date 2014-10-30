@@ -16,7 +16,7 @@
 
   <files>
     <file xil_pn:name="src/CoPro6502.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="17"/>
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="18"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="16"/>
     </file>
     <file xil_pn:name="src/DCM/dcm1.vhd" xil_pn:type="FILE_VHDL">
@@ -82,13 +82,17 @@
     <file xil_pn:name="src/CoPro6502.ucf" xil_pn:type="FILE_UCF">
       <association xil_pn:name="Implementation" xil_pn:seqID="0"/>
     </file>
-    <file xil_pn:name="TestBench.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="18"/>
+    <file xil_pn:name="test/TestBench.vhd" xil_pn:type="FILE_VHDL">
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="19"/>
       <association xil_pn:name="PostMapSimulation" xil_pn:seqID="67"/>
       <association xil_pn:name="PostRouteSimulation" xil_pn:seqID="67"/>
       <association xil_pn:name="PostTranslateSimulation" xil_pn:seqID="67"/>
     </file>
-    <file xil_pn:name="src/SRAM.vhd" xil_pn:type="FILE_VHDL">
+    <file xil_pn:name="test/SRAM.vhd" xil_pn:type="FILE_VHDL">
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="17"/>
+      <association xil_pn:name="Implementation" xil_pn:seqID="81"/>
+    </file>
+    <file xil_pn:name="test/txt_util.vhd" xil_pn:type="FILE_VHDL">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="16"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="81"/>
     </file>
