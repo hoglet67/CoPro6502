@@ -141,7 +141,7 @@ module tube (
    assign h_irq_b = ( h_reg0_q_r[`Q_IDX] & h_data_available_w[3] ) ? 1'b0 : 1'bz;
    assign p_nmi_b = (p_nmi_b_r) ?  `P_INTERRUPT_OFF_D : 1'b0 ;
    // parasite IRQ active
-   assign p_irq_b = ( (h_reg0_q_r[`I_IDX] & p_data_available_w[0]) | (h_reg0_q_r[`J_IDX] & p_data_available_w[3]) ) ? `P_INTERRUPT_OFF_D : 1'b0;
+   assign p_irq_b = ( (h_reg0_q_r[`I_IDX] & p_data_available_w[0]) | (h_reg0_q_r[`J_IDX] & p_data_available_w[3]) ) ? 1'b0 : `P_INTERRUPT_OFF_D  ;
 
    // Active p_rst_b when '1' in P flag or host reset is applied
    assign p_rst_b = (!h_reg0_q_r[`P_IDX] & h_rst_b) ;   
