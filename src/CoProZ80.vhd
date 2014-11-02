@@ -3,7 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
-entity CoPro6502 is
+entity CoProZ80 is
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
@@ -29,9 +29,9 @@ entity CoPro6502 is
         ram_addr     : out   std_logic_vector (18 downto 0);
         ram_data     : inout std_logic_vector (7 downto 0)
     );
-end CoPro6502;
+end CoProZ80;
 
-architecture BEHAVIORAL of CoPro6502 is
+architecture BEHAVIORAL of CoProZ80 is
  
     component dcm1
         port (
@@ -42,39 +42,36 @@ architecture BEHAVIORAL of CoPro6502 is
         ); 
     end component;
 
-    component tuberom_65c102
+    component tuberom_z80
         port (
             CLK  : in  std_logic;
-            ADDR : in  std_logic_vector(10 downto 0);
+            ADDR : in  std_logic_vector(11 downto 0);
             DATA : out std_logic_vector(7 downto 0));
     end component;
 
-    component T65
-        port(
-            Mode    : in  std_logic_vector(1 downto 0);
-            Res_n   : in  std_logic;
-            Enable  : in  std_logic;
-            Clk     : in  std_logic;
-            Rdy     : in  std_logic;
-            Abort_n : in  std_logic;
-            IRQ_n   : in  std_logic;
+    component T80se
+        port (
+            RESET_n : in  std_logic;
+            CLK_n   : in  std_logic;
+            CLKEN   : in  std_logic;
+            WAIT_n  : in  std_logic;
+            INT_n   : in  std_logic;
             NMI_n   : in  std_logic;
-            SO_n    : in  std_logic;
-            DI      : in  std_logic_vector(7 downto 0);          
-            R_W_n   : out std_logic;
-            Sync    : out std_logic;
-            EF      : out std_logic;
-            MF      : out std_logic;
-            XF      : out std_logic;
-            ML_n    : out std_logic;
-            VP_n    : out std_logic;
-            VDA     : out std_logic;
-            VPA     : out std_logic;
-            A       : out std_logic_vector(23 downto 0);
+            BUSRQ_n : in  std_logic;
+            M1_n    : out std_logic;
+            MREQ_n  : out std_logic;
+            IORQ_n  : out std_logic;
+            RD_n    : out std_logic;
+            WR_n    : out std_logic;
+            RFSH_n  : out std_logic;
+            HALT_n  : out std_logic;
+            BUSAK_n : out std_logic;
+            A       : out std_logic_vector(15 downto 0);
+            DI      : in  std_logic_vector(7 downto 0);
             DO      : out std_logic_vector(7 downto 0)
         );
     end component;
-
+    
     component tube
         port(
             h_addr     : in    std_logic_vector(2 downto 0);
@@ -90,8 +87,8 @@ architecture BEHAVIORAL of CoPro6502 is
             p_cs_b     : in    std_logic;
             p_data_in  : in    std_logic_vector(7 downto 0);
             p_data_out : out   std_logic_vector(7 downto 0);
-            p_rdnw     : in    std_logic;
-            p_phi2     : in    std_logic;
+            p_rd_b     : in    std_logic;
+            p_wr_b     : in    std_logic;
             p_rst_b    : out   std_logic;
             p_nmi_b    : inout std_logic;
             p_irq_b    : inout std_logic
@@ -129,9 +126,13 @@ architecture BEHAVIORAL of CoPro6502 is
 -------------------------------------------------
 -- cpu signals
 -------------------------------------------------
-
-    signal cpu_R_W_n  : std_logic;
-    signal cpu_addr   : std_logic_vector (23 downto 0);
+    
+    signal cpu_rd_n   : std_logic;
+    signal cpu_wr_n   : std_logic;
+    signal cpu_iorq_n : std_logic;
+    signal cpu_mreq_n : std_logic;
+    signal cpu_m1_n   : std_logic;
+    signal cpu_addr   : std_logic_vector (15 downto 0);
     signal cpu_din    : std_logic_vector (7 downto 0);
     signal cpu_dout   : std_logic_vector (7 downto 0);
     signal cpu_IRQ_n  : std_logic;
@@ -149,27 +150,31 @@ begin
         CLK0_OUT1 => open,
         CLK2X_OUT => open);
 
-    inst_tuberom : tuberom_65c102 port map (
+    inst_tuberom : tuberom_z80 port map (
         CLK             => clk_16M00,
-        ADDR            => cpu_addr(10 downto 0),
+        ADDR            => cpu_addr(11 downto 0),
         DATA            => rom_data_out
     );
 
-    inst_T65 : T65 port map (
-        Mode            => "01",
-        Abort_n         => '1',
-        SO_n            => '1',
-        Res_n           => RSTn,
-        Enable          => cpu_clken,
-        Clk             => clk_16M00,
-        Rdy             => '1',
-        IRQ_n           => cpu_IRQ_n,
-        NMI_n           => cpu_NMI_n,
-        R_W_n           => cpu_R_W_n,
-        Sync            => open,
-        A(23 downto 0)  => cpu_addr(23 downto 0),
-        DI(7 downto 0)  => cpu_din(7 downto 0),
-        DO(7 downto 0)  => cpu_dout(7 downto 0)
+    inst_Z80 : T80se port map (
+        RESET_n => RSTn,
+        CLK_n   => clk_16M00,
+        CLKEN   => cpu_clken,
+        WAIT_n  => '1',
+        INT_n   => cpu_IRQ_n,
+        NMI_n   => cpu_NMI_n,
+        BUSRQ_n => '1',
+        M1_n    => cpu_m1_n,
+        MREQ_n  => cpu_mreq_n,
+        IORQ_n  => cpu_iorq_n,
+        RD_n    => cpu_rd_n,
+        WR_n    => cpu_wr_n,
+        RFSH_n  => open,
+        HALT_n  => open,
+        BUSAK_n => open,
+        A       => cpu_addr,
+        DI      => cpu_din,
+        DO      => cpu_dout
     );
 
     inst_tube: tube port map (
@@ -184,51 +189,59 @@ begin
         p_cs_b          => p_cs_b,
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
-        p_rdnw          => cpu_R_W_n,
-        p_phi2          => phi2,
+        p_rd_b          => cpu_rd_n,
+        p_wr_b          => cpu_wr_n,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
     );
 
 
-    p_cs_b <= '0' when cpu_addr(15 downto 3) = "1111111011111" else '1';
+    p_cs_b <= '0' when cpu_mreq_n = '1' and cpu_iorq_n = '0' and cpu_addr(7 downto 3) = "00000" else '1';
 
-    rom_cs_b <= '0' when cpu_addr(15 downto 11) = "11111" and cpu_R_W_n = '1' and bootmode = '1' else '1';
+    rom_cs_b <= '0' when cpu_mreq_n = '0' and cpu_rd_n = '0' and (bootmode = '1' or cpu_NMI_n = '0') else '1';
 
-    ram_cs_b <= '0' when p_cs_b = '1' and rom_cs_b = '1' else '1';
+    ram_cs_b <= '0' when cpu_mreq_n = '0' and rom_cs_b = '1' else '1';
 
     cpu_din <=
+        x"fe"        when cpu_m1_n = '0' and cpu_iorq_n = '0' else
         p_data_out   when p_cs_b = '0' else
         rom_data_out when rom_cs_b = '0' else
         ram_data     when ram_cs_b = '0' else
         x"f1";
-
     
     ram_cs <= ram_cs_b;
-    ram_oe_int <= not ((not ram_cs_b) and cpu_R_W_n);
+    ram_oe_int <= not ((not ram_cs_b) and (not cpu_rd_n));
     ram_oe <= ram_oe_int;
-    ram_wr_int <= not ((not ram_cs_b) and (not cpu_R_W_n) and Phi2);
+    ram_wr_int <= not ((not ram_cs_b) and (not cpu_wr_n));
     ram_wr <= ram_wr_int;
-    ram_addr <= "000" & cpu_addr(15 downto 0);
-    ram_data <= cpu_dout when cpu_R_W_n = '0' else "ZZZZZZZZ";
+    ram_addr <= "000" & cpu_addr;
+    ram_data <= cpu_dout when cpu_wr_n = '0' else "ZZZZZZZZ";
 
     fcs <= '1';
     
-    tp(8) <= RSTn;
-    tp(7) <= ram_wr_int;
-    tp(6) <= ram_oe_int;
-    tp(5) <= p_cs_b;
-    tp(4) <= CPU_IRQ_n;
-    tp(3) <= CPU_NMI_n;
-    tp(2) <= bootmode;
+--    tp(8) <= RSTn;
+--    tp(7) <= ram_wr_int;
+--    tp(6) <= ram_oe_int;
+--    tp(5) <= p_cs_b;
+--    tp(4) <= CPU_IRQ_n;
+--    tp(3) <= CPU_NMI_n;
+--    tp(2) <= bootmode;
 
-    test(6) <= '0'; 
-    test(5) <= '0'; 
-    test(4) <= '0'; 
-    test(3) <= '0'; 
-    test(2) <= '0'; 
-    test(1) <= '0'; 
+    test(6) <= cpu_m1_n;
+    test(5) <= CPU_NMI_n;
+    test(4) <= bootmode;
+    test(3) <= cpu_rd_n;
+    test(2) <= p_cs_b;
+    test(1) <= cpu_addr(7);
+
+    tp(8) <= cpu_addr(6);
+    tp(7) <= cpu_addr(5);
+    tp(6) <= cpu_addr(4);
+    tp(5) <= cpu_addr(3);
+    tp(4) <= cpu_addr(2);
+    tp(3) <= cpu_addr(1);
+    tp(2) <= cpu_addr(0);
     
 --------------------------------------------------------
 -- boot mode generator
@@ -238,8 +251,12 @@ begin
         if RSTn = '0' then
             bootmode <= '1';
         elsif rising_edge(clk_16M00) then
-            if p_cs_b = '0' then
-                bootmode <= '0';
+            if (cpu_mreq_n = '0' and cpu_m1_n = '0') then
+                if (cpu_addr = x"0066") then
+                    bootmode <= '1';
+                elsif cpu_addr(15) = '1' then
+                    bootmode <= '0';
+                end if;
             end if;
         end if;
     end process;

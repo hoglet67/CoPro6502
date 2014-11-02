@@ -2,7 +2,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-entity tuberom is
+entity tuberom_65c102 is
     port (
         CLK  : in  std_logic;
         ADDR : in  std_logic_vector(10 downto 0);
@@ -10,7 +10,7 @@ entity tuberom is
         );
 end;
 
-architecture RTL of tuberom is
+architecture RTL of tuberom_65c102 is
 
     signal rom_addr : std_logic_vector(11 downto 0);
 

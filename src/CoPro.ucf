@@ -87,3 +87,10 @@ NET "h_cs_b"       LOC = "P22" | IOSTANDARD = LVCMOS33 ;
 NET "h_rst_b"      LOC = "P55" | IOSTANDARD = LVCMOS33 ;
 NET "h_irq_b"      LOC = "P54" | IOSTANDARD = LVCMOS33 ;
 
+
+NET "test<1>"  LOC = "P89" | IOSTANDARD = LVCMOS33 ;
+NET "test<2>"  LOC = "P90" | IOSTANDARD = LVCMOS33 ;
+NET "test<3>"  LOC = "P92" | IOSTANDARD = LVCMOS33 ;
+NET "test<4>"  LOC = "P87" | IOSTANDARD = LVCMOS33 ;
+NET "test<5>"  LOC = "P86" | IOSTANDARD = LVCMOS33 ;
+NET "test<6>"  LOC = "P88" | IOSTANDARD = LVCMOS33 ;
