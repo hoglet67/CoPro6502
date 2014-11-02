@@ -105,6 +105,7 @@ module tube (
    reg [3:0]  h_select_fifo_q_r;
    reg [3:0]  p_select_fifo_r;
    reg        h_rdnw_q_r;
+   reg        n_flag;
    
 
    
@@ -216,6 +217,10 @@ module tube (
               p_full_w
               )
      begin
+       if ( h_reg0_q_r[`V_IDX] == 1'b0 )
+         n_flag = ( p_data_available_w[2] | ph_zero_r3_bytes_avail_w  ) ;
+       else
+         n_flag = ( p_r3_two_bytes_available_w |  ph_zero_r3_bytes_avail_w  ) ;
         if ( h_reg0_q_r[`M_IDX] == 1'b1 )
           if ( h_reg0_q_r[`V_IDX] == 1'b0 )
             p_nmi_b_r = ! ( p_data_available_w[2] | ph_zero_r3_bytes_avail_w  ) ;
@@ -224,7 +229,7 @@ module tube (
         else
           p_nmi_b_r = 1'b1;        
      end     
-
+ 
 
    // Multiplexing of different FIFO IOs
    //
@@ -240,7 +245,7 @@ module tube (
           3'h1: p_data_r = p_data_w;          
           3'h2: p_data_r = { p_data_available_w[1], !p_full_w[1], 6'b1};
           3'h3: p_data_r = p_data_w;
-          3'h4: p_data_r = { p_data_available_w[2], !p_full_w[2], 6'b1};
+          3'h4: p_data_r = { n_flag, !p_full_w[2], 6'b1};
           3'h5: p_data_r = p_data_w;          
           3'h6: p_data_r = { p_data_available_w[3], !p_full_w[3], 6'b1};
           3'h7: p_data_r = p_data_w;          

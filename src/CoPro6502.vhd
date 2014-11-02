@@ -155,7 +155,7 @@ begin
     );
 
     inst_T65 : T65 port map (
-        Mode            => "00",
+        Mode            => "01",
         Abort_n         => '1',
         SO_n            => '1',
         Res_n           => RSTn,
