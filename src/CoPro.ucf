@@ -27,7 +27,7 @@ NET "ram_data<5>"  LOC = "P11" | IOSTANDARD = LVCMOS33 ;
 NET "ram_data<6>"  LOC = "P12" | IOSTANDARD = LVCMOS33 ;
 NET "ram_data<7>"  LOC = "P13" | IOSTANDARD = LVCMOS33 ;
 
-NET "fastclk"  LOC = "P38" | IOSTANDARD = LVCMOS33 ;
+NET "fastclk"  LOC = "P38" | IOSTANDARD = LVCMOS33 | PERIOD = 20.3450520833;
 NET "ram_cs"  LOC = "P43" | IOSTANDARD = LVCMOS33 ;
 NET "ram_oe"  LOC = "P44" | IOSTANDARD = LVCMOS33 ;
 NET "ram_wr"  LOC = "P64" | IOSTANDARD = LVCMOS33 ;
@@ -70,7 +70,7 @@ NET "tp<8>"  LOC = "P47" | IOSTANDARD = LVCMOS33 ;
 # NET "pin23"  LOC = "P88" | IOSTANDARD = LVCMOS33 ;
 
 
-NET "h_phi2"       LOC = "P39" | IOSTANDARD = LVCMOS33 ;
+NET "h_phi2"       LOC = "P39" | IOSTANDARD = LVCMOS33 | PERIOD = 500;
 NET "h_addr<2>"    LOC = "P91" | IOSTANDARD = LVCMOS33 ;
 NET "h_addr<1>"    LOC = "P85" | IOSTANDARD = LVCMOS33 ;
 NET "h_addr<0>"    LOC = "P16" | IOSTANDARD = LVCMOS33 ;

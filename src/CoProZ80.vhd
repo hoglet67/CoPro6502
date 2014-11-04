@@ -87,8 +87,8 @@ architecture BEHAVIORAL of CoProZ80 is
             p_cs_b     : in    std_logic;
             p_data_in  : in    std_logic_vector(7 downto 0);
             p_data_out : out   std_logic_vector(7 downto 0);
-            p_rd_b     : in    std_logic;
-            p_wr_b     : in    std_logic;
+            p_rdnw     : in    std_logic;
+            p_phi2     : in    std_logic;
             p_rst_b    : out   std_logic;
             p_nmi_b    : inout std_logic;
             p_irq_b    : inout std_logic
@@ -99,9 +99,12 @@ architecture BEHAVIORAL of CoProZ80 is
 -- clock and reset signals
 -------------------------------------------------
 
-    signal clk_16M00     : std_logic;
-    signal phi           : std_logic;
+    signal clk_6M00      : std_logic;
+    signal clk_24M00     : std_logic;
+    signal phi0          : std_logic;
+    signal phi1          : std_logic;
     signal phi2          : std_logic;
+    signal phi3          : std_logic;
     signal cpu_clken     : std_logic;
     signal clken_counter : std_logic_vector (3 downto 0);
     signal bootmode      : std_logic;
@@ -146,19 +149,21 @@ begin
 
     inst_dcm6 : dcm6 port map (
         CLKIN_IN  => fastclk,
-        CLK0_OUT  => clk_16M00,
+        CLK0_OUT  => clk_24M00,
         CLK0_OUT1 => open,
         CLK2X_OUT => open);
+        
+    clk_6M00 <= phi2;
 
     inst_tuberom : tuberom_z80 port map (
-        CLK             => clk_16M00,
+        CLK             => clk_24M00,
         ADDR            => cpu_addr(11 downto 0),
         DATA            => rom_data_out
     );
 
     inst_Z80 : T80se port map (
         RESET_n => RSTn,
-        CLK_n   => clk_16M00,
+        CLK_n   => clk_24M00,
         CLKEN   => cpu_clken,
         WAIT_n  => '1',
         INT_n   => cpu_IRQ_n,
@@ -189,8 +194,8 @@ begin
         p_cs_b          => p_cs_b,
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
-        p_rd_b          => cpu_rd_n,
-        p_wr_b          => cpu_wr_n,
+        p_phi2          => clk_6M00,
+        p_rdnw          => cpu_wr_n,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
@@ -230,7 +235,7 @@ begin
 
     testpr : process(sw, cpu_addr, p_data_out, cpu_rd_n, p_cs_b, cpu_m1_n)
     begin
-        if (sw(1) = '1') then
+        if (sw(1) = '1' and sw(2) = '1') then
             test(6) <= p_cs_b;
             test(5) <= cpu_rd_n;
             if cpu_addr(2 downto 0) = "100" and p_cs_b = '0' then
@@ -275,11 +280,11 @@ begin
 --------------------------------------------------------
 -- boot mode generator
 --------------------------------------------------------
-    boot_gen : process(clk_16M00, RSTn)
+    boot_gen : process(clk_24M00, RSTn)
     begin
         if RSTn = '0' then
             bootmode <= '1';
-        elsif rising_edge(clk_16M00) then
+        elsif rising_edge(clk_24M00) then
             if (cpu_mreq_n = '0' and cpu_m1_n = '0') then
                 if (cpu_addr = x"0066") then
                     bootmode <= '1';
@@ -293,24 +298,38 @@ begin
 --------------------------------------------------------
 -- clock enable generator
 
--- 4MHz
+-- 6MHz
 -- cpu_clken active on cycle 0, 4, 8, 12
 -- address/data changes on cycle 1, 5, 9, 13
--- phi2 active on cycle 2..3, 6..7 10..11 14..15
+-- phi0 active on cycle 1..2 -- rising edge sees unstable data  - completes lang transfer than hangs
+-- phi1 active on cycle 2..3 -- both edges see stable data      - works (saw insert CPM)
+-- phi2 active on cycle 3..4 -- falling edge sees unstable data - fails - AAAAAAAAAAAAA
+-- phi3 active on cycle 4..5 -- edges see different data        - completes lang transfer than hangs
+
+-- alternative
+-- phi0 active on cycle 1 -- works (saw insert CPM)
+-- phi1 active on cycle 2 -- completes lang transfer than hangs
+-- phi2 active on cycle 3 -- works (saw insert CPM)
+-- phi3 active on cycle 4 -- fails - AIAIIAIAIIAIAIIAIA
+
 --------------------------------------------------------
-    clk_gen : process(clk_16M00, RSTn)
+    clk_gen : process(clk_24M00, RSTn)
     begin
         if RSTn = '0' then
             clken_counter <= (others => '0');
             cpu_clken <= '0';
-            phi       <= '0';
+            phi0      <= '0';
+            phi1      <= '0';
             phi2      <= '0';
-        elsif rising_edge(clk_16M00) then
+            phi3      <= '0';
+        elsif rising_edge(clk_24M00) then
             clken_counter <= clken_counter + 1;
             cpu_clken     <= clken_counter(0) and clken_counter(1);
-            phi           <= not clken_counter(1);
-             -- delay by 1 cycle so address and data will be stable for 62.5ns before phi2
-            phi2          <= phi;
+            --phi0          <= not clken_counter(1);
+            phi0          <= cpu_clken;
+            phi1          <= phi0;
+            phi2          <= phi1;
+            phi3          <= phi2;
         end if;
     end process;
     
