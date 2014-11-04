@@ -33,7 +33,7 @@ end CoProZ80;
 
 architecture BEHAVIORAL of CoProZ80 is
  
-    component dcm1
+    component dcm6
         port (
             CLKIN_IN  : in  std_logic;
             CLK0_OUT  : out std_logic;
@@ -144,7 +144,7 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm1 : dcm1 port map (
+    inst_dcm6 : dcm6 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_16M00,
         CLK0_OUT1 => open,
@@ -228,20 +228,49 @@ begin
 --    tp(3) <= CPU_NMI_n;
 --    tp(2) <= bootmode;
 
-    test(6) <= cpu_m1_n;
-    test(5) <= CPU_NMI_n;
-    test(4) <= bootmode;
-    test(3) <= cpu_rd_n;
-    test(2) <= p_cs_b;
-    test(1) <= cpu_addr(7);
+    testpr : process(sw, cpu_addr, p_data_out, cpu_rd_n, p_cs_b, cpu_m1_n)
+    begin
+        if (sw(1) = '1') then
+            test(6) <= p_cs_b;
+            test(5) <= cpu_rd_n;
+            if cpu_addr(2 downto 0) = "100" and p_cs_b = '0' then
+                test(4) <= '1';
+            else
+                test(4) <= '0';
+            end if;
+            if cpu_addr(2 downto 0) = "101" and p_cs_b = '0' then
+                test(3) <= '1';
+            else
+                test(3) <= '0';
+            end if;
+            test(2) <= cpu_m1_n;
+            test(1) <= p_data_out(7);
 
-    tp(8) <= cpu_addr(6);
-    tp(7) <= cpu_addr(5);
-    tp(6) <= cpu_addr(4);
-    tp(5) <= cpu_addr(3);
-    tp(4) <= cpu_addr(2);
-    tp(3) <= cpu_addr(1);
-    tp(2) <= cpu_addr(0);
+            tp(8) <= p_data_out(6);
+            tp(7) <= p_data_out(5);
+            tp(6) <= p_data_out(4);
+            tp(5) <= p_data_out(3);
+            tp(4) <= p_data_out(2);
+            tp(3) <= p_data_out(1);
+            tp(2) <= p_data_out(0);
+        else
+    
+            test(6) <= cpu_m1_n;
+            test(5) <= cpu_addr(11);
+            test(4) <= cpu_addr(10);
+            test(3) <= cpu_addr(9);
+            test(2) <= cpu_addr(8);
+            test(1) <= cpu_addr(7);
+
+            tp(8) <= cpu_addr(6);
+            tp(7) <= cpu_addr(5);
+            tp(6) <= cpu_addr(4);
+            tp(5) <= cpu_addr(3);
+            tp(4) <= cpu_addr(2);
+            tp(3) <= cpu_addr(1);
+            tp(2) <= cpu_addr(0);
+        end if;
+    end process;
     
 --------------------------------------------------------
 -- boot mode generator

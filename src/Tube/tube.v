@@ -243,11 +243,11 @@ module tube (
         case ( p_addr )
           3'h0: p_data_r = { p_data_available_w[0], !p_full_w[0], p_reg0_q_r[5:0]};
           3'h1: p_data_r = p_data_w;          
-          3'h2: p_data_r = { p_data_available_w[1], !p_full_w[1], 6'b1};
+          3'h2: p_data_r = { p_data_available_w[1], !p_full_w[1], 6'b111111};
           3'h3: p_data_r = p_data_w;
-          3'h4: p_data_r = { n_flag, !p_full_w[2], 6'b1};
+          3'h4: p_data_r = { p_data_available_w[2], !p_full_w[2], 6'b111111};
           3'h5: p_data_r = p_data_w;          
-          3'h6: p_data_r = { p_data_available_w[3], !p_full_w[3], 6'b1};
+          3'h6: p_data_r = { p_data_available_w[3], !p_full_w[3], 6'b111111};
           3'h7: p_data_r = p_data_w;          
           // default: p_data_r = p_data_w;
         endcase // case ( p_addr )        
