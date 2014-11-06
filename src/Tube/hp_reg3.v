@@ -52,7 +52,8 @@ module hp_reg3 (
    wire [7:0]    byte1_d_w ;   
 
    // assign primary IOs
-   assign p_data = ( p_data_available_w[0] ) ? byte0_q_r: byte1_q_r;
+   // assign p_data = ( p_data_available_w[0] ) ? byte0_q_r: byte1_q_r;
+   assign p_data = byte0_q_r;
    assign p_two_bytes_available = !(one_byte_mode) & ( &p_data_available_w );   
 
    // Compute D and resets for state bits
