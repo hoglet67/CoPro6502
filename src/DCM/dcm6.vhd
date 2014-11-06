@@ -25,7 +25,7 @@ begin
         generic map(CLK_FEEDBACK          => "NONE",
                     CLKDV_DIVIDE          => 4.0,  -- 16.384 = 49.152 * 10/30
                     CLKFX_DIVIDE          => 20,
-                    CLKFX_MULTIPLY        => 10,
+                    CLKFX_MULTIPLY        => 13,
                     CLKIN_DIVIDE_BY_2     => false,
                     CLKIN_PERIOD          => 20.3450520833,
                     CLKOUT_PHASE_SHIFT    => "NONE",
