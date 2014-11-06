@@ -204,7 +204,7 @@ begin
 
     p_cs_b <= '0' when cpu_mreq_n = '1' and cpu_iorq_n = '0' and cpu_addr(7 downto 3) = "00000" else '1';
 
-    rom_cs_b <= '0' when cpu_mreq_n = '0' and cpu_rd_n = '0' and (bootmode = '1' or cpu_NMI_n = '0') else '1';
+    rom_cs_b <= '0' when cpu_mreq_n = '0' and cpu_rd_n = '0' and bootmode = '1' else '1';
 
     ram_cs_b <= '0' when cpu_mreq_n = '0' and rom_cs_b = '1' else '1';
 
@@ -233,12 +233,26 @@ begin
 --    tp(3) <= CPU_NMI_n;
 --    tp(2) <= bootmode;
 
-    testpr : process(sw, cpu_addr, p_data_out, cpu_rd_n, p_cs_b, cpu_m1_n)
+    testpr : process(sw, cpu_addr, h_addr, h_cs_b, p_data_out, cpu_rd_n, p_cs_b, cpu_m1_n)
     begin
         if (sw(1) = '1' and sw(2) = '1') then
-            test(6) <= p_cs_b;
-            test(5) <= cpu_rd_n;
-            if cpu_addr(2 downto 0) = "100" and p_cs_b = '0' then
+--            test(6) <= cpu_rd_n;   -- 12
+--            test(5) <= cpu_wr_n;   -- 11
+--            test(4) <= cpu_m1_n;   -- 10
+--            test(3) <= cpu_mreq_n; --  9
+--            test(2) <= cpu_iorq_n; --  8
+--            test(1) <= p_cs_b;     --  7
+--            tp(8) <= rom_cs_b;     --  6
+--            tp(7) <= ram_cs_b;     --  5
+--            tp(6) <= ram_oe_int;   --  4
+--            tp(5) <= ram_wr_int;   --  3
+--            tp(4) <= CPU_IRQ_n;    --  2
+--            tp(3) <= CPU_NMI_n;    --  1
+--            tp(2) <= bootmode;     --  0
+
+            test(6) <= CPU_NMI_n;
+            test(5) <= cpu_wr_n;
+            if h_addr(2 downto 0) = "101" and h_cs_b = '0' then
                 test(4) <= '1';
             else
                 test(4) <= '0';
@@ -248,20 +262,19 @@ begin
             else
                 test(3) <= '0';
             end if;
-            test(2) <= cpu_m1_n;
-            test(1) <= p_data_out(7);
-
-            tp(8) <= p_data_out(6);
-            tp(7) <= p_data_out(5);
-            tp(6) <= p_data_out(4);
-            tp(5) <= p_data_out(3);
-            tp(4) <= p_data_out(2);
-            tp(3) <= p_data_out(1);
-            tp(2) <= p_data_out(0);
+            test(2) <= clk_6M00;
+            test(1) <= cpu_dout(7);
+            tp(8) <= cpu_dout(6);
+            tp(7) <= cpu_dout(5);
+            tp(6) <= cpu_dout(4);
+            tp(5) <= cpu_dout(3);
+            tp(4) <= cpu_dout(2);
+            tp(3) <= cpu_dout(1);
+            tp(2) <= cpu_dout(0);
         else
     
-            test(6) <= cpu_m1_n;
-            test(5) <= cpu_addr(11);
+            test(6) <= CPU_NMI_n;
+            test(5) <= cpu_m1_n;
             test(4) <= cpu_addr(10);
             test(3) <= cpu_addr(9);
             test(2) <= cpu_addr(8);
