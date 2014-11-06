@@ -213,7 +213,7 @@ begin
         p_data_out   when p_cs_b = '0' else
         rom_data_out when rom_cs_b = '0' else
         ram_data     when ram_cs_b = '0' else
-        x"f1";
+        x"fe";
     
     ram_cs <= ram_cs_b;
     ram_oe_int <= not ((not ram_cs_b) and (not cpu_rd_n));
