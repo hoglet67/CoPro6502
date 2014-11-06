@@ -53,8 +53,8 @@ module ph_reg3 (
 `ifdef PARASITE_RNWCLK_INTERFACE_D
    assign byte0_d_w = ( p_selectData & !p_rdnw & ( !p_full_w[0] | one_byte_mode) ) ? p_data : byte0_q_r;
    assign byte1_d_w = ( p_selectData & !p_rdnw & (  p_full_w[0] & !one_byte_mode) ) ? p_data : byte1_q_r;      
+   wire   p_write_b =  p_rdnw | p_phi2;
 `else   
-   wire       pclk_w =  !(p_rdstb_b & p_westb_b);
    // Compute D and resets for state bits
    assign byte0_d_w = ( p_selectData & ( !p_full_w[0] | one_byte_mode) ) ? p_data : byte0_q_r;
    assign byte1_d_w = ( p_selectData & (  p_full_w[0] & !one_byte_mode) ) ? p_data : byte1_q_r;   
@@ -85,7 +85,11 @@ module ph_reg3 (
                       .h_select( h_selectData & (h_data_available_w[0] | one_byte_mode)),
                       .h_phi2(h_phi2),
                       .p_select(p_selectData & !p_full_w[0] & (!p_full_w[1] | one_byte_mode)),
+`ifdef PARASITE_RNWCLK_INTERFACE_D
+                      .p_wrst_b(p_write_b),
+`else
                       .p_wrst_b(p_westb_b),
+`endif
                       .h_data_available(h_data_available_w[0]),
                       .p_full(p_full_w[0])
                       ); 
@@ -96,7 +100,11 @@ module ph_reg3 (
                       .h_select(h_selectData & (!h_data_available_w[0] & h_data_available_w[1]  & !one_byte_mode )),
                       .h_phi2(h_phi2),
                       .p_select(p_selectData & p_full_w[0] & !(p_full_w[1] | one_byte_mode)),
+`ifdef PARASITE_RNWCLK_INTERFACE_D
+                      .p_wrst_b(p_write_b),
+`else
                       .p_wrst_b(p_westb_b),
+`endif                      
                       .h_data_available(h_data_available_w[1]),
                       .p_full(p_full_w[1])
                       ); 
