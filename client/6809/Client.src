@@ -1,0 +1,989 @@
+; 6809 Tube Client Code
+; =====================
+; Copyright (C)1989, 2008 J.G.Harston
+;
+; v0.10        1989 JGH: Initial unfinished version.
+; v0.20 11-Mar-2008 JGH: Inspired by Johan Heuseveldt to complete
+;       12-Mar-2008 JGH: Fixed where A/B was wrong way around in D
+;                        OSBYTE &8E no longer ends with unbalanced stack
+;                        BYTE_HI sends X,Y correct way around
+;                        Internal variables at same address as Z80
+; v0.21 07-Jan-2012 JGH: Added client error handler
+;
+; This code may be freely reused.
+
+; NOTE! I don't have any 6809 hardware, so I don't know if this executes
+
+; BA/BS Signals are used to remap hardware vectors from &FFFx to &FEFx
+
+; Memory layout:
+;     -F7FF   - System stack
+; F800-FFFF   - Client ROM, copied to RAM on startup
+;   F800-F82E - Monitor ROM entry vectors
+;   FEE0-FEEF - Tube registers
+;   FEF0-FEFF - Hardware vectors, remapped from &FFF0-&FFFF
+;   FF80-     - Internal variables
+;   FFCE-FFE7 - Standard BBC MOS Entry Block
+
+; Client error implemented with SWI (equivalent of 6502 BRK, Z80 RST &38, etc.)
+
+
+; START OF ROM CODE
+; =================
+
+	ORG  $F800
+STACK 
+ROMSTART 
+COLD       FDB   RESET  ; $F800 - cold start
+WARM       FDB   WARMS  ; $F802 - warm start
+INCH       FDB   OSRDCH ; $F804 - char input
+INCHE      FDB   INECHO ; $F806 - char input with echo
+INCHECK    FDB   KBDTST ; $F808 - test for char input
+OUTCH      FDB   OSWRCH ; $F80A - char output
+PDATA      FDB   PRDAT  ; $F80C - output string until EOT
+PCRLF      FDB   OSNEWL ; $F80E - output CR/LF
+PSTRING    FDB   PRTST  ; $F810 - output CR/LF then string until EOT
+LRA        FDB   LREAL  ; $F812 - Load Real Address
+           BRA   WARMS  ; $F814 - for FLEX compatibility
+
+BANNER 
+	FCB 13
+	FCC "6809 TUBE 64K v0.21"
+	FCB 13
+	FCB 13
+	FCB 0
+RESET 
+	ORCC #$50       ; Ensure interupts disabled
+	LDS  #STACK     ; Put stack at top of memory
+	LDX  #ROMSTART  ; Start at start of ROM
+RESETLP1 
+	LDA  ,X         ; Get a byte from ROM
+	STA  ,X+        ; Store to RAM and increment X
+	CMPX #IOADDRS
+	BNE  RESETLP1   ; Loop until hit I/O space
+	LDX  #ROMHIGH   ; Point to ROM after I/O space
+RESETLP2 
+	LDA  ,X
+	STA  ,X+
+	CMPX #0
+	BNE  RESETLP2   ; Copy top part of ROM to RAM
+
+
+; STARTUP
+; =======
+; Tube data  via R1  string $00  --  via R2  $7F or $80
+;
+STARTUP 
+	ORCC #$50       ; Disable interupts
+	LDS  #STACK
+	STS  MEMTOP     ; Initialise top of memory
+	LEAS -1,S       ; Put stack at top of memory
+	LDX  #0
+	STX  MEMBOT     ; Initialise bottom of memory
+	ANDCC #$00      ; Clear all flags, enable interupts
+	JSR  INITERR    ; Initialise error handler
+	LDX  #BANNER    ; Point to startup banner
+	JSR  SEND_TXT   ; Print it via Tube wrch protocol
+	                ; Accessing Tube registers pages ROM out
+	LDA  #0
+	JSR  OSWRCH     ; Send terminating zero byte
+	JSR  CLI_WAIT   ; Wait for result byte
+	                ; Fall through to CLICOM if nothing executed
+
+; Command line prompt
+; ===================
+; Allow user to enter *command
+;
+WARMS 
+CLILOOP 
+	LDS  MEMTOP             ; Reset stack to top of memory
+	JSR  INITERR            ; Initialise error handler
+	ANDCC #$00              ; Clear all flags, enable interupts
+	LDX  #PROMPT
+	JSR  SEND_TXT           ; Display prompt
+	LDX  #COM_BLK           ; Point to control block
+	LDA  #0
+	JSR  OSWORD             ; Read a line of text
+	BCS  COM_ESC            ; Escape pressed
+	LDX  #CLIBUF
+	JSR  OS_CLI             ; Execute command
+	BRA  CLILOOP            ; Loop back for another line
+PROMPT 
+	FCC "6809*"             ; Command prompt
+	FCB 0
+;
+COM_BLK 
+	FDB CLIBUF	; Input buffer
+	FCB 127		; Up to 127 characters
+	FCB 32		; Lowest acceptable CHR$32
+	FCB 255		; Highest acceptable CHR$255
+;
+ESCAPE 
+	SWI
+	FCB 17
+	FCC "Escape"
+	FCB 0
+
+COM_ESC 
+	LDA  #124
+	JSR  OSBYTE     ; Acknowledge Escape
+	LDX  #ESCAPE+1	; Fall through into error handler
+
+COM_ERR 
+	LDS  MEMTOP	; Reset stack to top of memory
+	JSR  OSNEWL
+	LDA  ,X+        ; Step X past error number
+	JSR  SEND_TXT	; Print text at X
+	JSR  OSNEWL
+	BRA  WARMS	; Return to command prompt
+
+COM_INIT 
+	LDD  #SWI
+	STD  XSWIV      ; Point SWI vector to error BRK handler
+	LDD  #COM_ERR	; Point error vector to command prompt
+	STD  BRKV	; error handler
+	RTS
+
+
+; FLEX/OS-9 BIOS code
+; ===================
+INECHO 	JSR  INCH
+	JMP  OUTCH
+PRTST 	JSR  PCRLF
+PRDAT 	LDA  ,X+	; Get character
+	CMPA #4		; EOT character?
+	BEQ  PREND      ; End printing
+	JSR  OUTCH	; Print character
+	BRA  PRDAT	; Loop to next
+PREND 
+LREAL 
+SEND_END 
+	RTS
+
+
+; Print inline text
+; =================
+;PR_TEXT 
+;	PULS X		; Pop PC to X
+;	JSR  SEND_TXT	; Print text
+;	PSHS X		; Push updated X
+;	RTS		; And return to it
+
+; Print text string at X
+; ======================
+SEND_TXT 
+	LDA  ,X+        ; GET BYTE FROM X, INCREMENT X
+	CMPA #0         ; TEST CURRENT CHARACTER
+	BEQ  SEND_END   ; END IF $00 BYTE
+	JSR  OSASCI     ; SEND TO OSASCI
+	BRA  SEND_TXT   ; LOOP UNTIL $00 SENT
+
+
+; OSRDCH - Wait for character from input stream
+; =============================================
+; Tube data  $00  --  Carry Char
+;
+; On exit  A=char, Cy=carry
+;
+RDCH 
+	LDA  #0
+	JSR  SEND_CMD   ; SEND COMMAND $00 - OSRDCH
+WAIT_CHAR 
+	JSR  WAIT_BYTE  ; GET RETURNED BYTE
+	ADDA #$80       ; COPY B7 INTO CARRY
+	; Fall through to fetch byte from Tube R2
+
+WAIT_BYTE 
+	LDA  >TUBE2S    ; READ TUBE R2 STATUS
+	BPL  WAIT_BYTE  ; WAIT FOR B7 SET
+	LDA  >TUBE2     ; GET BYTE FROM TUBE R2
+	RTS
+
+
+; OSCLI - Send command line to host
+; =================================
+; Tube data  $02 string $0D  --  $7F or $80
+;
+; On entry  X=>command string
+;
+CLI 
+	LDA  #2
+	JSR  SEND_CMD    ; Send command $02 = OSCLI
+	JSR  SEND_STR    ; Send string at X
+CLI_WAIT 
+	JSR  WAIT_BYTE   ; Wait for result via Tube R2
+CLI_CHECK 
+	CMPA #$80        ; Check return code
+	BNE  CLI_DONE    ; Nothing to execute, return
+CODE_CALL 
+
+;;	JSR  [ADDRESS+2] ; Call program, 6809 is big-endian
+        FCB  $AD
+        FCB  $9F
+	FDB  ADDRESS + 2	
+CLI_DONE 
+	RTS
+
+
+; OSBYTE
+; ======
+; Tube data  $04 X A    --  X
+;            $06 X Y A  --  Cy Y X
+;
+; On entry  A,X,Y=OSBYTE parameters
+; On exit   A preserved
+;           If A<$80, X=returned value
+;           If A>$7F, X, Y, Carry=returned values
+;
+BYTE 
+	CMPA #$80
+	BCC  BYTE_HI
+	PSHS A,B
+	LDA  #4
+	JSR  SEND_CMD    ; SEND COMMAND $04 - SHORT BYTE
+	TFR  X,D         ; B=X
+	JSR  SEND_BYTEB  ; SEND SECOND PARAMETER FROM B
+	PULS A,B
+	PSHS A,B
+	JSR  SEND_BYTE   ; SEND FIRST PARAMETER
+	JSR  WAIT_BYTE   ; WAIT FOR RESPONSE
+	TFR  A,B         ; Move result to low byte
+	LDA  #0          ; Ensure AB is only 8-bit value
+	TFR  D,X
+	PULS A,B
+	RTS
+
+; OSBYTE >$7F
+; -----------
+BYTE_HI 
+	CMPA #$82
+	BEQ  MEM82       ; FETCH ADDRESS HIGH WORD
+	CMPA #$83
+	BEQ  MEM83       ; FETCH LOW MEMORY LIMIT
+	CMPA #$84
+	BEQ  MEM84       ; FETCH HIGH MEMORY LIMIT
+	PSHS A,B
+	LDA  #6
+	JSR  SEND_CMD    ; Send command $06 - long byte
+	TFR  X,D         ; B=X - second parameter
+	JSR  SEND_BYTEB  ; Send second parameter from B
+	TFR  Y,D         ; B=Y - third parameter
+	JSR  SEND_BYTEB  ; Send third parameter from B
+	PULS A,B
+	JSR  SEND_BYTE   ; Send first parameter
+	CMPA #$9D        ; Was it fast BPUT?
+	BEQ  BYTE_DONE   ; Don't wait for response
+	CMPA #$8E        ; Was it start language?
+	BEQ  CLI_WAIT    ; Wait for program start
+	PSHS A,B
+	JSR  WAIT_BYTE   ; Wait for response
+	ADDA #$80        ; Copy b7 into carry
+	PSHS CC          ; Save flags
+	JSR  WAIT_BYTE   ; Wait for response
+	TFR  A,B         ; Move result to low byte
+	LDA  #0          ; Ensure AB is only 8-bit value
+	TFR  D,Y         ; Return result in Y
+	JSR  WAIT_BYTE   ; Wait for response, high byte still in B
+	EXG  A,B         ; Swap so high byte is Y, low byte is fetched byte
+	TFR  D,X         ; Return result in X as returned Y*256+X value
+	PULS CC          ; Get flags back
+	PULS A,B
+BYTE_DONE 
+	RTS
+
+MEM82 
+	LDX  #0          ; Local memory is $0000xxxx
+	RTS
+
+MEM83 
+	LDX  MEMBOT      ; Return bottom of user memory in X
+	RTS
+
+MEM84 
+	LDX  MEMTOP      ; Return top of user memory in X
+	RTS
+
+; OSWORD
+; ======
+; On entry  A=OSWORD number
+;           X=>control block
+;
+WORD 
+	CMPA #0
+	BEQ  RDLINE
+	RTS              ; Ignore OSWORD <>0 for the moment
+;PSHS A
+;LDA #8
+;JSR SEND_CMD ; SEND COMMAND $08 - OSWORD
+;
+; SEND PARAM BLOCK, ETC.
+;
+;RTS
+
+; OSWORD 0 - Read a line of text
+; ------------------------------
+; Tube data  $0A block  --  $FF or $7F string $0D
+;
+RDLINE 
+	LDA  #10
+	JSR  SEND_CMD    ; SEND COMMAND $0A - RDLINE
+	LEAX 2,X         ; X=X+2, point to parameters
+	LDY  #3
+	JSR  SEND_BLK    ; SEND 3-BYTE CONTROL BLOCK
+	LEAX -2,X        ; X=X-2, point back to text pointer
+	LDA  #7
+	JSR  SEND_BYTE   ; SEND $0700
+	LDA  #0
+	JSR  SEND_BYTE
+	JSR  WAIT_BYTE   ; WAIT FOR RESPONSE
+	ADDA #$80        ; COPY B7 INTO CARRY
+	BCS  RD_DONE
+	LDX  ,X          ; Get text pointer from control block
+STR_READ 
+	LDY  #0          ; Y=NUMBER RECEIVED
+	JSR  WAIT_BYTE   ; WAIT FOR BYTE FROM TUBE R2
+	STA  ,X+         ; Store in text buffer, increment X
+	LEAY 1,Y         ; Increment character count
+	CMPA #13         ; CHECK CURRENT BYTE
+	BNE  STR_READ    ; LOOP UNTIL <CR>
+	LEAY -1,Y        ; Decrement character count to balance <cr>
+	ANDCC #$FE       ; CLEAR CARRY
+RD_DONE 
+	RTS
+
+
+; OSARGS - Read info on open file
+; ===============================
+; Tube Data  $0C handle block function  --  result block
+;
+; On entry  A=action
+;           X=>data
+;           Y=handle
+; On exit   A=returned value
+;           X preserved
+;           X=>any returned data
+;           Y preserved
+;
+ARGS 
+	PSHS Y           ; Save handle
+	PSHS A,B         ; Save function and B
+	LDA  #$0C
+	JSR  SEND_CMD    ; Send command $0C - OSARGS
+	TFR  Y,D
+	JSR  SEND_BYTEB  ; Send handle
+	LDY  #4
+	JSR  SEND_BLK    ; Send four-byte control block
+	PULS A,B         ; Get action back
+	JSR  SEND_BYTE   ; Send action
+	JSR  WAIT_BYTE   ; Wait for returned result
+	PSHS A           ; Save result
+	LDY  #4
+	JSR  WAIT_BLK    ; Wait for four-byte control block
+	PULS A           ; Get result back
+	PULS Y           ; Get original handle back
+	RTS
+
+
+; OSBGet - Get a byte from open file
+; ==================================
+; Tube data  $0E handle --  Carry byte
+;
+; On entry  Y=handle
+; On exit   A=byte Read
+;           Y=preserved
+;           Cy set if EOF
+;
+BGet 
+	LDA  #$0E
+	JSR  SEND_CMD    ; Send command $0E - OSBGet
+	PSHS A,B
+	TFR  Y,D
+	JSR  SEND_BYTEB  ; Send handle
+	PULS A,B
+	LBRA WAIT_CHAR   ; Wait for Carry, Byte
+
+
+; OSBPut - Put a byte to an open file
+; ===================================
+; Tube data  $10 handle byte  --  $7F
+;
+; On entry  A=byte to write
+;           Y=handle
+; On exit   A=preserved
+;           Y=preserved
+;
+BPut 
+	PSHS A,B         ; Save byte
+	LDA  #$10
+	JSR  SEND_CMD    ; Send command $10 - OSBPut
+	TFR  Y,D
+	JSR  SEND_BYTEB  ; Send handle
+	PULS A,B         ; Get A and B back
+	PSHS A,B
+	JSR  SEND_BYTE   ; Send byte to Tube
+	JSR  WAIT_BYTE   ; Wait for acknowledgement
+	PULS A,B         ; Restore A
+	RTS
+
+
+; OSFIND - Open or Close a file
+; =============================
+; Tube data  $12 function string $0D  --  handle
+;            $12 $00 handle  --  $7F
+;
+; On entry  A=function
+;           Y=handle or X=>filename
+; On exit   A=zero or handle
+;
+FIND 
+	PSHS A,B         ; Save A
+	LDA  #$12
+	JSR  SEND_CMD    ; Send command $12 - OSFIND
+	PULS A,B         ; Get R0 back
+	JSR  SEND_BYTE   ; Send function
+	CMPA #0          ; Check function
+	BEQ  Close       ; Jump to deal with Close
+	JSR  SEND_STR    ; Send string at X
+	JSR  WAIT_BYTE   ; Wait for returned handle
+	RTS
+Close 
+	PSHS B
+	TFR  Y,D
+	JSR  SEND_BYTEB  ; Send handle to Tube
+	JSR  WAIT_BYTE   ; Wait for acknowledgement
+	PULS B
+	LDA  #0          ; Zero A
+	RTS
+
+
+; OSFILE - Operate on whole files
+; ===============================
+; Tube data  $14 block string <cr> function  --  result block
+;
+; On entry  A=function
+;           X=>control block
+; On exit   A=result
+;           X preserved
+;           control block updated
+;
+FILE 
+	PSHS Y           ; Save Y
+	PSHS X           ; Save X
+	PSHS A           ; Save function
+	LDA  #$14
+	JSR  SEND_CMD    ; Send command $14 - OSFILE
+	LEAX 2,X         ; Point to control block contents
+	LDY  #16         ; DMB
+	JSR  SEND_BLK    ; Send 16-byte control block
+	LEAX -2,X        ; Point to filename pointer
+	LDX  ,X          ; Get filename pointer to X
+	JSR  SEND_STR    ; Send filename string
+	PULS A
+	JSR  SEND_BYTE   ; Send function
+	JSR  WAIT_BYTE   ; Wait for returned result
+	                 ; Data transfer via interupts may happen while waiting
+	PULS X           ; Get control block pointer back
+	PSHS A           ; Save result
+	LEAX 2,X         ; Point to control block contents
+	LDY  #16
+	JSR  WAIT_BLK    ; Wait for 16-byte control block
+	PULS A           ; Get result back
+	PULS Y           ; Get Y back
+	RTS
+
+
+; OSGBPB - Multiple byte Read and write
+; =====================================
+; Tube data  $16 block function  --   block Carry result
+;
+; On entry  A=function
+;           X=>control block
+; On exit   A=returned value
+;              control block updated
+;
+GBPB 
+	PSHS Y           ; Save Y
+	PSHS A           ; Save function
+	LDA  #$16
+	JSR  SEND_CMD    ; Send command $16 - OSGBPB
+	LDY  #13
+	JSR  SEND_BLK    ; Send 13-byte control block
+	PULS A
+	JSR  SEND_BYTE   ; Send function
+	LDY  #13
+	JSR  WAIT_BLK    ; Wait for 13-byte control block
+	PULS Y           ; Get Y back
+	LBRA WAIT_CHAR   ; Get Carry and result byte
+
+
+; Tube I/O routines
+; =================
+
+; Send cr-string at X to Tube Register 2
+; =========================================
+SEND_STR 
+	LDA  ,X+        ; GET BYTE FROM X, INCREMENT X
+	JSR  SEND_BYTE  ; SEND BYTE VIA TUBE R2
+	CMPA #13        ; TEST CURRENT CHARACTER
+	BNE  SEND_STR   ; LOOP UNTIL CR SENT
+	RTS
+
+
+; Send block at X to Tube Register 2, Y=block length
+; ==================================================
+SEND_BLK 
+	PSHS B          ; Save B
+	TFR  Y,D        ; B=Y
+	ABX             ; X=X+B, X points to end of block+1
+	PULS B          ; Restore B
+SEND_LP 
+	LDA  ,-X        ; DECREMENT X, GET BYTE FROM X
+	JSR  SEND_BYTE  ; SEND BYTE VIA TUBE R2
+	LEAY -1,Y       ; DECREMENT COUNT OF BYTES TO SEND
+	BNE  SEND_LP    ; LOOP UNTIL ALL BYTES SENT
+	RTS
+
+
+; Wait for block at X from Tube Register 2, Y=block length
+; ========================================================
+WAIT_BLK 
+	PSHS B          ; Save B
+	TFR  Y,D        ; B=Y
+	ABX             ; X=X+B, X points to end of block+1
+	PULS B          ; Restore B
+WAIT_LP 
+	JSR  WAIT_BYTE  ; GET BYTE VIA TUBE R2
+	STA  ,-X        ; DECREMENT X, STORE BYTE AT X
+	LEAY -1,Y       ; DECREMENT COUNT OF BYTES
+	BNE  WAIT_LP    ; LOOP UNTIL ALL BYTES SENT
+	RTS
+
+
+; OSWRCH - Send character in A to Tube Register 1
+; ===============================================
+WRCH 
+	PSHS A          ; Save A
+SEND_R1LP 
+	LDA  >TUBE1S    ; READ TUBE R1 STATUS
+	ANDA #$40       ; CHECK B6 OF STATUS
+	BEQ  SEND_R1LP  ; LOOP UNTIL B6 SET
+	PULS A          ; GET A BACK
+	STA  >TUBE1     ; SEND BYTE TO TUBE R1
+	RTS
+
+
+; Send byte in B to Tube Register 2
+; ==================================
+SEND_BYTEB 
+	TFR  B,A
+;                       ; Fall through into SendByte
+
+
+; Send byte in A to Tube Register 2
+; ==================================
+SEND_CMD 
+SEND_BYTE 
+	PSHS A           ; SAVE A
+SEND_BYTELP 
+	LDA  >TUBE2S     ; READ TUBE R2 STATUS
+	ANDA #$40        ; CHECK B6 OF STATUS
+	BEQ  SEND_BYTELP ; LOOP UNTIL B6 SET
+	PULS A           ; GET A BACK
+	STA  >TUBE2      ; SEND BYTE TO TUBE R2
+	RTS
+
+
+
+; Host->Client communication via interupts
+; ========================================
+; When Host sends a byte to R1 or R4 it generates a Client IRQ.
+; Data transfers are syncronised with client NMIs. Graham Toal's
+; design sends Tube IRQs to 6809 FIRQs and Tube NMIs to 6809 IRQs.
+; Transfers are synchronised with SYNC instruction waiting for IRQs.
+;
+; This code manually translated from Graham Toal's Skimp code
+; with half an eye on the PDP-11, Z80 and 6502 code.
+; All previous code translated from JGH PDP-11 client.
+
+
+; Interupt handler
+; ================
+; Stack holds  CC, PC
+;
+FIRQ 
+	PSHS A
+	LDA  >TUBE4S     ; Read Tube R4 status
+	BMI  FIRQ_R4     ; If data in Tube R4, jump to process errors and transfers
+	LDA  >TUBE1S     ; Read Tube R1 status
+	BMI  FIRQ_R1     ; If data in Tube R1, jump to process Escape and Events
+	PULS A           ; Get A back
+;;	JMP  [IRQ2V]     ; Pass interupt onwards
+	FCB  $6E
+        FCB  $9F
+        FDB  IRQ2V
+; Interupt generated by data in Tube R1
+; -------------------------------------
+FIRQ_R1 
+	LDA  >TUBE1
+	BMI  FIRQ_Escape ; b7=1, jump to set Escape state
+;
+; A<$80 - Host event being passed to client
+; Tube data  via R1  $00 Y X A
+;
+	PSHS X,Y,B,U     ; Save everything not already saved
+	JSR  Get_R1      ; Get event Y parameter
+	TFR  A,B
+	LDA  #0
+	TFR  D,Y
+	JSR  Get_R1      ; Get event X parameter
+	TFR  A,B
+	LDA  #0
+	TFR  D,X
+	JSR  Get_R1      ; Get event A parameter
+;	JSR  [EVENTV]    ; Dispatch event
+	FCB  $AD
+        FCB  $9F
+	FDB  EVENTV
+	PULS X,Y,B,U     ; Restore registers
+	PULS A
+	RTI              ; Return from interupt
+
+; A>$7F - Host changing Escape state
+; Tube data  via R1  flag, b7=1, b6=state
+;
+FIRQ_Escape 
+	ROLA             ; Move b6 into b7
+	STA  >ESCFLG     ; Store Escape flag
+	PULS A           ; Restore A
+	RTI              ; Return from interupt
+
+; Read byte from Tube R1, allowing Tube R4 transfers to take place
+; ---------------------------------------------------------------- 
+Get_R1 
+	LDA  >TUBE4S     ; Read Tube R4 status
+	BMI  NotFIRQ_R4  ; Pending R4 transfer higher priority than R1 transfer
+	JSR  FIRQ_R4_CC  ; Deal with R4 interupt
+NotFIRQ_R4 
+	LDA  >TUBE1S     ; Read Tube R1 status
+	BPL  Get_R1      ; Loop until b7 set
+	LDA  >TUBE1      ; Get byte from Tube R1
+	RTS
+
+; Read byte from Tube R4
+; ----------------------
+Get_R4 
+	LDA  >TUBE4S     ; Read Tube R4 status
+	BPL  Get_R4      ; Loop until b7 set
+	LDA  >TUBE4      ; Get byte from Tube R4
+	RTS
+
+; Interrupt generated by data in Tube R4
+; --------------------------------------
+FIRQ_R4_CC 
+	ANDCC #$7F       ; Clear 'all registers' bit
+	PSHS CC          ; Push CC to allow RTI to return
+FIRQ_R4 
+	LDA  >TUBE4
+	BPL  FIRQ_Data   ; b7=0, jump for data transfer
+
+; A>$7F - Error occured
+; Tube data  via R2  $00 err string $00
+;
+	PSHS X
+	LDX  #ERRBLK     ; Point to error buffer
+	JSR  WAIT_BYTE   ; Wait for BRK error code
+	LDA  #$3F        ; SWI opcode
+	STA  ,X+         ; Store SWI opcode
+	JSR  WAIT_BYTE   ; Get error number
+	STA  ,X+         ; Store error number
+FIRQ_R4LP 
+	JSR  WAIT_BYTE   ; Wait for byte of error string
+	STA  ,X+         ; Store in error buffer
+	CMPA #0          ; Check current character
+	BNE  FIRQ_R4LP   ; Loop until terminating $00 received
+	LDX  #ERRBLK     ; Point to error block
+	JMP  ERRJMP      ; Jump to generate error
+
+; R4<$80 - Data transfer
+; Tube data  via R4  action ID block sync, via R3  data
+;
+FIRQ_Data 
+; A=transfer type
+;
+	PSHS A           ; Save transfer type
+	JSR  Get_R4      ; Wait for caller ID
+	PULS A           ; Get transfer type back
+	CMPA #5          ; Is it 'release'?
+	BNE  FIRQ_NotDone  ; DMB fixed incorrect BEQ
+	LDA  #0
+	STA  DMA_DONE
+	PULS A
+	RTI
+;
+FIRQ_NotDone 
+	PSHS A           ; Save transfer type again
+	JSR  Get_R4      ; Get data address MSB
+	STA  ADDRESS+0   ; Note - 6809 is big-endian
+	JSR  Get_R4      ; Get data address
+	STA  ADDRESS+1
+	JSR  Get_R4      ; Get data address
+	STA  ADDRESS+2
+	JSR  Get_R4      ; Get data address LSB
+	STA  ADDRESS+3
+	JSR  Get_R4      ; Get sync byte
+	LDA  #$FF
+	STA  DMA_DONE    ; Signal 'transfer in progress'
+	ANDCC #$BF       ; DMB - reenable FIRQ interrupts
+	PULS A
+	CMPA #0          ; Need a better dispatch than this
+	BEQ  FIRQ0
+	CMPA #1
+	BEQ  FIRQ1
+	CMPA #2
+	BEQ  FIRQ2
+	CMPA #3
+	BEQ  FIRQ3
+	CMPA #4
+	BEQ  FIRQ4
+	CMPA #6
+	LBEQ  FIRQ6
+	CMPA #7
+	LBEQ  FIRQ7
+	PULS A
+	RTI
+
+; Data transfer via IRQs
+; ----------------------
+; Tube R3 interrupts come in under the masked IRQ/SYNC mechanism
+
+; Transfer 0 - Single bytes parasite -> host
+; ------------------------------------------
+FIRQ0 
+	PSHS CC          ; Cribbed from Graham Toal
+	ORCC #$10        ; NoIRQs
+	LDX  ADDRESS+2
+FIRQ0lp 
+	SYNC             ; Wait for IRQ
+	LDA  ,X+         ; Get byte from memory
+	STA  >TUBE3      ; Send to Tube
+	LDA  DMA_DONE    ; Has flag changed?
+	BNE  FIRQ0lp     ; Loop until FIRQ4 clears flag
+	STX  ADDRESS+2
+	PULS CC
+	PULS A
+	RTI
+
+; Transfer 1 - Single bytes host -> parasite
+; ------------------------------------------
+FIRQ1 
+	PSHS CC
+	ORCC #$10        ; NoIRQs
+	LDX  ADDRESS+2
+FIRQ1lp 
+	SYNC
+	LDA  >TUBE3
+	STA  ,X+
+	LDA  DMA_DONE
+	BNE  FIRQ1lp
+	STX  ADDRESS+2
+	PULS CC
+	PULS A
+	RTI
+
+; Transfer 2 - Double byte parasite -> host
+; -----------------------------------------
+FIRQ2 
+	PSHS CC
+	ORCC #$10        ; NoIRQs
+	LDX  ADDRESS+2
+FIRQ2lp 
+	SYNC
+	LDD  ,X++
+	STA  >TUBE3
+	STB  >TUBE3
+	LDA  DMA_DONE
+	BNE  FIRQ2lp
+	STX  ADDRESS+2
+	PULS CC
+	PULS A
+	RTI
+
+; Transfer 3 - Double byte host -> parasite
+; -----------------------------------------
+FIRQ3 
+	PSHS CC
+	ORCC #$10        ; NoIRQs
+	LDX  ADDRESS+2
+FIRQ3lp 
+	SYNC
+	LDA  >TUBE3
+	LDB  >TUBE3
+	STD  ,X++
+	LDA  DMA_DONE
+	BNE  FIRQ3lp
+	STX  ADDRESS+2
+	PULS CC
+	PULS A
+	RTI
+
+; Transfer 4 - Set program execute address
+; ----------------------------------------
+FIRQ4 
+	LDD  ADDRESS+2
+	STD  PROGRAM
+	PULS A
+	RTI
+
+; Transfer 6 - Multiple byte parasite -> host
+; -------------------------------------------
+FIRQ6 
+	PSHS CC
+	PSHS B
+	ORCC #$50        ; NoIRQs+NoFIRQs
+	LDX  ADDRESS+2   ; X=start address
+	LDB  #0          ; B=offset from B
+FIRQ6lp 
+	LDA  >TUBE3S     ; Wait for Tube R3 ready
+	ANDA #$40
+	BEQ  FIRQ6lp
+	LDA  >TUBE3      ; Get byte from Tube R3
+	STA  B,X         ; Store at (X+B)
+	INCB             ; Increment offset from X
+	BNE  FIRQ6lp     ; Loop 256 times
+	LEAX 256,X       ; X=X+256
+	STX  ADDRESS+2
+	PULS B
+	PULS CC
+	PULS A
+	RTI
+
+; Transfer 7 - Multiple byte host -> parasite
+; -------------------------------------------
+FIRQ7 
+	PSHS CC
+	PSHS B
+	ORCC #$50        ; NoIRQs+NoFIRQs
+	LDX  ADDRESS+2   ; X=start address
+	LDB  #0          ; B=offset from B
+FIRQ7lp 
+	LDA  >TUBE3S     ; Wait for Tube R3 ready
+	BPL  FIRQ7lp     
+	LDA  B,X         ; Get byte from (X+B)
+	STA  >TUBE3      ; Send to Tube R3
+	INCB             ; Increment offset from X
+	BNE  FIRQ7lp     ; Loop 256 times
+	LEAX 256,X       ; X=X+256
+	STX  ADDRESS+2
+	PULS B
+	PULS CC
+	PULS A
+	RTI
+
+; SWI - Generate an error
+; =======================
+SWI 
+	LEAS  10,S	; Step past stack contents
+	PULS  X		; Pop PC to X
+	ANDCC #$00	; Clear all flags, enable interupts
+ERRHANDLE 
+	STX   FAULT	; Save pointer to last error
+;	JMP   [BRKV]	; Jump to current error handler
+	FCB  $6E
+        FCB  $9F
+        FDB  BRKV
+; Null interupt routines
+; ======================
+RES 
+SWI2 
+SWI3 
+IRQ 
+NMI  
+	RTI
+
+
+; Null routines
+; =============
+TSTKBD 	ANDCC #$FB       ; Clear Z
+NULL 
+	RTS
+
+
+ERRBLK    RMB 128        ; Buffer to store host error block
+CLIBUF    RMB 128        ; Space to enter command line from CLI prompt
+          FCB 0          ; Generate a line in the listing
+
+
+; Add any extra I/O devices here by pulling IOADDRS backwards
+
+	ORG $FEE0
+IOADDRS 
+TUBE1S    FCB 0          ; $FEE0   ; Tube registers
+TUBE1     FCB 0          ; $FEE1
+TUBE2S    FCB 0          ; $FEE2
+TUBE2     FCB 0          ; $FEE3
+TUBE3S    FCB 0          ; $FEE4
+TUBE3     FCB 0          ; $FEE5
+TUBE4S    FCB 0          ; $FEE6
+TUBE4     FCB 0          ; $FEE7
+
+; If Tube registers fully decoded, space for 8 I/O addresses here
+
+	ORG $FEF0
+ROMHIGH 
+XRESV     FDB RES        ; $FEF0   ; Hardware vectors, paged in to $FFFx
+XSWI2V    FDB SWI2       ; $FEF2
+XSWI3V    FDB SWI3       ; $FEF4
+XFIRQV    FDB FIRQ       ; $FEF6
+XIRQV     FDB IRQ        ; $FEF8
+XNMIV     FDB NMI        ; $FEFA
+XSWIV     FDB SWI        ; $FEFC
+XRESETV   FDB RESET      ; $FEFE
+
+
+	ORG $FF80
+					; Use same addresses as Z80
+ESCFLG    FCB 0          ; $FF80   ; Escape flag
+DMA_DONE  FCB 0          ; $FF81   ; Transfer completion flag/TempA
+FAULT     FDB 0          ; $FF82   ; Last error message
+          FDB 0          ; $FF84
+          FDB 0          ; $FF86
+MEMBOT    FDB 0          ; $FF88   ; Bottom of user memory
+MEMTOP    FDB $F800      ; $FF8A   ; Top of user memory
+ADDRESS   FDB 0          ; $FF8C   ; Tube transfer address
+          FDB 0                    
+PROGRAM   FDB 0          ; $FF90   ; Program entry address
+CTRL      FDB 0          ; $FF92
+
+	ORG $FFB0
+USERINT   JMP  >NULL     ; &FFB0
+IRQ2V     EQU  USERINT+1
+;PRTEXT    JMP  >PR_TEXT  ; &FFB3 DMB
+PRTEXT    JMP  >SEND_TXT ; &FFB3
+          JMP  >NULL     ; &FFB6
+CLICOM    JMP  >CLILOOP  ; &FFB9
+ERRJMP    JMP  >ERRHANDLE; &FFBC
+INITERR   JMP  >COM_INIT ; &FFBF
+          JMP  >NULL     ; &FFC2
+KBDTST    JMP  >TSTKBD   ; &FFC5
+          JMP  >NULL     ; &FFC8
+          JMP  >NULL     ; &FFCB
+
+OSFIND    JMP  >FIND     ; $FFCE
+OSGBPB    JMP  >GBPB     ; $FFD1
+OSBGET    JMP  >BGet     ; $FFD4
+OSBPUT    JMP  >BPut     ; $FFD7
+OSARGS    JMP  >ARGS     ; $FFDA
+OSFILE    JMP  >FILE     ; $FFDD
+OSRDCH    JMP  >RDCH     ; $FFE0
+OSASCI    CMPA #13       ; $FFE3
+          BNE  OSWRCH
+OSNEWL    LDA  #10       ; $FFE7
+          JSR  OSWRCH
+OSWRCR    LDA  #13       ; $FFEC
+OSWRCH    JMP  >WRCH     ; $FFEE
+OSWORD    JMP  >WORD     ; $FFF1
+OSBYTE    JMP  >BYTE     ; $FFF4
+OS_CLI    JMP  >CLI      ; $FFF7
+BRKV      FDB  COM_ERR   ; $FF84   ; Error handler
+EVENTV    FDB  NULL      ; $FFFC   ; Event vector
+;L_FFFE    FDB  RESET
