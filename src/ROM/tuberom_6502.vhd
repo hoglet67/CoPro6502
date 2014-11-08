@@ -12,7 +12,7 @@ end;
 
 architecture RTL of tuberom_6502 is
 
-    signal rom_addr : std_logic_vector(10 downto 0);
+    signal rom_addr : std_logic_vector(11 downto 0);
 
 begin
 
