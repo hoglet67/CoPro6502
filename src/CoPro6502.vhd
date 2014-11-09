@@ -5,10 +5,10 @@ use ieee.numeric_std.all;
 
 entity CoPro6502 is
     generic (
-       UseT65Core    : boolean := true;
-       UseJensCore   : boolean := false;
+       UseT65Core    : boolean := false;
+       UseJensCore   : boolean := true;
        UseAlanDCore  : boolean := false
-    );
+       );
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
@@ -142,8 +142,10 @@ architecture BEHAVIORAL of CoPro6502 is
 -------------------------------------------------
 
     signal clk_16M00     : std_logic;
-    signal phi           : std_logic;
+    signal phi0          : std_logic;
+    signal phi1          : std_logic;
     signal phi2          : std_logic;
+    signal phi3          : std_logic;
     signal cpu_clken     : std_logic;
     signal clken_counter : std_logic_vector (3 downto 0);
     signal bootmode      : std_logic;
@@ -219,7 +221,7 @@ begin
     
     GenJensCore: if UseJensCore generate
         Inst_r65c02_tc: r65c02_tc PORT MAP(
-            clk_clk_i   => phi2,
+            clk_clk_i   => phi0,
             d_i         => cpu_din,
             irq_n_i     => cpu_IRQ_n,
             nmi_n_i     => cpu_NMI_n,
@@ -234,7 +236,7 @@ begin
             wr_o        => open
         );
         -- For debugging only
-        debug_clk <= phi2;    
+        debug_clk <= phi0;    
     end generate;
 
     GenAlanDCore: if UseAlanDCore generate
@@ -268,7 +270,7 @@ begin
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
         p_rdnw          => cpu_R_W_n,
-        p_phi2          => phi2,
+        p_phi2          => phi1,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
@@ -286,12 +288,11 @@ begin
         rom_data_out when rom_cs_b = '0' else
         ram_data     when ram_cs_b = '0' else
         x"f1";
-
     
     ram_cs <= ram_cs_b;
     ram_oe_int <= not ((not ram_cs_b) and cpu_R_W_n);
     ram_oe <= ram_oe_int;
-    ram_wr_int <= not ((not ram_cs_b) and (not cpu_R_W_n) and Phi2);
+    ram_wr_int <= not ((not ram_cs_b) and (not cpu_R_W_n) and phi1);
     ram_wr <= ram_wr_int;
     ram_addr <= "000" & cpu_addr(15 downto 0);
     ram_data <= cpu_dout when cpu_R_W_n = '0' else "ZZZZZZZZ";
@@ -317,28 +318,43 @@ begin
             tp(3) <= cpu_addr(1);
             tp(2) <= cpu_addr(0);
         else
+        
+            test(6) <= debug_clk; 
+            test(5) <= RSTn; 
+            test(4) <= sync; 
+            test(3) <= '0'; 
+            test(2) <= '0'; 
+            test(1) <= '0'; 
+            tp(8) <= ram_cs_b;
+            tp(7) <= ram_wr_int;
+            tp(6) <= ram_oe_int;
+            tp(5) <= p_cs_b;
+            tp(4) <= CPU_IRQ_n;
+            tp(3) <= CPU_NMI_n;
+            tp(2) <= bootmode;
+
     
-            test(6) <= CPU_NMI_n;
-            test(5) <= '0';
-            if h_addr(2 downto 0) = "101" and h_cs_b = '0' then
-                test(4) <= '1';
-            else
-                test(4) <= '0';
-            end if;
-            if cpu_addr(2 downto 0) = "101" and p_cs_b = '0' then
-                test(3) <= '1';
-            else
-                test(3) <= '0';
-            end if;
-            test(2) <= debug_clk;
-            test(1) <= cpu_dout(7);
-            tp(8) <= cpu_dout(6);
-            tp(7) <= cpu_dout(5);
-            tp(6) <= cpu_dout(4);
-            tp(5) <= cpu_dout(3);
-            tp(4) <= cpu_dout(2);
-            tp(3) <= cpu_dout(1);
-            tp(2) <= cpu_dout(0);
+--            test(6) <= CPU_NMI_n;
+--            test(5) <= '0';
+--            if h_addr(2 downto 0) = "101" and h_cs_b = '0' then
+--                test(4) <= '1';
+--            else
+--                test(4) <= '0';
+--            end if;
+--            if cpu_addr(2 downto 0) = "101" and p_cs_b = '0' then
+--                test(3) <= '1';
+--            else
+--                test(3) <= '0';
+--            end if;
+--            test(2) <= debug_clk;
+--            test(1) <= cpu_dout(7);
+--            tp(8) <= cpu_dout(6);
+--            tp(7) <= cpu_dout(5);
+--            tp(6) <= cpu_dout(4);
+--            tp(5) <= cpu_dout(3);
+--            tp(4) <= cpu_dout(2);
+--            tp(3) <= cpu_dout(1);
+--            tp(2) <= cpu_dout(0);
         end if;
     end process;
 
@@ -363,7 +379,10 @@ begin
 -- 4MHz
 -- cpu_clken active on cycle 0, 4, 8, 12
 -- address/data changes on cycle 1, 5, 9, 13
--- phi2 active on cycle 2..3, 6..7 10..11 14..15
+-- phi0 active on cycle 1..2
+-- phi1 active on cycle 2..3
+-- phi2 active on cycle 3..0
+-- phi3 active on cycle 0..1
 --------------------------------------------------------
     clk_gen : process(clk_16M00, RSTn)
     begin
@@ -376,9 +395,10 @@ begin
         if rising_edge(clk_16M00) then
             clken_counter <= clken_counter + 1;
             cpu_clken     <= clken_counter(0) and clken_counter(1);
-            phi           <= not clken_counter(1);
-             -- delay by 1 cycle so address and data will be stable for 62.5ns before phi2
-            phi2          <= phi;
+            phi0          <= not clken_counter(1);
+            phi1          <= phi0;
+            phi2          <= phi1;
+            phi3          <= phi2;
         end if;
     end process;
     
