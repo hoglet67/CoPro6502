@@ -870,24 +870,27 @@ calcInterrupt: process(clk)
 					nmiEdge <= nmi_n;
 					if (nmiEdge = '1') and (nmi_n = '0') then
 						nmiReg <= '0';
-					end if;                    
+					end if;
 				end if;
+				-- The 'or opcInfo(opcSetI)' prevents NMI immediately after BRK or IRQ.
+				-- Presumably this is done in the real 6502/6510 to prevent a double IRQ.
+				processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));                    
 			end if;
 		end if;
 	end process;
 	
-pipeirq: process(clk)
-	begin
-		if rising_edge(clk) then
-			if enable = '1' then
-				if (reset = '0') or (theCpuCycle = opcodeFetch) then
-                    -- The 'or opcInfo(opcSetI)' prevents NMI immediately after BRK or IRQ.
-                    -- Presumably this is done in the real 6502/6510 to prevent a double IRQ.
-                    processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));
-				end if;
-			end if;
-		end if;
-	end process;
+--pipeirq: process(clk)
+--	begin
+--		if rising_edge(clk) then
+--			if enable = '1' then
+--				if (reset = '0') or (theCpuCycle = opcodeFetch) then
+--                    -- The 'or opcInfo(opcSetI)' prevents NMI immediately after BRK or IRQ.
+--                    -- Presumably this is done in the real 6502/6510 to prevent a double IRQ.
+--                    processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));
+--				end if;
+--			end if;
+--		end if;
+--	end process;
 
 calcNextOpcode: process(clk, di, reset, processIrq)
 		variable myNextOpcode : unsigned(7 downto 0);
