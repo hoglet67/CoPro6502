@@ -860,12 +860,20 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 
 calcInterrupt: process(clk)
 	begin
-		nmiReg <= '1';
+		if rising_edge(clk) then
 			if enable = '1' then
+				if theCpuCycle = cycleStack4 or reset = '0' then
+					nmiReg <= '1';
+				end if;            
 				if nextCpuCycle /= cycleBranchTaken	and nextCpuCycle /= opcodeFetch then
-		    	irqReg <= irq_n;
+                    irqReg <= irq_n;
+					nmiEdge <= nmi_n;
+					if (nmiEdge = '1') and (nmi_n = '0') then
+						nmiReg <= '0';
+					end if;                    
 				end if;
 			end if;
+		end if;
 	end process;
 	
 pipeirq: process(clk)
@@ -873,7 +881,9 @@ pipeirq: process(clk)
 		if rising_edge(clk) then
 			if enable = '1' then
 				if (reset = '0') or (theCpuCycle = opcodeFetch) then
-					processIrq <= not (irqReg or I);
+                    -- The 'or opcInfo(opcSetI)' prevents NMI immediately after BRK or IRQ.
+                    -- Presumably this is done in the real 6502/6510 to prevent a double IRQ.
+                    processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));
 				end if;
 			end if;
 		end if;
