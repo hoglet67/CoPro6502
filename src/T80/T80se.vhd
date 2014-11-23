@@ -1,9 +1,18 @@
+-- ****
+-- T80(b) core. In an effort to merge and maintain bug fixes ....
+--
+--
+-- Ver 300 started tidyup
+-- MikeJ March 2005
+-- Latest version from www.fpgaarcade.com (original www.opencores.org)
+--
+-- ****
 --
 -- Z80 compatible microprocessor core, synchronous top level with clock enable
 -- Different timing than the original z80
 -- Inputs needs to be synchronous and outputs may glitch
 --
--- Version : 0242
+-- Version : 0240
 --
 -- Copyright (c) 2001-2002 Daniel Wallner (jesus@opencores.org)
 --
@@ -40,25 +49,24 @@
 -- you have the latest version of this file.
 --
 -- The latest version of this file can be found at:
---	http://www.opencores.org/cvsweb.shtml/t80/
+--      http://www.opencores.org/cvsweb.shtml/t80/
 --
 -- Limitations :
 --
 -- File history :
 --
---	0235 : First release
+--      0235 : First release
 --
---	0236 : Added T2Write generic
+--      0236 : Added T2Write generic
 --
---	0237 : Fixed T2Write with wait state
+--      0237 : Fixed T2Write with wait state
 --
---	0238 : Updated for T80 interface change
+--      0238 : Updated for T80 interface change
 --
---	0240 : Updated for T80 interface change
+--      0240 : Updated for T80 interface change
 --
---	0242 : Updated for T80 interface change
+--      0242 : Updated for T80 interface change
 --
-
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all;
@@ -66,41 +74,41 @@ use work.T80_Pack.all;
 
 entity T80se is
 	generic(
-		Mode : integer := 0;	-- 0 => Z80, 1 => Fast Z80, 2 => 8080, 3 => GB
-		T2Write : integer := 0;	-- 0 => WR_n active in T3, /=0 => WR_n active in T2
-		IOWait : integer := 1	-- 0 => Single cycle I/O, 1 => Std I/O cycle
+		Mode : integer := 0;    -- 0 => Z80, 1 => Fast Z80, 2 => 8080, 3 => GB
+		T2Write : integer := 0;  -- 0 => WR_n active in T3, /=0 => WR_n active in T2
+		IOWait : integer := 1   -- 0 => Single cycle I/O, 1 => Std I/O cycle
 	);
 	port(
-		RESET_n		: in std_logic;
-		CLK_n		: in std_logic;
-		CLKEN		: in std_logic;
-		WAIT_n		: in std_logic;
-		INT_n		: in std_logic;
-		NMI_n		: in std_logic;
-		BUSRQ_n		: in std_logic;
-		M1_n		: out std_logic;
-		MREQ_n		: out std_logic;
-		IORQ_n		: out std_logic;
-		RD_n		: out std_logic;
-		WR_n		: out std_logic;
-		RFSH_n		: out std_logic;
-		HALT_n		: out std_logic;
-		BUSAK_n		: out std_logic;
-		A			: out std_logic_vector(15 downto 0);
-		DI			: in std_logic_vector(7 downto 0);
-		DO			: out std_logic_vector(7 downto 0)
+		RESET_n         : in  std_logic;
+		CLK_n           : in  std_logic;
+		CLKEN           : in  std_logic;
+		WAIT_n          : in  std_logic;
+		INT_n           : in  std_logic;
+		NMI_n           : in  std_logic;
+		BUSRQ_n         : in  std_logic;
+		M1_n            : out std_logic;
+		MREQ_n          : out std_logic;
+		IORQ_n          : out std_logic;
+		RD_n            : out std_logic;
+		WR_n            : out std_logic;
+		RFSH_n          : out std_logic;
+		HALT_n          : out std_logic;
+		BUSAK_n         : out std_logic;
+		A               : out std_logic_vector(15 downto 0);
+		DI              : in  std_logic_vector(7 downto 0);
+		DO              : out std_logic_vector(7 downto 0)
 	);
 end T80se;
 
 architecture rtl of T80se is
 
-	signal IntCycle_n	: std_logic;
-	signal NoRead		: std_logic;
-	signal Write		: std_logic;
-	signal IORQ			: std_logic;
-	signal DI_Reg		: std_logic_vector(7 downto 0);
-	signal MCycle		: std_logic_vector(2 downto 0);
-	signal TState		: std_logic_vector(2 downto 0);
+	signal IntCycle_n   : std_logic;
+	signal NoRead       : std_logic;
+	signal Write        : std_logic;
+	signal IORQ         : std_logic;
+	signal DI_Reg       : std_logic_vector(7 downto 0);
+	signal MCycle       : std_logic_vector(2 downto 0);
+	signal TState       : std_logic_vector(2 downto 0);
 
 begin
 
@@ -109,26 +117,26 @@ begin
 			Mode => Mode,
 			IOWait => IOWait)
 		port map(
-			CEN => CLKEN,
-			M1_n => M1_n,
-			IORQ => IORQ,
-			NoRead => NoRead,
-			Write => Write,
-			RFSH_n => RFSH_n,
-			HALT_n => HALT_n,
-			WAIT_n => Wait_n,
-			INT_n => INT_n,
-			NMI_n => NMI_n,
-			RESET_n => RESET_n,
-			BUSRQ_n => BUSRQ_n,
-			BUSAK_n => BUSAK_n,
-			CLK_n => CLK_n,
-			A => A,
-			DInst => DI,
-			DI => DI_Reg,
-			DO => DO,
-			MC => MCycle,
-			TS => TState,
+			CEN        => CLKEN,
+			M1_n       => M1_n,
+			IORQ       => IORQ,
+			NoRead     => NoRead,
+			Write      => Write,
+			RFSH_n     => RFSH_n,
+			HALT_n     => HALT_n,
+			WAIT_n     => Wait_n,
+			INT_n      => INT_n,
+			NMI_n      => NMI_n,
+			RESET_n    => RESET_n,
+			BUSRQ_n    => BUSRQ_n,
+			BUSAK_n    => BUSAK_n,
+			CLK_n      => CLK_n,
+			A          => A,
+			DInst      => DI,
+			DI         => DI_Reg,
+			DO         => DO,
+			MC         => MCycle,
+			TS         => TState,
 			IntCycle_n => IntCycle_n);
 
 	process (RESET_n, CLK_n)

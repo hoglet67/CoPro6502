@@ -1,3 +1,12 @@
+-- ****
+-- T80(b) core. In an effort to merge and maintain bug fixes ....
+--
+--
+-- Ver 300 started tidyup
+-- MikeJ March 2005
+-- Latest version from www.fpgaarcade.com (original www.opencores.org)
+--
+-- ****
 --
 -- T80 Registers for Xilinx Select RAM
 --
@@ -38,15 +47,15 @@
 -- you have the latest version of this file.
 --
 -- The latest version of this file can be found at:
---	http://www.opencores.org/cvsweb.shtml/t51/
+--      http://www.opencores.org/cvsweb.shtml/t51/
 --
 -- Limitations :
 --
 -- File history :
 --
---	0242 : Initial release
+--      0242 : Initial release
 --
---	0244 : Removed UNISIM library and added componet declaration
+--      0244 : Removed UNISIM library and added componet declaration
 --
 
 library IEEE;
@@ -55,21 +64,21 @@ use IEEE.numeric_std.all;
 
 entity T80_Reg is
 	port(
-		Clk			: in std_logic;
-		CEN			: in std_logic;
-		WEH			: in std_logic;
-		WEL			: in std_logic;
-		AddrA		: in std_logic_vector(2 downto 0);
-		AddrB		: in std_logic_vector(2 downto 0);
-		AddrC		: in std_logic_vector(2 downto 0);
-		DIH			: in std_logic_vector(7 downto 0);
-		DIL			: in std_logic_vector(7 downto 0);
-		DOAH		: out std_logic_vector(7 downto 0);
-		DOAL		: out std_logic_vector(7 downto 0);
-		DOBH		: out std_logic_vector(7 downto 0);
-		DOBL		: out std_logic_vector(7 downto 0);
-		DOCH		: out std_logic_vector(7 downto 0);
-		DOCL		: out std_logic_vector(7 downto 0)
+		Clk                     : in std_logic;
+		CEN                     : in std_logic;
+		WEH                     : in std_logic;
+		WEL                     : in std_logic;
+		AddrA           : in std_logic_vector(2 downto 0);
+		AddrB           : in std_logic_vector(2 downto 0);
+		AddrC           : in std_logic_vector(2 downto 0);
+		DIH                     : in std_logic_vector(7 downto 0);
+		DIL                     : in std_logic_vector(7 downto 0);
+		DOAH            : out std_logic_vector(7 downto 0);
+		DOAL            : out std_logic_vector(7 downto 0);
+		DOBH            : out std_logic_vector(7 downto 0);
+		DOBL            : out std_logic_vector(7 downto 0);
+		DOCH            : out std_logic_vector(7 downto 0);
+		DOCL            : out std_logic_vector(7 downto 0)
 	);
 end T80_Reg;
 
@@ -77,23 +86,23 @@ architecture rtl of T80_Reg is
 
 	component RAM16X1D
 		port(
-			DPO		: out std_ulogic;
-			SPO		: out std_ulogic;
-			A0		: in std_ulogic;
-			A1		: in std_ulogic;
-			A2		: in std_ulogic;
-			A3		: in std_ulogic;        
-			D		: in std_ulogic;
-			DPRA0	: in std_ulogic;
-			DPRA1	: in std_ulogic;
-			DPRA2	: in std_ulogic;
-			DPRA3	: in std_ulogic;
-			WCLK	: in std_ulogic;        
-			WE		: in std_ulogic);
+			DPO         : out std_ulogic;
+			SPO         : out std_ulogic;
+			A0          : in std_ulogic;
+			A1          : in std_ulogic;
+			A2          : in std_ulogic;
+			A3          : in std_ulogic;
+			D           : in std_ulogic;
+			DPRA0       : in std_ulogic;
+			DPRA1       : in std_ulogic;
+			DPRA2       : in std_ulogic;
+			DPRA3       : in std_ulogic;
+			WCLK        : in std_ulogic;
+			WE          : in std_ulogic);
 	end component;
 
-	signal	ENH		: std_logic;
-	signal	ENL		: std_logic;
+	signal      ENH             : std_logic;
+	signal      ENL             : std_logic;
 
 begin
 

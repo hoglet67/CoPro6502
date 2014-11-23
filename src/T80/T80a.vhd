@@ -1,3 +1,12 @@
+-- ****
+-- T80(b) core. In an effort to merge and maintain bug fixes ....
+--
+--
+-- Ver 300 started tidyup
+-- MikeJ March 2005
+-- Latest version from www.fpgaarcade.com (original www.opencores.org)
+--
+-- ****
 --
 -- Z80 compatible microprocessor core, asynchronous top level
 --
@@ -38,25 +47,25 @@
 -- you have the latest version of this file.
 --
 -- The latest version of this file can be found at:
---	http://www.opencores.org/cvsweb.shtml/t80/
+--      http://www.opencores.org/cvsweb.shtml/t80/
 --
 -- Limitations :
 --
 -- File history :
 --
---	0208 : First complete release
+--      0208 : First complete release
 --
---	0211 : Fixed interrupt cycle
+--      0211 : Fixed interrupt cycle
 --
---	0235 : Updated for T80 interface change
+--      0235 : Updated for T80 interface change
 --
---	0238 : Updated for T80 interface change
+--      0238 : Updated for T80 interface change
 --
---	0240 : Updated for T80 interface change
+--      0240 : Updated for T80 interface change
 --
---	0242 : Updated for T80 interface change
+--      0242 : Updated for T80 interface change
 --
---	0247 : Fixed bus req/ack cycle
+--      0247 : Fixed bus req/ack cycle
 --
 
 library IEEE;
@@ -66,52 +75,52 @@ use work.T80_Pack.all;
 
 entity T80a is
 	generic(
-		Mode : integer := 0	-- 0 => Z80, 1 => Fast Z80, 2 => 8080, 3 => GB
+		Mode : integer := 0     -- 0 => Z80, 1 => Fast Z80, 2 => 8080, 3 => GB
 	);
 	port(
-		RESET_n		: in std_logic;
-		CLK_n		: in std_logic;
-		WAIT_n		: in std_logic;
-		INT_n		: in std_logic;
-		NMI_n		: in std_logic;
-		BUSRQ_n		: in std_logic;
-		M1_n		: out std_logic;
-		MREQ_n		: out std_logic;
-		IORQ_n		: out std_logic;
-		RD_n		: out std_logic;
-		WR_n		: out std_logic;
-		RFSH_n		: out std_logic;
-		HALT_n		: out std_logic;
-		BUSAK_n		: out std_logic;
-		A			: out std_logic_vector(15 downto 0);
-		D			: inout std_logic_vector(7 downto 0)
+		RESET_n         : in std_logic;
+		CLK_n           : in std_logic;
+		WAIT_n          : in std_logic;
+		INT_n           : in std_logic;
+		NMI_n           : in std_logic;
+		BUSRQ_n         : in std_logic;
+		M1_n            : out std_logic;
+		MREQ_n          : out std_logic;
+		IORQ_n          : out std_logic;
+		RD_n            : out std_logic;
+		WR_n            : out std_logic;
+		RFSH_n          : out std_logic;
+		HALT_n          : out std_logic;
+		BUSAK_n         : out std_logic;
+		A                       : out std_logic_vector(15 downto 0);
+		D                       : inout std_logic_vector(7 downto 0)
 	);
 end T80a;
 
 architecture rtl of T80a is
 
-	signal CEN			: std_logic;
-	signal Reset_s		: std_logic;
-	signal IntCycle_n	: std_logic;
-	signal IORQ			: std_logic;
-	signal NoRead		: std_logic;
-	signal Write		: std_logic;
-	signal MREQ			: std_logic;
-	signal MReq_Inhibit	: std_logic;
-	signal Req_Inhibit	: std_logic;
-	signal RD			: std_logic;
-	signal MREQ_n_i		: std_logic;
-	signal IORQ_n_i		: std_logic;
-	signal RD_n_i		: std_logic;
-	signal WR_n_i		: std_logic;
-	signal RFSH_n_i		: std_logic;
-	signal BUSAK_n_i	: std_logic;
-	signal A_i			: std_logic_vector(15 downto 0);
-	signal DO			: std_logic_vector(7 downto 0);
-	signal DI_Reg		: std_logic_vector (7 downto 0);	-- Input synchroniser
-	signal Wait_s		: std_logic;
-	signal MCycle		: std_logic_vector(2 downto 0);
-	signal TState		: std_logic_vector(2 downto 0);
+	signal CEN                  : std_logic;
+	signal Reset_s              : std_logic;
+	signal IntCycle_n   : std_logic;
+	signal IORQ                 : std_logic;
+	signal NoRead               : std_logic;
+	signal Write                : std_logic;
+	signal MREQ                 : std_logic;
+	signal MReq_Inhibit : std_logic;
+	signal Req_Inhibit  : std_logic;
+	signal RD                   : std_logic;
+	signal MREQ_n_i             : std_logic;
+	signal IORQ_n_i             : std_logic;
+	signal RD_n_i               : std_logic;
+	signal WR_n_i               : std_logic;
+	signal RFSH_n_i             : std_logic;
+	signal BUSAK_n_i    : std_logic;
+	signal A_i                  : std_logic_vector(15 downto 0);
+	signal DO                   : std_logic_vector(7 downto 0);
+	signal DI_Reg               : std_logic_vector (7 downto 0);        -- Input synchroniser
+	signal Wait_s               : std_logic;
+	signal MCycle               : std_logic_vector(2 downto 0);
+	signal TState               : std_logic_vector(2 downto 0);
 
 begin
 
@@ -181,7 +190,7 @@ begin
 			WR_n_i <= '1';
 		elsif CLK_n'event and CLK_n = '1' then
 			WR_n_i <= '1';
-			if TState = "001" then	-- To short for IO writes !!!!!!!!!!!!!!!!!!!
+			if TState = "001" then      -- To short for IO writes !!!!!!!!!!!!!!!!!!!
 				WR_n_i <= not Write;
 			end if;
 		end if;

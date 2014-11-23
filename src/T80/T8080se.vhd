@@ -1,3 +1,12 @@
+-- ****
+-- T80(b) core. In an effort to merge and maintain bug fixes ....
+--
+--
+-- Ver 300 started tidyup
+-- MikeJ March 2005
+-- Latest version from www.fpgaarcade.com (original www.opencores.org)
+--
+-- ****
 --
 -- 8080 compatible microprocessor core, synchronous top level with clock enable
 -- Different timing than the original 8080
@@ -40,20 +49,20 @@
 -- you have the latest version of this file.
 --
 -- The latest version of this file can be found at:
---	http://www.opencores.org/cvsweb.shtml/t80/
+--      http://www.opencores.org/cvsweb.shtml/t80/
 --
 -- Limitations :
---	STACK status output not supported
+--      STACK status output not supported
 --
 -- File history :
 --
---	0237 : First version
+--      0237 : First version
 --
---	0238 : Updated for T80 interface change
+--      0238 : Updated for T80 interface change
 --
---	0240 : Updated for T80 interface change
+--      0240 : Updated for T80 interface change
 --
---	0242 : Updated for T80 interface change
+--      0242 : Updated for T80 interface change
 --
 
 library IEEE;
@@ -63,43 +72,43 @@ use work.T80_Pack.all;
 
 entity T8080se is
 	generic(
-		Mode : integer := 2;	-- 0 => Z80, 1 => Fast Z80, 2 => 8080, 3 => GB
-		T2Write : integer := 0	-- 0 => WR_n active in T3, /=0 => WR_n active in T2
+		Mode : integer := 2;    -- 0 => Z80, 1 => Fast Z80, 2 => 8080, 3 => GB
+		T2Write : integer := 0  -- 0 => WR_n active in T3, /=0 => WR_n active in T2
 	);
 	port(
-		RESET_n		: in std_logic;
-		CLK			: in std_logic;
-		CLKEN		: in std_logic;
-		READY		: in std_logic;
-		HOLD		: in std_logic;
-		INT			: in std_logic;
-		INTE		: out std_logic;
-		DBIN		: out std_logic;
-		SYNC		: out std_logic;
-		VAIT		: out std_logic;
-		HLDA		: out std_logic;
-		WR_n		: out std_logic;
-		A			: out std_logic_vector(15 downto 0);
-		DI			: in std_logic_vector(7 downto 0);
-		DO			: out std_logic_vector(7 downto 0)
+		RESET_n         : in std_logic;
+		CLK                     : in std_logic;
+		CLKEN           : in std_logic;
+		READY           : in std_logic;
+		HOLD            : in std_logic;
+		INT                     : in std_logic;
+		INTE            : out std_logic;
+		DBIN            : out std_logic;
+		SYNC            : out std_logic;
+		VAIT            : out std_logic;
+		HLDA            : out std_logic;
+		WR_n            : out std_logic;
+		A                       : out std_logic_vector(15 downto 0);
+		DI                      : in std_logic_vector(7 downto 0);
+		DO                      : out std_logic_vector(7 downto 0)
 	);
 end T8080se;
 
 architecture rtl of T8080se is
 
-	signal IntCycle_n	: std_logic;
-	signal NoRead		: std_logic;
-	signal Write		: std_logic;
-	signal IORQ			: std_logic;
-	signal INT_n		: std_logic;
-	signal HALT_n		: std_logic;
-	signal BUSRQ_n		: std_logic;
-	signal BUSAK_n		: std_logic;
-	signal DO_i			: std_logic_vector(7 downto 0);
-	signal DI_Reg		: std_logic_vector(7 downto 0);
-	signal MCycle		: std_logic_vector(2 downto 0);
-	signal TState		: std_logic_vector(2 downto 0);
-	signal One			: std_logic;
+	signal IntCycle_n   : std_logic;
+	signal NoRead               : std_logic;
+	signal Write                : std_logic;
+	signal IORQ                 : std_logic;
+	signal INT_n                : std_logic;
+	signal HALT_n               : std_logic;
+	signal BUSRQ_n              : std_logic;
+	signal BUSAK_n              : std_logic;
+	signal DO_i                 : std_logic_vector(7 downto 0);
+	signal DI_Reg               : std_logic_vector(7 downto 0);
+	signal MCycle               : std_logic_vector(2 downto 0);
+	signal TState               : std_logic_vector(2 downto 0);
+	signal One                  : std_logic;
 
 begin
 
@@ -110,14 +119,14 @@ begin
 	VAIT <= '1' when TState = "010" else '0';
 	One <= '1';
 
-	DO(0) <= not IntCycle_n when TState = "001" else DO_i(0);	-- INTA
-	DO(1) <= Write when TState = "001" else DO_i(1);	-- WO_n
-	DO(2) <= DO_i(2);	-- STACK not supported !!!!!!!!!!
-	DO(3) <= not HALT_n when TState = "001" else DO_i(3);	-- HLTA
-	DO(4) <= IORQ and Write when TState = "001" else DO_i(4);	-- OUT
-	DO(5) <= DO_i(5) when TState /= "001" else '1' when MCycle = "001" else '0';	-- M1
-	DO(6) <= IORQ and not Write when TState = "001" else DO_i(6);	-- INP
-	DO(7) <= not IORQ and not Write and IntCycle_n when TState = "001" else DO_i(7);	-- MEMR
+	DO(0) <= not IntCycle_n when TState = "001" else DO_i(0);   -- INTA
+	DO(1) <= Write when TState = "001" else DO_i(1);    -- WO_n
+	DO(2) <= DO_i(2);   -- STACK not supported !!!!!!!!!!
+	DO(3) <= not HALT_n when TState = "001" else DO_i(3);       -- HLTA
+	DO(4) <= IORQ and Write when TState = "001" else DO_i(4);   -- OUT
+	DO(5) <= DO_i(5) when TState /= "001" else '1' when MCycle = "001" else '0';        -- M1
+	DO(6) <= IORQ and not Write when TState = "001" else DO_i(6);       -- INP
+	DO(7) <= not IORQ and not Write and IntCycle_n when TState = "001" else DO_i(7);    -- MEMR
 
 	u0 : T80
 		generic map(
