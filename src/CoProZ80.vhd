@@ -140,6 +140,8 @@ architecture BEHAVIORAL of CoProZ80 is
     signal cpu_dout   : std_logic_vector (7 downto 0);
     signal cpu_IRQ_n  : std_logic;
     signal cpu_NMI_n  : std_logic;
+    signal cpu_IRQ_n_sync  : std_logic;
+    signal cpu_NMI_n_sync  : std_logic;
 
 begin
 
@@ -166,8 +168,8 @@ begin
         CLK_n   => clk_24M00,
         CLKEN   => cpu_clken,
         WAIT_n  => '1',
-        INT_n   => cpu_IRQ_n,
-        NMI_n   => cpu_NMI_n,
+        INT_n   => cpu_IRQ_n_sync,
+        NMI_n   => cpu_NMI_n_sync,
         BUSRQ_n => '1',
         M1_n    => cpu_m1_n,
         MREQ_n  => cpu_mreq_n,
@@ -273,8 +275,8 @@ begin
             tp(2) <= cpu_dout(0);
         else
     
-            test(6) <= CPU_NMI_n;
-            test(5) <= cpu_m1_n;
+            test(6) <= cpu_m1_n;
+            test(5) <= cpu_addr(11);
             test(4) <= cpu_addr(10);
             test(3) <= cpu_addr(9);
             test(2) <= cpu_addr(8);
@@ -308,6 +310,18 @@ begin
         end if;
     end process;
 
+    sync_gen : process(clk_24M00, RSTn)
+    begin
+        if RSTn = '0' then
+            cpu_NMI_n_sync <= '1';
+            cpu_IRQ_n_sync <= '1';
+        elsif rising_edge(clk_24M00) then
+            if (cpu_clken = '1') then
+                cpu_NMI_n_sync <= cpu_NMI_n;
+                cpu_IRQ_n_sync <= cpu_IRQ_n;            
+            end if;
+        end if;
+    end process;
 --------------------------------------------------------
 -- clock enable generator
 
