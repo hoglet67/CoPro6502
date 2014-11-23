@@ -616,9 +616,21 @@ begin
 					when "00" =>
 						ACC <= I;
 						F(Flag_P) <= IntE_FF2;
+                        if I = X"00" then 
+                            F(Flag_Z) <= '1';
+                        else
+                            F(Flag_Z) <= '0';
+                        end if;
+                        F(Flag_S) <= I(7);                         
 					when "01" =>
 						ACC <= std_logic_vector(R);
 						F(Flag_P) <= IntE_FF2;
+                        if R = X"00" then 
+                            F(Flag_Z) <= '1';
+                        else
+                            F(Flag_Z) <= '0';
+                        end if;
+                        F(Flag_S) <= R(7);                                                 
 					when "10" =>
 						I <= ACC;
 					when others =>
