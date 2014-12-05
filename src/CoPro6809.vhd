@@ -49,7 +49,7 @@ architecture BEHAVIORAL of CoPro6809 is
             DATA : out std_logic_vector(7 downto 0));
     end component;
 
-	component cpu09
+    component cpu09
         port (
             clk      : in std_logic;
             rst      : in std_logic;
@@ -60,14 +60,15 @@ architecture BEHAVIORAL of CoPro6809 is
             halt     : in std_logic;
             hold     : in std_logic;          
             vma      : out std_logic;
-            lic      : out std_logic;
+            lic_out  : out std_logic;
             ifetch   : out std_logic;
+            opfetch  : out std_logic;
             ba       : out std_logic;
             bs       : out std_logic;
             addr     : out std_logic_vector(15 downto 0);
             rw       : out std_logic;
             data_out : out std_logic_vector(7 downto 0)
-		);
+        );
     end component;
     
     component tube
@@ -98,8 +99,10 @@ architecture BEHAVIORAL of CoPro6809 is
 -------------------------------------------------
 
     signal clk_16M00     : std_logic;
-    signal phi           : std_logic;
+    signal phi0          : std_logic;
+    signal phi1          : std_logic;
     signal phi2          : std_logic;
+    signal phi3          : std_logic;
     signal cpu_clken     : std_logic;
     signal clken_counter : std_logic_vector (3 downto 0);
     signal bootmode      : std_logic;
@@ -108,6 +111,7 @@ architecture BEHAVIORAL of CoPro6809 is
     signal ba            : std_logic;
     signal vma           : std_logic;
     signal ifetch        : std_logic;
+    signal opfetch        : std_logic;
 
 -------------------------------------------------
 -- parasite signals
@@ -136,6 +140,8 @@ architecture BEHAVIORAL of CoPro6809 is
     signal cpu_dout     : std_logic_vector (7 downto 0);
     signal cpu_IRQ_n    : std_logic;
     signal cpu_NMI_n    : std_logic;
+    signal cpu_IRQ_sync : std_logic;
+    signal cpu_NMI_sync : std_logic;
 
 begin
 
@@ -155,24 +161,25 @@ begin
         DATA            => rom_data_out
     );
 
-	Inst_cpu09: cpu09 PORT MAP(
-		clk      => phi2,          -- E clock input (falling edge)
-		rst      => not RSTn,      -- reset input (active high)
-		vma      => vma,           -- valid memory address (active high)
-		lic      => open,          -- last instruction cycle (active high)
-		ifetch   => ifetch,        -- instruction fetch cycle (active high)
-		ba       => ba,            -- bus available (high on sync wait or DMA grant)
-		bs       => bs,            -- bus status (high on interrupt or reset vector fetch or DMA grant)
-		addr     => cpu_addr_int,  -- address bus output
-		rw       => cpu_R_W_n,     -- read not write output
-		data_out => cpu_dout,      -- data bus output
-		data_in  => cpu_din,       -- data bus input
-		irq      => not cpu_NMI_n, -- interrupt request input (active high)
-		firq     => not cpu_IRQ_n, -- fast interrupt request input (active high)
-		nmi      => '0',           -- non maskable interrupt request input (active high)
-		halt     => '0',           -- halt input (active high) grants DMA
-		hold     => '0'            -- hold input (active high) extend bus cycle
-	);
+    Inst_cpu09: cpu09 PORT MAP(
+        clk      => phi2,          -- E clock input (falling edge)
+        rst      => not RSTn,      -- reset input (active high)
+        vma      => vma,           -- valid memory address (active high)
+        lic_out  => open,          -- last instruction cycle (active high)
+        ifetch   => ifetch,        -- instruction fetch cycle (active high)
+        opfetch  => opfetch,          -- opcode fetch (active high)
+        ba       => ba,            -- bus available (high on sync wait or DMA grant)
+        bs       => bs,            -- bus status (high on interrupt or reset vector fetch or DMA grant)
+        addr     => cpu_addr_int,  -- address bus output
+        rw       => cpu_R_W_n,     -- read not write output
+        data_out => cpu_dout,      -- data bus output
+        data_in  => cpu_din,       -- data bus input
+        irq      => cpu_NMI_sync,  -- interrupt request input (active high)
+        firq     => cpu_IRQ_sync,  -- fast interrupt request input (active high)
+        nmi      => '0',           -- non maskable interrupt request input (active high)
+        halt     => '0',           -- halt input (active high) grants DMA
+        hold     => '0'            -- hold input (active high) extend bus cycle
+    );
     
     -- Remap the hardware vectors from 0xFFFx to 0xFEFx
     cpu_addr <= cpu_addr_int when bs = '0' 
@@ -224,10 +231,11 @@ begin
     begin
         if (sw(1) = '1' and sw(2) = '1') then
         
-            test(6) <= phi2;
-            test(5) <= CPU_IRQ_n;
-            test(4) <= ifetch;
+            test(6) <= opfetch and Phi0;
+            test(5) <= cpu_addr(11);
+            test(4) <= cpu_addr(10);
             test(3) <= cpu_addr(9);
+            test(2) <= cpu_addr(8);
             test(2) <= cpu_addr(8);
             test(1) <= cpu_addr(7);
 
@@ -281,6 +289,16 @@ begin
         end if;
     end process;        
 
+    sync_gen : process(phi2, RSTn)
+    begin
+        if RSTn = '0' then
+            cpu_NMI_sync <= '0';
+            cpu_IRQ_sync <= '0';
+        elsif rising_edge(phi2) then
+            cpu_NMI_sync <= not cpu_NMI_n;
+            cpu_IRQ_sync <= not cpu_IRQ_n;            
+        end if;
+    end process;
 
 --------------------------------------------------------
 -- boot mode generator
@@ -295,30 +313,45 @@ begin
             end if;
         end if;
     end process;
-
+    
 --------------------------------------------------------
 -- clock enable generator
 
 -- 4MHz
 -- cpu_clken active on cycle 0, 4, 8, 12
 -- address/data changes on cycle 1, 5, 9, 13
--- phi2 active on cycle 2..3, 6..7 10..11 14..15
+-- phi0 active on cycle 1..2
+-- phi1 active on cycle 2..3
+-- phi2 active on cycle 3..4
+-- phi3 active on cycle 4..5
+
+-- alternative
+-- phi0 active on cycle 1
+-- phi1 active on cycle 2
+-- phi2 active on cycle 3
+-- phi3 active on cycle 4
+
 --------------------------------------------------------
     clk_gen : process(clk_16M00, RSTn)
     begin
         if RSTn = '0' then
             clken_counter <= (others => '0');
             cpu_clken <= '0';
-            phi       <= '0';
+            phi0      <= '0';
+            phi1      <= '0';
             phi2      <= '0';
+            phi3      <= '0';
         elsif rising_edge(clk_16M00) then
             clken_counter <= clken_counter + 1;
             cpu_clken     <= clken_counter(0) and clken_counter(1);
-            phi           <= not clken_counter(1);
-             -- delay by 1 cycle so address and data will be stable for 62.5ns before phi2
-            phi2          <= phi;
+            --phi0          <= not clken_counter(1);
+            phi0          <= cpu_clken;
+            phi1          <= phi0;
+            phi2          <= phi1;
+            phi3          <= phi2;
         end if;
     end process;
+
     
 end BEHAVIORAL;
 
