@@ -918,12 +918,18 @@ begin
 				 --
 				 -- FIRQ & IRQ are level sensitive
 				 --
-          elsif (firq = '1') and (cc(FBIT) = '0') then
-			   state  <= int_firq_state;
-
-			 elsif (irq = '1') and (cc(IBIT) = '0') then
-			   state <= int_irq_state;
-			
+          elsif (firq = '1') then
+            if (cc(FBIT) = '0') then
+			      state  <= int_firq_state;
+			   else
+               state <= fetch_state;
+            end if;
+			 elsif (irq = '1') then
+            if (cc(IBIT) = '0') then
+			      state <= int_irq_state;
+			   else
+               state <= fetch_state;
+            end if;
 			 else
 			   state <= next_state;
           end if; -- halt, nmi, firq, irq
