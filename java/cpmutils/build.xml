@@ -1,0 +1,6 @@
+<project default="jar" name="">
+	<property name="jar.name" value="cpmutils.jar"/>
+	<property name="jar.mainclass" value="uk.co.acornatom.cpmutils.Convert"/>
+    <import file="../ant/build.xml"/>
+</project>
+
