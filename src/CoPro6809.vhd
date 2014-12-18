@@ -236,7 +236,6 @@ begin
             test(4) <= cpu_addr(10);
             test(3) <= cpu_addr(9);
             test(2) <= cpu_addr(8);
-            test(2) <= cpu_addr(8);
             test(1) <= cpu_addr(7);
 
             tp(8) <= cpu_addr(6);
