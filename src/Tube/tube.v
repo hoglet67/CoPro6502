@@ -239,6 +239,7 @@ module tube (
               p_addr or  
               p_reg0_q_r or            
               p_data_available_w or
+              n_flag or
               p_full_w )
      begin
         case ( p_addr )
