@@ -3,14 +3,14 @@ use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
-entity CoPro6809 is
+entity LX9CoPro6809 is
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
-        tp        : out   std_logic_vector(8 downto 2);
-        test      : out   std_logic_vector(6 downto 1);
+        --tp        : out   std_logic_vector(8 downto 2);
+        test      : out   std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(2 downto 1);
-        fcs       : out   std_logic;
+        --fcs       : out   std_logic;
         
         -- Tube signals (use 16 out of 22 DIL pins)
         h_phi2    : in    std_logic;  -- 1,2,12,21,23 are global clocks
@@ -23,17 +23,19 @@ entity CoPro6809 is
 
 
         -- Ram Signals
+        ram_ub_b     : out   std_logic;
+        ram_lb_b     : out   std_logic;
         ram_cs       : out   std_logic;
         ram_oe       : out   std_logic;
         ram_wr       : out   std_logic;
         ram_addr     : out   std_logic_vector (18 downto 0);
         ram_data     : inout std_logic_vector (7 downto 0)
     );
-end CoPro6809;
+end LX9CoPro6809;
 
-architecture BEHAVIORAL of CoPro6809 is
+architecture BEHAVIORAL of LX9CoPro6809 is
  
-    component dcm_49_16
+    component dcm_32_16
         port (
             CLKIN_IN  : in  std_logic;
             CLK0_OUT  : out std_logic;
@@ -149,7 +151,7 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_49_16 : dcm_49_16 port map (
+    inst_dcm_32_16 : dcm_32_16 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_16M00,
         CLK0_OUT1 => open,
@@ -216,6 +218,8 @@ begin
         ram_data     when ram_cs_b = '0' else
         x"f1";
 
+    ram_ub_b <= '0';
+    ram_lb_b <= '0';
     
     ram_cs <= ram_cs_b;
     ram_oe_int <= not ((not ram_cs_b) and cpu_R_W_n);
@@ -225,10 +229,12 @@ begin
     ram_addr <= "000" & cpu_addr(15 downto 0);
     ram_data <= cpu_dout when cpu_R_W_n = '0' else "ZZZZZZZZ";
 
-    fcs <= '1';
+    --fcs <= '1';
 
     testpr : process(sw)
     begin
+        test(7) <= '0';   -- 
+        test(8) <= '1';   --
         if (sw(1) = '1' and sw(2) = '1') then
         
             test(6) <= opfetch and Phi0;
@@ -238,13 +244,13 @@ begin
             test(2) <= cpu_addr(8);
             test(1) <= cpu_addr(7);
 
-            tp(8) <= cpu_addr(6);
-            tp(7) <= cpu_addr(5);
-            tp(6) <= cpu_addr(4);
-            tp(5) <= cpu_addr(3);
-            tp(4) <= cpu_addr(2);
-            tp(3) <= cpu_addr(1);
-            tp(2) <= cpu_addr(0);
+            --tp(8) <= cpu_addr(6);
+            --tp(7) <= cpu_addr(5);
+            --tp(6) <= cpu_addr(4);
+            --tp(5) <= cpu_addr(3);
+            --tp(4) <= cpu_addr(2);
+            --tp(3) <= cpu_addr(1);
+            --tp(2) <= cpu_addr(0);
             
     
 
@@ -277,13 +283,13 @@ begin
             test(3) <= ba;          -- 9
             test(2) <= cpu_R_W_n;   -- 8
             test(1) <= rom_cs_b;    -- 7     
-            tp(8) <= RSTn;          -- 6
-            tp(7) <= ram_wr_int;    -- 5
-            tp(6) <= ram_oe_int;    -- 4
-            tp(5) <= p_cs_b;        -- 3
-            tp(4) <= CPU_IRQ_n;     -- 2
-            tp(3) <= CPU_NMI_n;     -- 1
-            tp(2) <= bootmode;      -- 0
+            --tp(8) <= RSTn;          -- 6
+            --tp(7) <= ram_wr_int;    -- 5
+            --tp(6) <= ram_oe_int;    -- 4
+            --tp(5) <= p_cs_b;        -- 3
+            --tp(4) <= CPU_IRQ_n;     -- 2
+            --tp(3) <= CPU_NMI_n;     -- 1
+            --tp(2) <= bootmode;      -- 0
 
         end if;
     end process;        
@@ -350,7 +356,6 @@ begin
             phi3          <= phi2;
         end if;
     end process;
-
     
 end BEHAVIORAL;
 

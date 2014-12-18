@@ -38,8 +38,8 @@ module ph_flag_m (
                   );
    
    
-   reg     p_full_q_r,
-           h_data_avail_q_r;
+   wire    p_full_q_r;
+   reg     h_data_avail_q_r;
       
    // Assign IOs
    assign h_data_available = h_data_avail_q_r;
@@ -58,6 +58,7 @@ module ph_flag_m (
           h_data_avail_q_r <= p_full_q_r ;
      end
    
+   /*
    always @ ( posedge p_wrst_b or negedge set_b or negedge set_empty_b_w )
      begin
         if (!set_b)
@@ -68,7 +69,15 @@ module ph_flag_m (
           p_full_q_r <= p_full_d_w;
         
      end
-   
+   */
+   dsrff ff (
+    .d(p_full_d_w), 
+    .clk(p_wrst_b), 
+    .s(!set_b), 
+    .r(!set_empty_b_w), 
+    .q(p_full_q_r), 
+    .qb()
+    );
    
 endmodule 
 

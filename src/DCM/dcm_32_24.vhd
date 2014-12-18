@@ -4,14 +4,14 @@ use ieee.numeric_std.all;
 library UNISIM;
 use UNISIM.Vcomponents.all;
 
-entity dcm1 is
+entity dcm_32_24 is
     port (CLKIN_IN  : in  std_logic;
           CLK0_OUT  : out std_logic;
           CLK0_OUT1 : out std_logic;
           CLK2X_OUT : out std_logic); 
-end dcm1;
+end dcm_32_24;
 
-architecture BEHAVIORAL of dcm1 is
+architecture BEHAVIORAL of dcm_32_24 is
     signal CLKFX_BUF   : std_logic;
     signal CLKIN_IBUFG : std_logic;
     signal GND_BIT     : std_logic;
@@ -23,11 +23,11 @@ begin
     
     DCM_INST : DCM
         generic map(CLK_FEEDBACK          => "NONE",
-                    CLKDV_DIVIDE          => 4.0,  -- 16.384 = 49.152 * 10/30
-                    CLKFX_DIVIDE          => 30,
-                    CLKFX_MULTIPLY        => 10,
+                    CLKDV_DIVIDE          => 4.0,  -- 24.000 = 32.000 * 15/20
+                    CLKFX_DIVIDE          => 20,
+                    CLKFX_MULTIPLY        => 15,
                     CLKIN_DIVIDE_BY_2     => false,
-                    CLKIN_PERIOD          => 20.3450520833,
+                    CLKIN_PERIOD          => 31.25,
                     CLKOUT_PHASE_SHIFT    => "NONE",
                     DESKEW_ADJUST         => "SYSTEM_SYNCHRONOUS",
                     DFS_FREQUENCY_MODE    => "LOW",

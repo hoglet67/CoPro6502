@@ -82,7 +82,7 @@
 
 module gen_flag_m (
     input rst_b,                  
-    input reset_state,
+    //input reset_state,
     input p1_rdnw,
     input p1_select,
     input p1_phase,
@@ -97,21 +97,25 @@ module gen_flag_m (
    
    
    reg     p1_full_q_r,
-           p2_data_avail_q_r,
-           full_sr_q_r;
-   
+           p2_data_avail_q_r;
+		   
+   wire    full_sr_q_r;
+   wire 	full_sr_qbar_r;
+		   
    wire    set_full_b_w,
            p1_full_d_w,   
            p2_data_avail_d_w,
            set_empty_b_w;
+		   
+
    
    // Assign IOs
    assign p2_data_available = p2_data_avail_q_r;
    assign p1_full = p1_full_q_r   ;
    
    // Combinatorial assignments
-   assign set_full_b_w = ! ( (!rst_b & reset_state) | (!p1_rdnw & p1_phase & p1_select & !p1_full_q_r)) ;
-   assign set_empty_b_w = ! ( (!rst_b & !reset_state) | ( p2_phase & p2_select & p2_rdnw & p2_data_avail_q_r));
+   assign set_full_b_w = ! ( (!p1_rdnw & p1_phase & p1_select & !p1_full_q_r)) ;
+   assign set_empty_b_w = ! ( (!rst_b) | ( p2_phase & p2_select & p2_rdnw & p2_data_avail_q_r));
    
    // ensure that full signal to parasite doesn't go low while (slow) host read is still in progress
    assign p1_full_d_w = full_sr_q_r |  p2_data_avail_q_r ;  
@@ -121,7 +125,7 @@ module gen_flag_m (
    always @ ( posedge p2_clk or negedge rst_b )   
      begin
         if ( ! rst_b )
-          p2_data_avail_q_r <= reset_state;
+          p2_data_avail_q_r <= 1'b0;
         else
           p2_data_avail_q_r <= p2_data_avail_d_w ;
      end
@@ -129,17 +133,20 @@ module gen_flag_m (
    always @ ( negedge p1_clk or negedge rst_b )
      begin
         if ( ! rst_b)
-          p1_full_q_r <= reset_state;        
+          p1_full_q_r <= 1'b0;        
         else
           p1_full_q_r <= p1_full_d_w ;
      end
    
    // SR latch inputs used only on this state element
-   always @ ( set_full_b_w or set_empty_b_w )
-     if ( set_full_b_w == 1'b0 )
-       full_sr_q_r = 1'b1;
-     else if ( set_empty_b_w == 1'b0) 
-       full_sr_q_r = 1'b0;
+   //always @ ( set_full_b_w or set_empty_b_w )
+   //  if ( set_full_b_w == 1'b0 )
+   //    full_sr_q_r = 1'b1;
+   //  else if ( set_empty_b_w == 1'b0) 
+   //   full_sr_q_r = 1'b0;
+   assign full_sr_q_r = ~( set_full_b_w & full_sr_qbar_r);
+   assign full_sr_qbar_r = ~( set_empty_b_w & full_sr_q_r);
+   
    
 endmodule // gen_flag_m
 

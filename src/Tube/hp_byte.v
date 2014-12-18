@@ -53,7 +53,7 @@ module hp_byte (
    // Instance the appropriate flag logic
    gen_flag_m flag_0 (
                        .rst_b(h_rst_b),
-                       .reset_state(1'b0),
+                       //.reset_state(1'b0),
                        .p1_rdnw( h_we_b),
                        .p1_select(h_selectData),
                        .p1_clk(h_phi2),

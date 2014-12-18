@@ -146,16 +146,16 @@ module tube (
 
    // Active p_rst_b when '1' in P flag or host reset is applied
    assign p_rst_b = (!h_reg0_q_r[`P_IDX] & h_rst_b) ;   
-   assign h_data = ( h_rdnw && !h_cs_b && h_phi2 ) ? h_data_r : 8'bz;
+   assign h_data = ( h_rdnw && !h_cs_b && h_phi2 ) ? h_data_r : 8'bzzzzzzzz;
 `ifdef SEPARATE_PARASITE_DATABUSSES_D
    wire [7:0] 	p_data;
    assign p_data = p_data_in;
    assign p_data_out = p_data_r;
 `else // SEPARATE_PARASITE_DATABUSSES_D
  `ifdef PARASITE_RNWCLK_INTERFACE_D
-   assign p_data = ( p_rdnw && !p_cs_b ) ? p_data_r : 8'bz;   
+   assign p_data = ( p_rdnw && !p_cs_b ) ? p_data_r : 8'bzzzzzzzz;   
  `else
-   assign p_data = ( !p_rd_b && !p_cs_b ) ? p_data_r : 8'bz;
+   assign p_data = ( !p_rd_b && !p_cs_b ) ? p_data_r : 8'bzzzzzzzz;
  `endif
    
 `endif // SEPARATE_PARASITE_DATABUSSES_D
@@ -263,11 +263,11 @@ module tube (
         case ( h_addr )
           3'h0: h_data_r = { h_data_available_w[0], !h_full_w[0], h_reg0_q_r[5:0]};
           3'h1: h_data_r = h_data_w;          
-          3'h2: h_data_r = { h_data_available_w[1], !h_full_w[1], 6'b1};
+          3'h2: h_data_r = { h_data_available_w[1], !h_full_w[1], 6'b111111};
           3'h3: h_data_r = h_data_w;
-          3'h4: h_data_r = { h_data_available_w[2], !h_full_w[2], 6'b1};
+          3'h4: h_data_r = { h_data_available_w[2], !h_full_w[2], 6'b111111};
           3'h5: h_data_r = h_data_w;          
-          3'h6: h_data_r = { h_data_available_w[3], !h_full_w[3], 6'b1};
+          3'h6: h_data_r = { h_data_available_w[3], !h_full_w[3], 6'b111111};
           3'h7: h_data_r = h_data_w;
           // default: h_data_r = h_data_w;
         endcase // case ( h_addr )        
@@ -357,7 +357,7 @@ module tube (
              h_select_fifo_q_r[1] <= h_select_fifo_d_w[1];
              h_select_fifo_q_r[2] <= h_select_fifo_d_w[2];
              h_select_fifo_q_r[3] <= h_select_fifo_d_w[3];      
-          end
+          end  
      end // always @ ( posedge h_phi2 or negedge h_rst_b )
    
 
@@ -368,7 +368,7 @@ module tube (
    always @ ( negedge p_rd_b or negedge h_rst_b )
 `endif     
      if ( !h_rst_b )
-       p_reg0_q_r <= 6'b0;
+       p_reg0_q_r <= 6'b000000;
      else
        p_reg0_q_r <= h_reg0_q_r[5:0];
    
