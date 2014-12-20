@@ -134,6 +134,12 @@ module LX9CoPro80186 (
 
   wire        nmi;
   wire        nmia;
+  
+  reg tubeint0;
+  reg tubeint1;
+  reg tubeint2;
+  reg tubeint3;
+  
 
 // Instantiate the module
 dcm_32_16 instance_name (
@@ -452,12 +458,28 @@ tube tube_inst(
     .sB_ack_i (def_cyc_i & def_stb_i)
   );
 
+  always @(posedge clk) begin
+     if (rst) begin
+         tubeint0 <= 0;
+         tubeint1 <= 0;
+         tubeint2 <= 0;
+         tubeint3 <= 0;
+     end else begin
+         tubeint0 <= ~p_irq_b;
+         tubeint1 <= tubeint0;
+         tubeint2 <= tubeint1;
+         tubeint3 <= tubeint1 & ~tubeint2;
+     end     
+  end
+
+
+
   assign nmi = 0;
-  assign intv[0] = ~p_irq_b;
-  assign intv[4:1] = 0;
+  assign intv[0] = tubeint3;
+  assign intv[7:1] = 0;
   
   assign dat_i = nmia ? 16'h0002 :
-                (inta ? { 14'b0000_0000_0000_11, iid[1:0] } :
+                (inta ? { 16'h000c } :
                         sw_dat_o);
                         
   assign test = 0;
