@@ -16,7 +16,7 @@
 
   <files>
     <file xil_pn:name="src/DCM/dcm_32_16.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="Implementation" xil_pn:seqID="46"/>
+      <association xil_pn:name="Implementation" xil_pn:seqID="45"/>
     </file>
     <file xil_pn:name="src/Tube/gen_flag_m.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="Implementation" xil_pn:seqID="26"/>
@@ -43,14 +43,14 @@
       <association xil_pn:name="Implementation" xil_pn:seqID="31"/>
     </file>
     <file xil_pn:name="src/Tube/tube.v" xil_pn:type="FILE_VERILOG">
-      <association xil_pn:name="Implementation" xil_pn:seqID="45"/>
+      <association xil_pn:name="Implementation" xil_pn:seqID="44"/>
     </file>
     <file xil_pn:name="src/Tube/dsr-ff.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="Implementation" xil_pn:seqID="17"/>
     </file>
     <file xil_pn:name="src/LX9Co_CoPro80186.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="28"/>
-      <association xil_pn:name="Implementation" xil_pn:seqID="47"/>
+      <association xil_pn:name="Implementation" xil_pn:seqID="46"/>
     </file>
     <file xil_pn:name="src/zet/zet/zet.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="29"/>
@@ -170,7 +170,7 @@
     </file>
     <file xil_pn:name="src/zet/flash/bootrom.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="57"/>
-      <association xil_pn:name="Implementation" xil_pn:seqID="44"/>
+      <association xil_pn:name="Implementation" xil_pn:seqID="43"/>
     </file>
     <file xil_pn:name="src/zet/wb_switch/wb_switch.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="58"/>
@@ -178,7 +178,7 @@
     </file>
     <file xil_pn:name="src/zet/pic/simple_pic.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="59"/>
-      <association xil_pn:name="Implementation" xil_pn:seqID="43"/>
+      <association xil_pn:name="Implementation" xil_pn:seqID="0"/>
     </file>
     <file xil_pn:name="src/zet/zet/zet_signmul17.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="61"/>
@@ -498,7 +498,7 @@
     <property xil_pn:name="VCCAUX Voltage Level spartan6" xil_pn:value="2.5V" xil_pn:valueState="default"/>
     <property xil_pn:name="VHDL Source Analysis Standard" xil_pn:value="VHDL-93" xil_pn:valueState="default"/>
     <property xil_pn:name="Value Range Check" xil_pn:value="false" xil_pn:valueState="default"/>
-    <property xil_pn:name="Verilog Macros" xil_pn:value="TWOSTATE_PARASITE_INTERRUPTS_D = 1" xil_pn:valueState="non-default"/>
+    <property xil_pn:name="Verilog Macros" xil_pn:value="TWOSTATE_PARASITE_INTERRUPTS_D = 1 | PARASITE_RNWCLK_INTERFACE_D=1 | OMIT_DMA_PINS_D=1" xil_pn:valueState="non-default"/>
     <property xil_pn:name="Wait for DCM and PLL Lock (Output Events) spartan6" xil_pn:value="Default (NoWait)" xil_pn:valueState="default"/>
     <property xil_pn:name="Wakeup Clock spartan6" xil_pn:value="Startup Clock" xil_pn:valueState="default"/>
     <property xil_pn:name="Watchdog Timer Value spartan6" xil_pn:value="0xFFFF" xil_pn:valueState="default"/>

@@ -23,7 +23,7 @@ module LX9CoPro80186 (
         
         // GOP Signals
         output [8:1] test,
-        input [2:1] sw,
+        input [4:1] sw,
         
         // Tube signals (use 16 out of 22 DIL pins)
         input h_phi2,
@@ -139,7 +139,12 @@ module LX9CoPro80186 (
   reg tubeint1;
   reg tubeint2;
   reg tubeint3;
+  reg tubenmi0;
+  reg tubenmi1;
+  reg tubenmi2;
+  reg tubenmi3;
   
+  wire [19:0] pc;
 
 // Instantiate the module
 dcm_32_16 instance_name (
@@ -216,30 +221,28 @@ tube tube_inst(
     .h_rdnw(h_rdnw), 
     .h_rst_b(h_rst_b), 
     .h_irq_b(h_irq_b), 
-    .drq(drq), 
-    .dack_b(dack_b), 
     .p_addr(p_addr), 
     .p_cs_b(p_cs_b), 
-    .p_data(p_data), 
-    .p_rd_b(p_rd_b), 
-    .p_wr_b(p_wr_b), 
+    .p_data(p_data),
+    .p_rdnw(p_wr_b), 
+    .p_phi2(clk), 
     .p_rst_b(p_rst_b), 
     .p_nmi_b(p_nmi_b), 
     .p_irq_b(p_irq_b)
     );
 
-  simple_pic pic0 (
-    .clk  (clk),
-    .rst  (rst),
-    .intv (intv),
-    .inta (inta),
-    .intr (intr),
-    .iid  (iid)
-  );
+//  simple_pic pic0 (
+//    .clk  (clk),
+//    .rst  (rst),
+//    .intv (intv),
+//    .inta (inta),
+//    .intr (intr),
+//    .iid  (iid)
+//  );
 
 
   zet zet (
-    .pc (),
+    .pc (pc),
 
     // Wishbone master interface
     .wb_clk_i (clk),
@@ -464,25 +467,48 @@ tube tube_inst(
          tubeint1 <= 0;
          tubeint2 <= 0;
          tubeint3 <= 0;
+         tubenmi0 <= 0;
+         tubenmi1 <= 0;
+         tubenmi2 <= 0;
+         tubenmi3 <= 0;
      end else begin
          tubeint0 <= ~p_irq_b;
          tubeint1 <= tubeint0;
          tubeint2 <= tubeint1;
-         tubeint3 <= tubeint1 & ~tubeint2;
+         if (inta) begin
+             tubeint3 <= 0;
+         end else if (tubeint1 & ~tubeint2) begin
+             tubeint3 <= 1;
+         end
+         tubenmi0 <= ~p_nmi_b;
+         tubenmi1 <= tubenmi0;
+         tubenmi2 <= tubenmi1;
+         if (nmia) begin
+             tubenmi3 <= 0;
+         end else if (tubenmi1 & ~tubenmi2) begin
+             tubenmi3 <= 1;
+         end
      end     
   end
 
 
 
-  assign nmi = 0;
-  assign intv[0] = tubeint3;
-  assign intv[7:1] = 0;
+  assign nmi = tubenmi3;
+  assign intr = tubeint3;
+  
+//  assign intv[0] = tubeint3;
+//  assign intv[7:1] = 0;
   
   assign dat_i = nmia ? 16'h0002 :
-                (inta ? { 16'h000c } :
+                (inta ? 16'h000c :
                         sw_dat_o);
                         
-  assign test = 0;
+  assign test = sw[1] ? pc[15:8] : 
+              ( sw[2] ? pc[7:0] :
+              ( sw[3] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, nmi, nmia, intr, inta } :
+              ( sw[4] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
+              ( {p_irq_b, p_cs_b, p_wr_b, p_data[7:6], p_addr[2:0]}
+              ))));
   
   assign dack_b = 1;
   
