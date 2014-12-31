@@ -80,6 +80,8 @@ module LX9CoPro80186 (
   wire        ram_stb_i;
   wire        ram_ack_o;
 
+  wire [18:0] ram_addr_int;
+
   // wires to Tube
   wire [15:0] tube_dat_o;
   wire [15:0] tube_dat_i;
@@ -186,7 +188,7 @@ wb_sram16 wb_sram16 (
     .wb_sel_i(ram_sel_i), 
     .wb_ack_o(ram_ack_o),
     
-    .sram_adr(ram_addr), 
+    .sram_adr(ram_addr_int), 
     .sram_dat(ram_data), 
     .sram_be_n({ram_ub_b, ram_lb_b}), 
     .sram_ce_n(ram_cs), 
@@ -220,7 +222,7 @@ tube tube_inst(
     .h_phi2(h_phi2), 
     .h_rdnw(h_rdnw), 
     .h_rst_b(h_rst_b), 
-    .h_irq_b(h_irq_b), 
+    .h_irq_b(), 
     .p_addr(p_addr), 
     .p_cs_b(p_cs_b), 
     .p_data(p_data),
@@ -504,7 +506,7 @@ tube tube_inst(
                         sw_dat_o);
                         
   assign test = sw[1] ? pc[15:8] : 
-              ( sw[2] ? pc[7:0] :
+              ( sw[2] ? {p_cs_b, pc[6:0]} :
               ( sw[3] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, nmi, nmia, intr, inta } :
               ( sw[4] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
               ( {p_irq_b, p_cs_b, p_wr_b, p_data[7:6], p_addr[2:0]}
@@ -512,7 +514,9 @@ tube tube_inst(
   
   assign dack_b = 1;
   
+  assign ram_addr = {1'b0, ram_addr_int[18] ^ ram_addr_int[17], ram_addr_int[16:0]};
   
+  assign h_irq_b = 1;
 
 
 endmodule
