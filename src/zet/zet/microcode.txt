@@ -881,19 +881,19 @@ INValid OPcode interrupt
 INS String
 * Without repetition
  ######  vi vo vd vc vb va vs cb ab im mi ma by fun  t  wh wr wm wf ad_d ad_c ad_b ad_a  s
- INSB  xxx__0_00_xx_00_00__1__x__0__0__1_10__1_000_111__0_01__0__0_1101_xxxx_1100_0010_mm  // tmp=ldio(dx)
+ INSB  000__x_00_xx_00_xx__x__x__x__1__1_00__1_001_001__0_01__0__0_1101_xxxx_xxxx_0010_xx  // tmp=ldio(dx)
  INSB  xxx__0_xx_00_00_00__0__x__0__0__0_1x__1_000_111__0_00__1__0_xxxx_1101_1100_0111_00  // st(di)=tmp
  INSB  111__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0111_xxxx_xxxx_0111_xx  // di+-1
- INSW  xxx__0_00_xx_00_00__1__x__0__0__1_10__0_000_111__0_01__0__0_1101_xxxx_1100_0010_mm  // tmp=ldio(dx)
+ INSW  000__x_00_xx_00_xx__x__x__x__1__1_00__0_001_001__0_01__0__0_1101_xxxx_xxxx_0010_xx  // tmp=ldio(dx)
  INSW  xxx__0_xx_00_00_00__0__x__0__0__0_1x__0_000_111__0_00__1__0_xxxx_1101_1100_0111_00  // st(di)=tmp
  INSW  001__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0111_xxxx_xxxx_0111_xx  // di+-2
 * With repetition
  ######  vi vo vd vc vb va vs cb ab im mi ma by fun  t  wh wr wm wf ad_d ad_c ad_b ad_a  s
- INSBR xxx__0_00_xx_00_00__1__x__0__0__1_10__1_000_111__0_01__0__0_1101_xxxx_1100_0010_mm  // tmp=ldio(dx)
+ INSBR 000__x_00_xx_00_xx__x__x__x__1__1_00__1_001_001__0_01__0__0_1101_xxxx_xxxx_0010_xx  // tmp=ldio(dx)
  INSBR xxx__0_xx_00_00_00__0__x__0__0__0_1x__1_000_111__0_00__1__0_xxxx_1101_1100_0111_00  // st(di)=tmp
  INSBR 111__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0111_xxxx_xxxx_0111_xx  // di+-1
  INSBR 101__x_00_xx_xx_00__x__x__0__1__x_01__0_001_001__0_01__0__0_0001_xxxx_xxxx_0001_xx  // cx-1
- INSWR xxx__0_00_xx_00_00__1__x__0__0__1_10__0_000_111__0_01__0__0_1101_xxxx_1100_0010_mm  // tmp=ldio(dx)
+ INSWR 000__x_00_xx_00_xx__x__x__x__1__1_00__0_001_001__0_01__0__0_1101_xxxx_xxxx_0010_xx  // tmp=ldio(dx)
  INSWR xxx__0_xx_00_00_00__0__x__0__0__0_1x__0_000_111__0_00__1__0_xxxx_1101_1100_0111_00  // st(di)=tmp
  INSWR 001__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0111_xxxx_xxxx_0111_xx  // di+-2
  INSWR 101__x_00_xx_xx_00__x__x__0__1__x_01__0_001_001__0_01__0__0_0001_xxxx_xxxx_0001_xx  // cx-1
@@ -903,18 +903,18 @@ OUTS String
 * Without repetition
  ######  vi vo vd vc vb va vs cb ab im mi ma by fun  t  wh wr wm wf ad_d ad_c ad_b ad_a  s
  OUTSB  xxx__0_00_xx_00_00__1__x__0__0__0_10__1_000_111__0_01__0__0_1101_xxxx_1100_0110_mm  // tmp=ld(si)
- OUTSB  xxx__0_xx_00_00_00__0__x__0__0__1_1x__1_000_111__0_00__1__0_xxxx_1101_1100_0010_00  // stio(dx)=tmp
+ OUTSB  000__x_xx_00_00_xx__x__1__x__1__1_0x__1_001_001__0_00__1__0_xxxx_1101_xxxx_0010_xx  // stio(dx)=tmp
  OUTSB  111__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0110_xxxx_xxxx_0110_xx  // si+-1
  OUTSW  xxx__0_00_xx_00_00__1__x__0__0__0_10__0_000_111__0_01__0__0_1101_xxxx_1100_0110_mm  // tmp=ld(si)
- OUTSW  xxx__0_xx_00_00_00__0__x__0__0__1_1x__0_000_111__0_00__1__0_xxxx_1101_1100_0010_00  // stio(dx)=tmp
+ OUTSW  000__x_xx_00_00_xx__x__0__x__1__1_0x__0_001_001__0_00__1__0_xxxx_1101_xxxx_0010_xx  // stio(dx)=tmp
  OUTSW  001__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0110_xxxx_xxxx_0110_xx  // si+-2
 * With repetition
  ######  vi vo vd vc vb va vs cb ab im mi ma by fun  t  wh wr wm wf ad_d ad_c ad_b ad_a  s
  OUTSBR xxx__0_00_xx_00_00__1__x__0__0__0_10__1_000_111__0_01__0__0_1101_xxxx_1100_0110_mm  // tmp=ld(si)
- OUTSBR xxx__0_xx_00_00_00__0__x__0__0__1_1x__1_000_111__0_00__1__0_xxxx_1101_1100_0010_00  // stio(dx)=tmp
+ OUTSBR 000__x_xx_00_00_xx__x__1__x__1__1_0x__1_001_001__0_00__1__0_xxxx_1101_xxxx_0010_xx  // stio(dx)=tmp
  OUTSBR 111__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0110_xxxx_xxxx_0110_xx  // si+-1
  OUTSBR 101__x_00_xx_xx_00__x__x__0__1__x_01__0_001_001__0_01__0__0_0001_xxxx_xxxx_0001_xx  // cx-1
  OUTSWR xxx__0_00_xx_00_00__1__x__0__0__0_10__0_000_111__0_01__0__0_1101_xxxx_1100_0110_mm  // tmp=ld(si)
- OUTSWR xxx__0_xx_00_00_00__0__x__0__0__1_1x__0_000_111__0_00__1__0_xxxx_1101_1100_0010_00  // stio(dx)=tmp
+ OUTSWR 000__x_xx_00_00_xx__x__0__x__1__1_0x__0_001_001__0_00__1__0_xxxx_1101_xxxx_0010_xx  // stio(dx)=tmp
  OUTSWR 001__x_00_xx_xx_00__x__x__0__1__x_01__0_111_111__0_01__0__0_0110_xxxx_xxxx_0110_xx  // si+-2
  OUTSWR 101__x_00_xx_xx_00__x__x__0__1__x_01__0_001_001__0_01__0__0_0001_xxxx_xxxx_0001_xx  // cx-1
