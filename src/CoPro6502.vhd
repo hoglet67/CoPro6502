@@ -6,8 +6,8 @@ use ieee.numeric_std.all;
 entity CoPro6502 is
     generic (
        UseT65Core    : boolean := false;
-       UseJensCore   : boolean := true;
-       UseAlanDCore  : boolean := false
+       UseJensCore   : boolean := false;
+       UseAlanDCore  : boolean := true
        );
     port (
         -- GOP Signals
