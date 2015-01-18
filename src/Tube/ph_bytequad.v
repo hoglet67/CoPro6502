@@ -76,7 +76,7 @@ module ph_bytequad (
    
 
    
-   ph_byte    ph_reg1 ( 
+   ph_fifo    ph_reg1 ( 
                         .h_rst_b(h_rst_b),
                         .h_rd(h_rd),
                         .h_selectData(h_selectData[0]),

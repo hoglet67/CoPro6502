@@ -7,4 +7,7 @@ Client.log
 java/*/bin/
 java/*/tmp/
 java/*/*.jar
+tmp/
+_xmsgs/
+coregen.cgp
 
