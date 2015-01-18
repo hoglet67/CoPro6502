@@ -105,9 +105,9 @@ architecture BEHAVIORAL of CoPro6502 is
         enable      : in std_logic;
         nmi_n       : in std_logic;
         irq_n       : in std_logic;
-        di          : in std_logic_vector(7 downto 0);          
-        do          : out std_logic_vector(7 downto 0);
-        addr        : out std_logic_vector(15 downto 0);
+        di          : in unsigned(7 downto 0);          
+        do          : out unsigned(7 downto 0);
+        addr        : out unsigned(15 downto 0);
         nwe         : out std_logic;
         sync        : out std_logic;
         sync_irq    : out std_logic
@@ -174,8 +174,10 @@ architecture BEHAVIORAL of CoPro6502 is
     signal debug_clk  : std_logic;
     signal cpu_R_W_n  : std_logic;
     signal cpu_addr   : std_logic_vector (23 downto 0);
+    signal cpu_addr_us: unsigned (23 downto 0);
     signal cpu_din    : std_logic_vector (7 downto 0);
     signal cpu_dout   : std_logic_vector (7 downto 0);
+    signal cpu_dout_us: unsigned (7 downto 0);
     signal cpu_IRQ_n  : std_logic;
     signal cpu_NMI_n  : std_logic;
     signal sync       : std_logic;
@@ -246,13 +248,15 @@ begin
             enable   => cpu_clken,
             nmi_n    => cpu_NMI_n,
             irq_n    => cpu_IRQ_n,
-            di       => cpu_din,
-            do       => cpu_dout,
-            addr     => cpu_addr(15 downto 0),
+            di       => unsigned(cpu_din),
+            do       => cpu_dout_us,
+            addr     => cpu_addr_us(15 downto 0),
             nwe      => cpu_R_W_n,
             sync     => sync,
             sync_irq => open
-        );    
+        );
+        cpu_dout <= std_logic_vector(cpu_dout_us);
+        cpu_addr <= std_logic_vector(cpu_addr_us);
         -- For debugging only
         debug_clk <= cpu_clken;        
     end generate;
