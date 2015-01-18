@@ -337,16 +337,9 @@ begin
 -- phi3 active on cycle 4
 
 --------------------------------------------------------
-    clk_gen : process(clk_16M00, RSTn)
+    clk_gen : process(clk_16M00)
     begin
-        if RSTn = '0' then
-            clken_counter <= (others => '0');
-            cpu_clken <= '0';
-            phi0      <= '0';
-            phi1      <= '0';
-            phi2      <= '0';
-            phi3      <= '0';
-        elsif rising_edge(clk_16M00) then
+        if rising_edge(clk_16M00) then
             clken_counter <= clken_counter + 1;
             cpu_clken     <= clken_counter(0) and clken_counter(1);
             --phi0          <= not clken_counter(1);
