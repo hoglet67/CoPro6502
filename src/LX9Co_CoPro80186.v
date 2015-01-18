@@ -147,7 +147,8 @@ module LX9CoPro80186 (
   reg tubenmi3;
   
   wire [19:0] pc;
-
+  wire trigger;
+  
 // Instantiate the module
 dcm_32_16 instance_name (
     .CLKIN_IN(fastclk), 
@@ -505,16 +506,20 @@ tube tube_inst(
                 (inta ? 16'h000c :
                         sw_dat_o);
                         
+  // 06bb:0a55                      
+  assign trigger = (pc[15:0] == 16'h7605) ? 1 : 0; 
+                        
   assign test = sw[1] ? pc[15:8] : 
               ( sw[2] ? {p_cs_b, pc[6:0]} :
               ( sw[3] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, nmi, nmia, intr, inta } :
-              ( sw[4] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
-              ( {p_irq_b, p_cs_b, p_wr_b, p_data[7:6], p_addr[2:0]}
+              ( sw[4] ? {trigger, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
+              ( { trigger, pc[6:0] }
               ))));
   
   assign dack_b = 1;
   
-  assign ram_addr = {1'b0, ram_addr_int[18] ^ ram_addr_int[17], ram_addr_int[16:0]};
+  //assign ram_addr = {1'b0, ram_addr_int[18] ^ ram_addr_int[17], ram_addr_int[16:0]};
+  assign ram_addr = ram_addr_int;
   
   assign h_irq_b = 1;
 

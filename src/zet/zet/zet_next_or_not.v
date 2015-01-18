@@ -38,6 +38,8 @@ module zet_next_or_not (
   assign valid_ops = (opcode[7:1]==7'b1010_010   // movs
                    || opcode[7:1]==7'b1010_011   // cmps
                    || opcode[7:1]==7'b1010_101   // stos
+                   || opcode[7:1]==7'b0110_110   // ins
+                   || opcode[7:1]==7'b0110_111   // outs
                    || opcode[7:1]==7'b1010_110   // lods
                    || opcode[7:1]==7'b1010_111); // scas
   assign next_in_exec = prefix[1] && valid_ops && !exit_rep && !ext_int;
