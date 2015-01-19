@@ -305,7 +305,7 @@ architecture Behavioral of R65C02 is
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode  
 	  "0000" & "001100" & brk       & aluInBrk & aluP,   -- 00 BRK
 	  "1000" & "100010" & readIndX  & aluInT   & aluOra, -- 01 ORA (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 02 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 02 NOP ------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 03 NOP ------- 65C02
 	  "0000" & "000010" & rmwZp     & aluInT   & aluTSB, -- 04 TSB zp ----------- 65C02
 	  "1000" & "100010" & readZp    & aluInT   & aluOra, -- 05 ORA zp
@@ -338,7 +338,7 @@ architecture Behavioral of R65C02 is
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "000000" & jsr       & aluInXXX & aluXXX, -- 20 JSR
 	  "1000" & "100010" & readIndX  & aluInT   & aluAnd, -- 21 AND (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 22 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 22 NOP ------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 23 NOP ------- 65C02
 	  "0000" & "110010" & readZp    & aluInT   & aluBit, -- 24 BIT zp
 	  "1000" & "100010" & readZp    & aluInT   & aluAnd, -- 25 AND zp
@@ -371,9 +371,9 @@ architecture Behavioral of R65C02 is
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "111111" & rti       & aluInT   & aluFlg, -- 40 RTI
 	  "1000" & "100010" & readIndX  & aluInT   & aluEor, -- 41 EOR (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 42 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 42 NOP ------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 43 NOP ------- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 44 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 44 NOP ------- 65C02
 	  "1000" & "100010" & readZp    & aluInT   & aluEor, -- 45 EOR zp
 	  "0000" & "100011" & rmwZp     & aluInT   & aluLsr, -- 46 LSR zp
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 47 NOP ------- 65C02
@@ -389,7 +389,7 @@ architecture Behavioral of R65C02 is
 	  "1000" & "100010" & readIndY  & aluInT   & aluEor, -- 51 EOR (zp),y
 	  "1000" & "100010" & readInd   & aluInT   & aluEor, -- 52 EOR (zp) -------- 65C02 
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 53 NOP ------- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 54 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 54 NOP ------- 65C02
 	  "1000" & "100010" & readZpX   & aluInT   & aluEor, -- 55 EOR zp,x
 	  "0000" & "100011" & rmwZpX    & aluInT   & aluLsr, -- 56 LSR zp,x
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 57 NOP ------- 65C02
@@ -397,14 +397,14 @@ architecture Behavioral of R65C02 is
 	  "1000" & "100010" & readAbsY  & aluInT   & aluEor, -- 59 EOR abs,y
 	  "0000" & "000000" & push      & aluInY   & aluInp, -- 5A PHY ------------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 5B NOP ------- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 5C NOP ------- 65C02
+	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- 5C NOP ------- 65C02
 	  "1000" & "100010" & readAbsX  & aluInT   & aluEor, -- 5D EOR abs,x
 	  "0000" & "100011" & rmwAbsX   & aluInT   & aluLsr, -- 5E LSR abs,x
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 5F NOP ------- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "000000" & rts       & aluInXXX & aluXXX, -- 60 RTS
 	  "1000" & "110011" & readIndX  & aluInT   & aluAdc, -- 61 ADC (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 62 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 62 NOP ------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 63 NOP ------- 65C02
 	  "0000" & "000000" & writeZp   & aluInClr & aluInp, -- 64 STZ zp ---------- 65C02
 	  "1000" & "110011" & readZp    & aluInT   & aluAdc, -- 65 ADC zp
@@ -438,7 +438,7 @@ architecture Behavioral of R65C02 is
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 80 BRA ----------- 65C02
 	  "0000" & "000000" & writeIndX & aluInA   & aluInp, -- 81 STA (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 82 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 82 NOP ----- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 83 NOP ----- 65C02
 	  "0000" & "000000" & writeZp   & aluInY   & aluInp, -- 84 STY zp
 	  "0000" & "000000" & writeZp   & aluInA   & aluInp, -- 85 STA zp
@@ -504,7 +504,7 @@ architecture Behavioral of R65C02 is
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "100011" & immediate & aluInT   & aluCpy, -- C0 CPY imm
 	  "0000" & "100011" & readIndX  & aluInT   & aluCmp, -- C1 CMP (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- C2 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- C2 NOP ----- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- C3 NOP ----- 65C02
 	  "0000" & "100011" & readZp    & aluInT   & aluCpy, -- C4 CPY zp
 	  "0000" & "100011" & readZp    & aluInT   & aluCmp, -- C5 CMP zp
@@ -522,7 +522,7 @@ architecture Behavioral of R65C02 is
 	  "0000" & "100011" & readIndY  & aluInT   & aluCmp, -- D1 CMP (zp),y
 	  "0000" & "100011" & readInd   & aluInT   & aluCmp, -- D2 CMP (zp) ------ 65C02 
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- D3 NOP ----- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- D4 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- D4 NOP ----- 65C02
 	  "0000" & "100011" & readZpX   & aluInT   & aluCmp, -- D5 CMP zp,x
 	  "0000" & "100010" & rmwZpX    & aluInT   & aluDec, -- D6 DEC zp,x
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- D7 NOP ----- 65C02
@@ -530,14 +530,14 @@ architecture Behavioral of R65C02 is
 	  "0000" & "100011" & readAbsY  & aluInT   & aluCmp, -- D9 CMP abs,y
 	  "0000" & "000000" & push      & aluInX   & aluInp, -- DA PHX ----------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- DB NOP ----- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- DC NOP ----- 65C02
+	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- DC NOP ----- 65C02
 	  "0000" & "100011" & readAbsX  & aluInT   & aluCmp, -- DD CMP abs,x
 	  "0000" & "100010" & rmwAbsX   & aluInT   & aluDec, -- DE DEC abs,x
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- DF NOP ----- 65C02
 	-- AXYS    NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "100011" & immediate & aluInT   & aluCpx, -- E0 CPX imm
 	  "1000" & "110011" & readIndX  & aluInT   & aluSbc, -- E1 SBC (zp,x)
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- E2 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- E2 NOP ----- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- E3 NOP ----- 65C02
 	  "0000" & "100011" & readZp    & aluInT   & aluCpx, -- E4 CPX zp
 	  "1000" & "110011" & readZp    & aluInT   & aluSbc, -- E5 SBC zp
@@ -555,7 +555,7 @@ architecture Behavioral of R65C02 is
 	  "1000" & "110011" & readIndY  & aluInT   & aluSbc, -- F1 SBC (zp),y
 	  "1000" & "110011" & readInd   & aluInT   & aluSbc, -- F2 SBC (zp) ------ 65C02 
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- F3 NOP ----- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- F4 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- F4 NOP ----- 65C02
 	  "1000" & "110011" & readZpX   & aluInT   & aluSbc, -- F5 SBC zp,x
 	  "0000" & "100010" & rmwZpX    & aluInT   & aluInc, -- F6 INC zp,x
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- F7 NOP  ---- 65C02
@@ -563,7 +563,7 @@ architecture Behavioral of R65C02 is
 	  "1000" & "110011" & readAbsY  & aluInT   & aluSbc, -- F9 SBC abs,y
 	  "0100" & "100010" & pop       & aluInT   & aluInp, -- FA PLX ----------- 65C02
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- FB NOP ----- 65C02
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- FC NOP ----- 65C02
+	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- FC NOP ----- 65C02
 	  "1000" & "110011" & readAbsX  & aluInT   & aluSbc, -- FD SBC abs,x
 	  "0000" & "100010" & rmwAbsX   & aluInT   & aluInc, -- FE INC abs,x
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX  -- FF NOP ----- 65C02
@@ -798,28 +798,6 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 			end if;
 		when others =>			null;
 		end case;
-		
-		-- fix z flag for 65c02 adc sbc instructions in decimal mode
-		case opcInfo(aluMode2From to aluMode2To) is
-		when aluModeAdc =>
-			if D = '1' then
-				if ninebits(7 downto 0) = X"00" then
-					varZ := '1';
-				else
-					varZ := '0';
-				end if;	
-			end if;
-		when aluModeSbc =>
-			if D = '1' then
-				if ninebits(7 downto 0) = X"00" then
-					varZ := '1';
-				else
-					varZ := '0';
-				end if;	
-			end if;
-		when others =>			null;
-		end case;	
-			
 
 		case opcInfo(aluMode2From to aluMode2To) is
 		when aluModeAdc =>
@@ -837,7 +815,7 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 			if D = '1' then
 				-- Check for borrow (lower 4 bits)
 				if lowBits(5) = '0' then
-					ninebits(3 downto 0) := ninebits(3 downto 0) - 6;
+					ninebits(7 downto 0) := ninebits(7 downto 0) - 6;
 				end if;
 				-- Check for borrow (upper 4 bits)
 				if ninebits(8) = '0' then
@@ -846,7 +824,30 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 			end if;
 		when others =>			null;
 		end case;
-		
+
+		-- fix n and z flag for 65c02 adc sbc instructions in decimal mode
+		case opcInfo(aluMode2From to aluMode2To) is
+		when aluModeAdc =>
+			if D = '1' then
+				if ninebits(7 downto 0) = X"00" then
+					varZ := '1';
+				else
+					varZ := '0';
+				end if;	
+                varN := ninebits(7);
+			end if;
+		when aluModeSbc =>
+			if D = '1' then
+				if ninebits(7 downto 0) = X"00" then
+					varZ := '1';
+				else
+					varZ := '0';
+				end if;	
+                varN := ninebits(7);
+			end if;
+		when others =>			null;
+		end case;	
+        		
 	if rising_edge(clk) then	
 		aluRmwOut <= rmwBits(7 downto 0);
 		aluRegisterOut <= ninebits(7 downto 0);
