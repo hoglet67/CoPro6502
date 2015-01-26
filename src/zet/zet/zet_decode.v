@@ -45,7 +45,7 @@ module zet_decode (
     input        ifl,
     output       iflm,
     output reg   inta,
-    output reg   ext_int,
+    output       ext_int,
     input        nmir,
     output reg   nmia,
     input        wr_ss,
@@ -72,7 +72,10 @@ module zet_decode (
   reg  tfld;
   reg  ifld;
   reg  iflssd;
-  reg  old_ext_int;
+  reg  ext_irq;
+  reg  ext_nmi;
+  reg  old_ext_irq;
+  reg  old_ext_nmi;
 
   reg [4:0] div_cnt;
 
@@ -135,22 +138,34 @@ module zet_decode (
     else tfle <= block ? tfle
      : ((((tflm & !tfle) & iflss) & exec_st & end_seq) ? 1'b1 : (tfle ? !end_seq : 1'b0));
 
-  // ext_int
+  // ext_irq
   always @(posedge clk)
-    if (rst) ext_int <= 1'b0;
-    else ext_int <= block ? ext_int
-      : ((((nmir | (intr & iflm)) & iflss) & exec_st & end_seq) ? 1'b1
-        : (ext_int ? !end_seq : 1'b0));
+    if (rst) ext_irq <= 1'b0;
+    else ext_irq <= block ? ext_irq
+      : ((!nmir & intr & iflm & iflss & exec_st & end_seq) ? 1'b1
+        : (ext_irq ? !end_seq : 1'b0));
+
+  // ext_nmi
+  always @(posedge clk)
+    if (rst) ext_nmi <= 1'b0;
+    else ext_nmi <= block ? ext_nmi
+      : ((nmir  & iflss & exec_st & end_seq) ? 1'b1
+        : (ext_nmi ? !end_seq : 1'b0));
+
+  assign ext_int = ext_irq | ext_nmi;
 
   // old_ext_int
-  always @(posedge clk) old_ext_int <= rst ? 1'b0 : ext_int;
+  always @(posedge clk) old_ext_irq <= rst ? 1'b0 : ext_irq;
+
+  // old_ext_int
+  always @(posedge clk) old_ext_nmi <= rst ? 1'b0 : ext_nmi;
 
   // inta
   always @(posedge clk)
-    inta <= rst ? 1'b0 : (!nmir & (!old_ext_int & ext_int));
+    inta <= rst ? 1'b0 : (!old_ext_irq & ext_irq);
 
   // nmia
   always @(posedge clk)
-    nmia <= rst ? 1'b0 : (nmir & (!old_ext_int & ext_int));
+    nmia <= rst ? 1'b0 : (!old_ext_nmi & ext_nmi);
 
 endmodule
