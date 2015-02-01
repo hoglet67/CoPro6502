@@ -292,14 +292,20 @@ tube tube_inst(
   // &0FFCA
   
   wb_switch #(
-    .s0_addr_1 (20'b0_1100_0000_0000_0000_000), // bios boot mem 0xc0000 - 0xfffff
-    .s0_mask_1 (20'b1_1100_0000_0000_0000_000), // bios boot ROM Memory
+    .s0_addr_1 (20'b0_1111_0000_0000_0000_000), // bios boot mem 0xf0000 - 0xfffff
+    .s0_mask_1 (20'b1_1111_0000_0000_0000_000), // bios boot ROM Memory
 
     .s1_addr_1 (20'b0_0000_0000_0000_0000_000), // mem 0x00000-0x7ffff
     .s1_mask_1 (20'b1_1000_0000_0000_0000_000), // main memory
 
     .s1_addr_2 (20'b0_1000_0000_0000_0000_000), // mem 0x80000-0xbffff
     .s1_mask_2 (20'b1_1100_0000_0000_0000_000), // main memory
+
+    .s1_addr_3 (20'b0_1100_0000_0000_0000_000), // mem 0xC0000-0xDffff
+    .s1_mask_3 (20'b1_1110_0000_0000_0000_000), // main memory
+
+    .s1_addr_4 (20'b0_1110_0000_0000_0000_000), // mem 0xE0000-0xEffff
+    .s1_mask_4 (20'b1_1111_0000_0000_0000_000), // main memory
 
     .s2_addr_1 (20'b1_0000_1111_1111_0010_000), // io 0xFF20 - 0xFF3E
     .s2_mask_1 (20'b1_0000_1111_1111_1110_000), // Interrupt Control Registers

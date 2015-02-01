@@ -26,6 +26,10 @@ module wb_switch #(
     parameter s1_mask_1 = 20'h00000,
     parameter s1_addr_2 = 20'h00000,
     parameter s1_mask_2 = 20'h00000,
+    parameter s1_addr_3 = 20'h00000,
+    parameter s1_mask_3 = 20'h00000,
+    parameter s1_addr_4 = 20'h00000,
+    parameter s1_mask_4 = 20'h00000,
     parameter s2_addr_1 = 20'h00000,
     parameter s2_mask_1 = 20'h00000,
     parameter s3_addr_1 = 20'h00000,
@@ -210,7 +214,7 @@ assign i_dat_s =   ({16{slave_sel[ 0]}} & s0_dat_i)
 
 // Bus Selection logic
 assign slave_sel[ 0] =  ((m_adr_i & s0_mask_1) == s0_addr_1);
-assign slave_sel[ 1] =  ((m_adr_i & s1_mask_1) == s1_addr_1) | ((m_adr_i & s1_mask_2) == s1_addr_2);
+assign slave_sel[ 1] =  ((m_adr_i & s1_mask_1) == s1_addr_1) | ((m_adr_i & s1_mask_2) == s1_addr_2) | ((m_adr_i & s1_mask_3) == s1_addr_3) | ((m_adr_i & s1_mask_4) == s1_addr_4);
 assign slave_sel[ 2] =  ((m_adr_i & s2_mask_1) == s2_addr_1);
 assign slave_sel[ 3] =  ((m_adr_i & s3_mask_1) == s3_addr_1);
 assign slave_sel[ 4] =  ((m_adr_i & s4_mask_1) == s4_addr_1);
