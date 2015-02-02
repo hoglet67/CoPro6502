@@ -180,6 +180,8 @@ architecture BEHAVIORAL of CoPro6502 is
     signal cpu_dout_us: unsigned (7 downto 0);
     signal cpu_IRQ_n  : std_logic;
     signal cpu_NMI_n  : std_logic;
+    signal cpu_IRQ_n_sync  : std_logic;
+    signal cpu_NMI_n_sync  : std_logic;
     signal sync       : std_logic;
 begin
 
@@ -209,8 +211,8 @@ begin
             Enable          => cpu_clken,
             Clk             => clk_16M00,
             Rdy             => '1',
-            IRQ_n           => cpu_IRQ_n,
-            NMI_n           => cpu_NMI_n,
+            IRQ_n           => cpu_IRQ_n_sync,
+            NMI_n           => cpu_NMI_n_sync,
             R_W_n           => cpu_R_W_n,
             Sync            => sync,
             A(23 downto 0)  => cpu_addr,
@@ -225,8 +227,8 @@ begin
         Inst_r65c02_tc: r65c02_tc PORT MAP(
             clk_clk_i   => phi0,
             d_i         => cpu_din,
-            irq_n_i     => cpu_IRQ_n,
-            nmi_n_i     => cpu_NMI_n,
+            irq_n_i     => cpu_IRQ_n_sync,
+            nmi_n_i     => cpu_NMI_n_sync,
             rdy_i       => '1',
             rst_rst_n_i => RSTn,
             so_n_i      => '1',
@@ -246,8 +248,8 @@ begin
             reset    => RSTn,
             clk      => clk_16M00,
             enable   => cpu_clken,
-            nmi_n    => cpu_NMI_n,
-            irq_n    => cpu_IRQ_n,
+            nmi_n    => cpu_NMI_n_sync,
+            irq_n    => cpu_IRQ_n_sync,
             di       => unsigned(cpu_din),
             do       => cpu_dout_us,
             addr     => cpu_addr_us(15 downto 0),
@@ -373,6 +375,19 @@ begin
         elsif rising_edge(clk_16M00) then
             if p_cs_b = '0' then
                 bootmode <= '0';
+            end if;
+        end if;
+    end process;
+
+    sync_gen : process(clk_16M00, RSTn)
+    begin
+        if RSTn = '0' then
+            cpu_NMI_n_sync <= '1';
+            cpu_IRQ_n_sync <= '1';
+        elsif rising_edge(clk_16M00) then
+            if (cpu_clken = '1') then
+                cpu_NMI_n_sync <= cpu_NMI_n;
+                cpu_IRQ_n_sync <= cpu_IRQ_n;            
             end if;
         end if;
     end process;
