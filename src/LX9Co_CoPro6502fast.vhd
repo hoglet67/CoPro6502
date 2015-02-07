@@ -154,11 +154,12 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 -- clock and reset signals
 -------------------------------------------------
 
-    signal clk_cpu     : std_logic;
+    signal clk_cpu       : std_logic;
     signal cpu_clken     : std_logic;
     signal bootmode      : std_logic;
     signal RSTn          : std_logic;
-
+    signal RSTn_sync     : std_logic;
+    
 -------------------------------------------------
 -- parasite signals
 -------------------------------------------------
@@ -215,7 +216,7 @@ begin
             Mode            => "01",
             Abort_n         => '1',
             SO_n            => '1',
-            Res_n           => RSTn,
+            Res_n           => RSTn_sync,
             Enable          => cpu_clken,
             Clk             => clk_cpu,
             Rdy             => '1',
@@ -238,7 +239,7 @@ begin
             irq_n_i     => cpu_IRQ_n_sync,
             nmi_n_i     => cpu_NMI_n_sync,
             rdy_i       => '1',
-            rst_rst_n_i => RSTn,
+            rst_rst_n_i => RSTn_sync,
             so_n_i      => '1',
             a_o         => cpu_addr(15 downto 0),
             d_o         => cpu_dout,
@@ -253,7 +254,7 @@ begin
 
     GenAlanDCore: if UseAlanDCore generate
         inst_r65c02: r65c02 port map(
-            reset    => RSTn,
+            reset    => RSTn_sync,
             clk      => clk_cpu,
             enable   => cpu_clken,
             nmi_n    => cpu_NMI_n_sync,
@@ -333,9 +334,9 @@ begin
 --------------------------------------------------------
 -- boot mode generator
 --------------------------------------------------------
-    boot_gen : process(clk_cpu, RSTn)
+    boot_gen : process(clk_cpu, RSTn_sync)
     begin
-        if RSTn = '0' then
+        if RSTn_sync = '0' then
             bootmode <= '1';
         elsif rising_edge(clk_cpu) then
             if p_cs_b = '0' then
@@ -347,15 +348,15 @@ begin
 --------------------------------------------------------
 -- interrupt synchronization
 --------------------------------------------------------
-    sync_gen : process(clk_cpu, RSTn)
+    sync_gen : process(clk_cpu, RSTn_sync)
     begin
-        if RSTn = '0' then
+        if RSTn_sync = '0' then
             cpu_NMI_n_sync <= '1';
             cpu_IRQ_n_sync <= '1';
         elsif rising_edge(clk_cpu) then
             if (cpu_clken = '1') then
                 cpu_NMI_n_sync <= cpu_NMI_n;
-                cpu_IRQ_n_sync <= cpu_IRQ_n;            
+                cpu_IRQ_n_sync <= cpu_IRQ_n;
             end if;
         end if;
     end process;
@@ -363,14 +364,14 @@ begin
 --------------------------------------------------------
 -- clock enable generator
 --------------------------------------------------------
-    clk_gen : process(clk_cpu, RSTn)
+    clk_gen : process(clk_cpu)
     begin
         if rising_edge(clk_cpu) then
             cpu_clken     <= not cpu_clken;
+            RSTn_sync     <= RSTn;
         end if;
     end process;
-    
-    
+     
 end BEHAVIORAL;
 
 
