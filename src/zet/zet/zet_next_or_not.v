@@ -31,7 +31,7 @@ module zet_next_or_not (
   wire exit_z, cmp_sca, exit_rep, valid_ops;
 
   // Assignments
-  assign cmp_sca = opcode[2] & opcode[1];
+  assign cmp_sca = opcode[7] & opcode[2] & opcode[1];
   assign exit_z = prefix[0] ? /* repz */ (cmp_sca ? ~zf : 1'b0 )
                             : /* repnz */ (cmp_sca ? zf : 1'b0 );
   assign exit_rep = cx_zero | exit_z;
