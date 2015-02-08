@@ -24,7 +24,8 @@ module zet_next_or_not (
     input zf,
     input ext_int,
     output next_in_opco,
-    output next_in_exec
+    output next_in_exec,
+    output use_eintp
   );
 
   // Net declarations
@@ -44,4 +45,6 @@ module zet_next_or_not (
                    || opcode[7:1]==7'b1010_111); // scas
   assign next_in_exec = prefix[1] && valid_ops && !exit_rep && !ext_int;
   assign next_in_opco = prefix[1] && valid_ops && cx_zero;
+  assign use_eintp    = prefix[1] && valid_ops && !exit_z;
+  
 endmodule

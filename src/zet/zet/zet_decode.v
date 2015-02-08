@@ -61,7 +61,9 @@ module zet_decode (
     output [2:0] f,
 
     // from microcode
-    input  end_seq
+    input  end_seq,
+
+    input use_eintp
   );
 
   // Net declarations
@@ -86,7 +88,7 @@ module zet_decode (
 
   // Assignments
   assign seq_addr = (tfle ? `INTT : (dive ? `INTD
-    : (ext_int ? (rep ? `EINTP : `EINT) : base_addr))) + seq;
+    : (ext_int ? (use_eintp ? `EINTP : `EINT) : base_addr))) + seq;
 
   assign f = opcode[7] ? modrm[5:3] : opcode[5:3];
 

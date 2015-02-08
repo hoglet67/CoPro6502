@@ -115,6 +115,8 @@ module zet_core (
   reg nmir;
   reg nmi_old;
   reg nmia_old;
+  
+  wire use_eintp;
 
   // Module instantiations
   zet_fetch fetch (
@@ -166,7 +168,9 @@ module zet_core (
     .bytefetch     (byte_fetch),
     .block         (block_or_hlt),
     .intr          (intr),
-    .nmir          (nmir)
+    .nmir          (nmir),
+    
+    .use_eintp     (use_eintp)
   );
 
   zet_decode decode (
@@ -209,7 +213,10 @@ module zet_core (
     .seg      (seg),
     .f        (fdec),
 
-    .end_seq  (end_seq)
+    .end_seq  (end_seq),
+    
+    .use_eintp     (use_eintp)
+
   );
 
   zet_micro_data micro_data (

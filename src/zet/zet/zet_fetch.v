@@ -67,7 +67,9 @@ module zet_fetch (
     input  intr,
     input  iflm,
     input  nmir,
-    input  iflss
+    input  iflss,
+    
+    output use_eintp
   );
 
   // Registers, nets and parameters
@@ -89,7 +91,7 @@ module zet_fetch (
 
   // Module instantiation
   zet_next_or_not next_or_not(pref_l, opcode[7:1], cx_zero, zf, ext_int, next_in_opco,
-                  next_in_exec);
+                  next_in_exec, use_eintp);
   zet_nstate nstate (state, prefix, need_modrm, need_off, need_imm, end_seq,
              ftype, of, next_in_opco, next_in_exec, block, div_exc,
              tflm, intr, iflm, nmir, iflss, next_state);
