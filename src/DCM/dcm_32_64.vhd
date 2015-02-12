@@ -13,18 +13,23 @@ end dcm_32_64;
 
 architecture BEHAVIORAL of dcm_32_64 is
     signal CLKFX_BUF   : std_logic;
+    signal CLK2X_BUF   : std_logic;
     signal CLKIN_IBUFG : std_logic;
     signal GND_BIT     : std_logic;
 begin
 
     GND_BIT <= '0';
+
     CLKFX_BUFG_INST : BUFG
         port map (I => CLKFX_BUF, O => CLK0_OUT);
     
+    CLK2X_BUFG_INST : BUFG
+        port map (I => CLK2X_BUF, O => CLK2X_OUT);
+
     DCM_INST : DCM
         generic map(CLK_FEEDBACK          => "NONE",
-                    CLKDV_DIVIDE          => 4.0,  -- 77.333 = 32.000 * 29/12
-                    CLKFX_MULTIPLY        => 29,
+                    CLKDV_DIVIDE          => 4.0,  -- 64.00 = 32.000 * 24/12
+                    CLKFX_MULTIPLY        => 24,
                     CLKFX_DIVIDE          => 12,
                     CLKIN_DIVIDE_BY_2     => false,
                     CLKIN_PERIOD          => 31.25,
@@ -47,7 +52,7 @@ begin
                   CLKFX    => CLKFX_BUF,
                   CLKFX180 => open,
                   CLK0     => open,
-                  CLK2X    => open,
+                  CLK2X    => CLK2X_BUF,
                   CLK2X180 => open,
                   CLK90    => open,
                   CLK180   => open,

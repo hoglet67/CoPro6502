@@ -15,6 +15,7 @@ entity LX9CoPro6502fast is
         --tp        : out   std_logic_vector(8 downto 2);
         test      : out   std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(2 downto 1);
+        --sw        : in    std_logic_vector(2 downto 1);
         --fcs       : out   std_logic;
         
         -- Tube signals (use 16 out of 22 DIL pins)
@@ -26,9 +27,8 @@ entity LX9CoPro6502fast is
         h_rst_b   : in    std_logic;
         h_irq_b   : inout std_logic;
 
-
         -- Ram Signals
-		ram_ub_b     : out   std_logic;
+        ram_ub_b     : out   std_logic;
         ram_lb_b     : out   std_logic;
         ram_cs       : out   std_logic;
         ram_oe       : out   std_logic;
@@ -49,10 +49,11 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
         ); 
     end component;
 
-    component tuberom_65c102
+    component tuberom_65c102_banner
         port (
             CLK  : in  std_logic;
             ADDR : in  std_logic_vector(10 downto 0);
+            SW   : in  std_logic_vector(1 downto 0);
             DATA : out std_logic_vector(7 downto 0));
     end component;
 
@@ -136,18 +137,18 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
             p_rst_b    : out   std_logic;
             p_nmi_b    : inout std_logic;
             p_irq_b    : inout std_logic
-          );
+        );
     end component;
     
-	component RAM_64K
-	port(
-		clk     : in std_logic;
-		we_uP   : in std_logic;
-		ce      : in std_logic;
-		addr_uP : in std_logic_vector(15 downto 0);
-		D_uP    : in std_logic_vector(7 downto 0);          
-		Q_uP    : out std_logic_vector(7 downto 0)
-		);
+    component RAM_64K
+        port(
+            clk     : in std_logic;
+            we_uP   : in std_logic;
+            ce      : in std_logic;
+            addr_uP : in std_logic_vector(15 downto 0);
+            D_uP    : in std_logic_vector(7 downto 0);          
+            Q_uP    : out std_logic_vector(7 downto 0)
+        );
     end component;
 
 -------------------------------------------------
@@ -156,9 +157,11 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 
     signal clk_cpu       : std_logic;
     signal cpu_clken     : std_logic;
+    signal p_tube_clk    : std_logic;
     signal bootmode      : std_logic;
     signal RSTn          : std_logic;
     signal RSTn_sync     : std_logic;
+    signal clken_counter : std_logic_vector (3 downto 0);
     
 -------------------------------------------------
 -- parasite signals
@@ -205,9 +208,10 @@ begin
         CLK2X_OUT => open
     );
 
-    inst_tuberom : tuberom_65c102 port map (
+    inst_tuberom : tuberom_65c102_banner port map (
         CLK             => clk_cpu,
         ADDR            => cpu_addr(10 downto 0),
+        SW              => SW,
         DATA            => rom_data_out
     );
 
@@ -285,22 +289,21 @@ begin
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
         p_rdnw          => cpu_R_W_n,
-        p_phi2          => not cpu_clken,
+        p_phi2          => p_tube_clk,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
     );
 
 
-	Inst_RAM_64K: RAM_64K PORT MAP(
-		clk     => clk_cpu,
-		we_uP   => ram_wr_int,
-		ce      => '1',
-		addr_uP => cpu_addr(15 downto 0),
-		D_uP    => cpu_dout,
-		Q_uP    => ram_data_out
-	);
-
+    Inst_RAM_64K: RAM_64K PORT MAP(
+        clk     => clk_cpu,
+        we_uP   => ram_wr_int,
+        ce      => '1',
+        addr_uP => cpu_addr(15 downto 0),
+        D_uP    => cpu_dout,
+        Q_uP    => ram_data_out
+    );
 
     p_cs_b <= '0' when cpu_addr(15 downto 3) = "1111111011111" else '1';
 
@@ -367,11 +370,28 @@ begin
     clk_gen : process(clk_cpu)
     begin
         if rising_edge(clk_cpu) then
-            cpu_clken     <= not cpu_clken;
+            clken_counter <= clken_counter + 1;
+            case "00"&sw is
+               when x"0"   =>
+                   cpu_clken     <= clken_counter(0);
+                   p_tube_clk    <= not clken_counter(0);
+               when x"1"   =>
+                   cpu_clken     <= clken_counter(1) and clken_counter(0);
+                   p_tube_clk    <= not clken_counter(1);
+               when x"2"   =>
+                   cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
+                   p_tube_clk    <= not clken_counter(2);
+               when x"3"   =>
+                   cpu_clken     <= clken_counter(3) and clken_counter(2) and clken_counter(1) and clken_counter(0);
+                   p_tube_clk    <= not clken_counter(3);
+               when others =>
+                   cpu_clken     <= clken_counter(0);
+                   p_tube_clk    <= not clken_counter(0);
+            end case;
             RSTn_sync     <= RSTn;
         end if;
     end process;
-     
+
 end BEHAVIORAL;
 
 
