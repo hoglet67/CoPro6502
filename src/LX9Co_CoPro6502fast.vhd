@@ -203,9 +203,9 @@ begin
 
     inst_dcm_32_64 : dcm_32_64 port map (
         CLKIN_IN  => fastclk,
-        CLK0_OUT  => clk_cpu,
+        CLK0_OUT  => open,
         CLK0_OUT1 => open,
-        CLK2X_OUT => open
+        CLK2X_OUT => clk_cpu
     );
 
     inst_tuberom : tuberom_65c102_banner port map (
@@ -374,16 +374,16 @@ begin
             case "00"&sw is
                when x"0"   =>
                    cpu_clken     <= clken_counter(0);
-                   p_tube_clk    <= not clken_counter(0);
+                   p_tube_clk    <= clken_counter(0);
                when x"1"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= not clken_counter(1);
+                   p_tube_clk    <= clken_counter(1) and not clken_counter(0);
                when x"2"   =>
                    cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= not clken_counter(2);
+                   p_tube_clk    <= clken_counter(2) and not clken_counter(1);
                when x"3"   =>
                    cpu_clken     <= clken_counter(3) and clken_counter(2) and clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= not clken_counter(3);
+                   p_tube_clk    <= clken_counter(3) and not clken_counter(2);
                when others =>
                    cpu_clken     <= clken_counter(0);
                    p_tube_clk    <= not clken_counter(0);
