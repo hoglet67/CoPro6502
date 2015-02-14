@@ -157,7 +157,6 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 
     signal clk_cpu       : std_logic;
     signal cpu_clken     : std_logic;
-    signal p_tube_clk    : std_logic;
     signal bootmode      : std_logic;
     signal RSTn          : std_logic;
     signal RSTn_sync     : std_logic;
@@ -203,9 +202,9 @@ begin
 
     inst_dcm_32_64 : dcm_32_64 port map (
         CLKIN_IN  => fastclk,
-        CLK0_OUT  => open,
+        CLK0_OUT  => clk_cpu,
         CLK0_OUT1 => open,
-        CLK2X_OUT => clk_cpu
+        CLK2X_OUT => open
     );
 
     inst_tuberom : tuberom_65c102_banner port map (
@@ -232,8 +231,6 @@ begin
             DI(7 downto 0)  => cpu_din,
             DO(7 downto 0)  => cpu_dout
         );
-        -- For debugging only
-        debug_clk <= cpu_clken;        
     end generate;
     
     GenJensCore: if UseJensCore generate
@@ -252,8 +249,6 @@ begin
             wr_n_o      => cpu_R_W_n,
             wr_o        => open
         );
-        -- For debugging only
-        debug_clk <= cpu_clken;    
     end generate;
 
     GenAlanDCore: if UseAlanDCore generate
@@ -272,8 +267,6 @@ begin
         );
         cpu_dout <= std_logic_vector(cpu_dout_us);
         cpu_addr <= std_logic_vector(cpu_addr_us);
-        -- For debugging only
-        debug_clk <= cpu_clken;        
     end generate;
 
     inst_tube: tube port map (
@@ -328,6 +321,7 @@ begin
 	ram_oe <= '1';
 	ram_wr <= '1';
 	ram_addr  <= (others => '1');
+	ram_data  <= (others => '1');
     
 --------------------------------------------------------
 -- test signals
@@ -374,19 +368,14 @@ begin
             case "00"&sw is
                when x"0"   =>
                    cpu_clken     <= clken_counter(0);
-                   p_tube_clk    <= clken_counter(0);
                when x"1"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= clken_counter(1) and not clken_counter(0);
                when x"2"   =>
                    cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= clken_counter(2) and not clken_counter(1);
                when x"3"   =>
                    cpu_clken     <= clken_counter(3) and clken_counter(2) and clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= clken_counter(3) and not clken_counter(2);
                when others =>
                    cpu_clken     <= clken_counter(0);
-                   p_tube_clk    <= not clken_counter(0);
             end case;
             RSTn_sync     <= RSTn;
         end if;
