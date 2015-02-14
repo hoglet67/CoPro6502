@@ -30,5 +30,5 @@ promgen                                 \
 -u 1F8000 working/LX9CoPro6502fast.bit  \
 -o $NAME.mcs  -p mcs -w -spi -s 8192
 
-rm -f $NAME.cfi $NAME.prn
+rm -f $NAME.cfi $NAME.prm
 
