@@ -28,13 +28,8 @@ module ph_byte (
                 input h_phi2,
                 input [7:0] p_data,                  
                 input p_selectData,
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
                 input p_rdnw,
-`else                
-                input p_clk,
-                input p_westb_b,
-`endif
                 output [7:0] h_data,                  
                 output h_data_available,
                 output p_full
@@ -44,48 +39,28 @@ module ph_byte (
    wire [7:0]          fifo_d_r ;
       
    assign h_data = fifo_q_r;   
-
-`ifdef PARASITE_RNWCLK_INTERFACE_D
    assign fifo_d_r = ( p_selectData & !p_rdnw) ? p_data : fifo_q_r;   
-`else   
-   // Compute D and resets for state bits
-   assign fifo_d_r = ( p_selectData ) ? p_data : fifo_q_r;
-`endif
 
    ph_flag_m flag_0 (
                        .rst_b(h_rst_b),
-                       //.reset_state(1'b0),                        
                        .p2_rdnw(h_rd),
                        .p2_select(h_selectData),
                        .p2_clk(h_phi2),
-                       .p2_phase(h_phi2),
                        .p1_select(p_selectData),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p1_rdnw(p_rdnw),
-                       .p1_phase(p_phi2),
                        .p1_clk(p_phi2),                      
-`else                      
-                       .p1_rdnw(p_westb_b),
-                       .p1_phase(1'b1),
-                       .p1_clk( p_clk),
-`endif                      
                        .p2_data_available(h_data_available),
                        .p1_full(p_full)
                        );
    
    // Infer all state
-`ifdef PARASITE_RNWCLK_INTERFACE_D
    always @ ( negedge p_phi2 or negedge h_rst_b )   
-`else   
-   always @ ( posedge p_westb_b or negedge h_rst_b )
-`endif     
      begin
         if ( ! h_rst_b)
           fifo_q_r <= 8'h41;             
         else
           fifo_q_r <= fifo_d_r ;             
      end
-
    
 endmodule // ph_byte
 

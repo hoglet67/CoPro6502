@@ -28,8 +28,6 @@
 // DEBUG_NO_TUBE_D     - if set forces the LSB of register 0 (the status/
 //                       command word) to return '0' and so not be recognized
 //                       on boot by the host system
-// PARASITE_RNWCLK_INTERFACE_D - if set then the parasite has a phi2 + rnw signal
-//                               interface in place of the original rdstb_b and westb_b
 // TWOSTATE_PARASITE_INTERRUPTS_D - if set then parasite interrupt pins are driven high and low
 //                                  if not set (default) then they are open collector
 // 
@@ -75,13 +73,8 @@ module tube (
              inout [7:0] p_data,
 `endif 
              
-`ifdef PARASITE_RNWCLK_INTERFACE_D
              input       p_rdnw,
              input       p_phi2,
-`else             
-             input       p_rd_b,
-             input       p_wr_b,             
-`endif             
              output      p_rst_b,
              inout       p_nmi_b,
              inout       p_irq_b
@@ -152,12 +145,7 @@ module tube (
    assign p_data = p_data_in;
    assign p_data_out = p_data_r;
 `else // SEPARATE_PARASITE_DATABUSSES_D
- `ifdef PARASITE_RNWCLK_INTERFACE_D
    assign p_data = ( p_rdnw && !p_cs_b ) ? p_data_r : 8'bzzzzzzzz;   
- `else
-   assign p_data = ( !p_rd_b && !p_cs_b ) ? p_data_r : 8'bzzzzzzzz;
- `endif
-   
 `endif // SEPARATE_PARASITE_DATABUSSES_D
    
    // Compute register selects for host side
@@ -283,12 +271,8 @@ module tube (
                          .h_phi2( h_phi2),
                          .h_data( h_data),
                          .p_selectData( p_select_fifo_r ),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                          .p_phi2(p_phi2),
                          .p_rdnw(p_rdnw),                         
-`else                         
-                         .p_rdstb_b( p_rd_b),
-`endif                         
                          .p_data( p_data_w),
                          .one_byte_mode( ! h_reg0_q_r[`V_IDX]),
                          .p_data_available(p_data_available_w),
@@ -319,13 +303,8 @@ module tube (
                          .h_phi2(h_phi2 ),
                          .p_data(p_data),                  
                          .p_selectData(p_select_fifo_r ),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                          .p_phi2(p_phi2),
                          .p_rdnw( (!dack_b_w) ^ p_rdnw),
-`else                         
-                         .p_rdstb_b( (dack_b_w) ? p_rd_b : p_wr_b ),
-                         .p_westb_b( (dack_b_w) ? p_wr_b : p_rd_b),
-`endif                         
                          .h_data (h_data_w),                
                          .one_byte_mode( ! h_reg0_q_r[`V_IDX]),  
                          .h_data_available( h_data_available_w),
@@ -363,11 +342,7 @@ module tube (
    
 
    // Provide option for retiming read of status/command reg from host to parasite
-`ifdef PARASITE_RNWCLK_INTERFACE_D
    always @ ( posedge p_phi2 or negedge h_rst_b )   
-`else   
-   always @ ( negedge p_rd_b or negedge h_rst_b )
-`endif     
      if ( !h_rst_b )
        p_reg0_q_r <= 6'b000000;
      else

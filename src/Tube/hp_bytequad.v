@@ -28,13 +28,8 @@ module hp_bytequad (
                   input h_phi2,
                   input [7:0] h_data,                  
                   input [3:0] p_selectData,
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                   input p_phi2,
                   input p_rdnw,
-`else                    
-                  input p_rdstb_b,
-`endif
-                    
                   input one_byte_mode,
                   output [7:0] p_data,
                   output [3:0] p_data_available,
@@ -79,12 +74,8 @@ module hp_bytequad (
                     .h_phi2(h_phi2),
                     .h_data(h_data),
                     .p_selectData(p_selectData[0]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                     .p_phi2(p_phi2),
                     .p_rdnw(p_rdnw),
-`else                    
-                    .p_rdstb_b(p_rdstb_b),
-`endif                    
                     .p_data(fifo0_w),
                     .p_data_available(p_data_available[0]),
                     .h_full(h_full_pre_w[0])
@@ -97,12 +88,8 @@ module hp_bytequad (
                     .h_phi2(h_phi2),
                     .h_data(h_data),
                     .p_selectData(p_selectData[1]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                     .p_phi2(p_phi2),
                     .p_rdnw(p_rdnw),
-`else                    
-                    .p_rdstb_b(p_rdstb_b),
-`endif                    
                     .p_data(fifo1_w),
                     .p_data_available(p_data_available[1]),
                     .h_full(h_full_pre_w[1])
@@ -115,12 +102,8 @@ module hp_bytequad (
                  .h_phi2(h_phi2),
                  .h_data( h_data ),                 
                  .p_selectData( p_selectData[2]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                  .p_phi2(p_phi2),
                  .p_rdnw(p_rdnw), 
-`else
-                 .p_rdstb_b(p_rdstb_b),
-`endif                 
                  .one_byte_mode(one_byte_mode),
                  .p_data(fifo2_w),
                  .p_data_available(p_data_available[2]),
@@ -135,12 +118,8 @@ module hp_bytequad (
                     .h_phi2(h_phi2),
                     .h_data(h_data),
                     .p_selectData(p_selectData[3]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                     .p_phi2(p_phi2),
                     .p_rdnw(p_rdnw),
-`else                    
-                    .p_rdstb_b(p_rdstb_b),
-`endif                    
                     .p_data(fifo3_w),
                     .p_data_available(p_data_available[3]),
                     .h_full(h_full_pre_w[3])

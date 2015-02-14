@@ -5,11 +5,9 @@ module hp_flag_m (
     input p1_clk,
     input p1_select,
     input p1_rdnw,
-    input p1_phase, // not used any more
     input p2_clk,
     input p2_select,
     input p2_rdnw,
-    input p2_phase,  // not used any more                   
     output p2_data_available,
     output p1_full
 );

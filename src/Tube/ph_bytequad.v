@@ -29,13 +29,8 @@ module ph_bytequad (
                     
                     input [7:0] p_data,                  
                     input [3:0] p_selectData,
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                     input p_phi2,
                     input p_rdnw,
-`else                    
-                    input p_rdstb_b,
-                    input p_westb_b,
-`endif                
                     input one_byte_mode,
                     output h_zero_bytes_available,
                     output [7:0] h_data,                  
@@ -69,12 +64,6 @@ module ph_bytequad (
        default: h_datamux_r = 8'bx;
      endcase // case h_selectData
 
-`ifdef PARASITE_RNWCLK_INTERFACE_D
-`else   
-   wire       pclk_w =  !(p_rdstb_b & p_westb_b);
-`endif
-   
-
    
    ph_fifo    ph_reg1 ( 
                         .h_rst_b(h_rst_b),
@@ -82,13 +71,8 @@ module ph_bytequad (
                         .h_selectData(h_selectData[0]),
                         .h_phi2(h_phi2),
                         .p_selectData(p_selectData[0]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                         .p_phi2(p_phi2),
                         .p_rdnw(p_rdnw),
-`else                                              
-                        .p_westb_b(p_westb_b),     
-                        .p_clk(pclk_w),
-`endif                                              
                         .p_data(p_data),
                         .h_data(fifo0_w),
                         .h_data_available(h_data_available[0]),
@@ -102,13 +86,8 @@ module ph_bytequad (
                        .h_selectData(h_selectData[1]),
                        .h_phi2(h_phi2),
                        .p_selectData(p_selectData[1]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p_phi2(p_phi2),
                        .p_rdnw(p_rdnw),
-`else                                                                     
-                       .p_westb_b(p_westb_b),                      
-                       .p_clk(pclk_w),
-`endif                       
                        .p_data(p_data),
                        .h_data(fifo1_w),
                        .h_data_available(h_data_available[1]),
@@ -122,13 +101,8 @@ module ph_bytequad (
                        .h_phi2(h_phi2),
                        .p_data(p_data),
                        .p_selectData(p_selectData[2]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p_phi2(p_phi2),
                        .p_rdnw(p_rdnw),
-`else                                                                                            
-                       .p_rdstb_b(p_rdstb_b),
-                       .p_westb_b(p_westb_b),
-`endif                       
                        .one_byte_mode(one_byte_mode),
                        .h_data(fifo2_w),
                        .h_data_available(h_data_available[2]),
@@ -142,13 +116,8 @@ module ph_bytequad (
                        .h_selectData(h_selectData[3]),
                        .h_phi2(h_phi2),
                        .p_selectData(p_selectData[3]),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p_phi2(p_phi2),
                        .p_rdnw(p_rdnw),
-`else                                                                                                                   
-                       .p_westb_b(p_westb_b),     
-                       .p_clk(pclk_w),
-`endif                       
                        .p_data(p_data),
                        .h_data(fifo3_w),
                        .h_data_available(h_data_available[3]),
