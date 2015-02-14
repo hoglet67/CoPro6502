@@ -75,9 +75,8 @@ module hp_reg3 (
    // Instance the appropriate flag logic
 
    
-   gen_flag_m flag_0 (
+   hp_flag_m flag_0 (
                        .rst_b(h_rst_b),
-                       //.reset_state(1'b0),
                        .p1_rdnw( h_we_b),
                        .p1_select(h_selectData & (!h_full_w[0] | one_byte_mode)),
                        .p1_clk(h_phi2),
@@ -96,9 +95,8 @@ module hp_reg3 (
                        .p1_full(h_full_w[0])
                        );
 
-   gen_flag_m flag_1 (
+   hp_flag_m flag_1 (
                        .rst_b(h_rst_b),
-                       //.reset_state(1'b0),
                        .p1_rdnw( h_we_b),
                        .p1_select(h_selectData & (h_full_w[0] & !one_byte_mode)),
                        .p1_clk(h_phi2),

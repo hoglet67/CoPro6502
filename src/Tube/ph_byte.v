@@ -52,7 +52,7 @@ module ph_byte (
    assign fifo_d_r = ( p_selectData ) ? p_data : fifo_q_r;
 `endif
 
-   gen_flag_m flag_0 (
+   ph_flag_m flag_0 (
                        .rst_b(h_rst_b),
                        //.reset_state(1'b0),                        
                        .p2_rdnw(h_rd),

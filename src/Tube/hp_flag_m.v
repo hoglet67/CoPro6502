@@ -1,6 +1,6 @@
 `timescale 1ns / 1ns
 
-module ph_flag_m (
+module hp_flag_m (
     input rst_b,
     input p1_clk,
     input p1_select,
@@ -27,7 +27,7 @@ module ph_flag_m (
    reg [1:0] p1_state;   
    reg [1:0] p2_state;
 
-   always @ (posedge p1_clk or negedge rst_b )   
+   always @ (negedge p1_clk or negedge rst_b )   
      begin
         if (!rst_b) begin
           p1_state <= { 1'b0, init };
@@ -56,7 +56,7 @@ module ph_flag_m (
    
    assign p1_full = p1_state[0] | p1_state[1];
 
-   always @ (negedge p2_clk or negedge rst_b )   
+   always @ (posedge p2_clk or negedge rst_b )   
      begin
         if (!rst_b) begin
           p2_state <= { 1'b0, init};

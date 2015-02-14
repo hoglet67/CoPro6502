@@ -51,7 +51,7 @@ module hp_byte (
    assign fifo_d_w = ( h_selectData & !h_we_b ) ? h_data : fifo_q_r;
 
    // Instance the appropriate flag logic
-   gen_flag_m flag_0 (
+   hp_flag_m flag_0 (
                        .rst_b(h_rst_b),
                        //.reset_state(1'b0),
                        .p1_rdnw( h_we_b),

@@ -285,11 +285,11 @@ begin
         h_rst_b         => h_rst_b,
         h_irq_b         => h_irq_b,
         p_addr          => cpu_addr(2 downto 0),
-        p_cs_b          => p_cs_b,
+        p_cs_b          => not((not p_cs_b) and cpu_clken),
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
         p_rdnw          => cpu_R_W_n,
-        p_phi2          => p_tube_clk,
+        p_phi2          => clk_cpu,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n

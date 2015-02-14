@@ -29,13 +29,8 @@ module ph_reg3 (
                 
                 input [7:0] p_data,                  
                 input       p_selectData,
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
                 input p_rdnw,
-`else                                
-                input       p_rdstb_b,                
-                input       p_westb_b,
-`endif                
                 input       one_byte_mode,                
                 output [7:0] h_data,                  
                 output       h_data_available,
@@ -50,20 +45,12 @@ module ph_reg3 (
    wire [7:0]    byte0_d_w ;
    wire [7:0]    byte1_d_w ;
 
-`ifdef PARASITE_RNWCLK_INTERFACE_D
    assign byte0_d_w = ( p_selectData & !p_rdnw & ( !p_full_w[0] | one_byte_mode) ) ? p_data : byte0_q_r;
    assign byte1_d_w = ( p_selectData & !p_rdnw & (  p_full_w[0] & !one_byte_mode) ) ? p_data : byte1_q_r;      
-   wire   p_write_b =  p_rdnw | p_phi2;
-`else   
-   // Compute D and resets for state bits
-   assign byte0_d_w = ( p_selectData & ( !p_full_w[0] | one_byte_mode) ) ? p_data : byte0_q_r;
-   assign byte1_d_w = ( p_selectData & (  p_full_w[0] & !one_byte_mode) ) ? p_data : byte1_q_r;   
-`endif   
       
    assign h_data = ( h_data_available_w[0]) ? byte0_q_r : byte1_q_r;   
    assign h_zero_bytes_available = ! (h_data_available_w[0] | (  h_data_available_w[1] &  !one_byte_mode )) ;
    
-
    // Register 3 is intended to enable high speed transfers of large blocks of data across the tube. 
    // It can operate in one or two byte mode, depending on the V flag. In one byte mode the status 
    // bits make each FIFO appear to be a single byte latch - after one byte is written the register 
@@ -78,43 +65,31 @@ module ph_reg3 (
    assign p_full = ( one_byte_mode ) ? p_full_w[0] : p_full_w[1];
 
    // Need to set a flag_0 in this register on reset to avoid generating a PNMI on reset...
-   ph_flag_m flag_0 (
-                      .rst_b(1'b1),
-                      .set_b(h_rst_b),
-                      .h_rdnw(h_rd),
-                      .h_select( h_selectData & (h_data_available_w[0] | one_byte_mode)),
-                      .h_phi2(h_phi2),
-                      .p_select(p_selectData & !p_full_w[0] & (!p_full_w[1] | one_byte_mode)),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
-                      .p_wrst_b(p_write_b),
-`else
-                      .p_wrst_b(p_westb_b),
-`endif
-                      .h_data_available(h_data_available_w[0]),
-                      .p_full(p_full_w[0])
+   ph_flag_m #(1'b1) flag_0 (
+                      .rst_b(h_rst_b),
+                      .p1_clk(p_phi2),
+                      .p1_rdnw(p_rdnw),
+                      .p1_select(p_selectData & !p_full_w[0] & (!p_full_w[1] | one_byte_mode)),
+                      .p1_full(p_full_w[0]),
+                      .p2_clk(h_phi2),
+                      .p2_select( h_selectData & (h_data_available_w[0] | one_byte_mode)),
+                      .p2_rdnw(h_rd),
+                      .p2_data_available(h_data_available_w[0])
                       ); 
    ph_flag_m flag_1 (
                       .rst_b(h_rst_b),
-                      .set_b(1'b1),
-                      .h_rdnw(h_rd),
-                      .h_select(h_selectData & (!h_data_available_w[0] & h_data_available_w[1]  & !one_byte_mode )),
-                      .h_phi2(h_phi2),
-                      .p_select(p_selectData & p_full_w[0] & !(p_full_w[1] | one_byte_mode)),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
-                      .p_wrst_b(p_write_b),
-`else
-                      .p_wrst_b(p_westb_b),
-`endif                      
-                      .h_data_available(h_data_available_w[1]),
-                      .p_full(p_full_w[1])
+                      .p1_clk(p_phi2),
+                      .p1_select(p_selectData & p_full_w[0] & !(p_full_w[1] | one_byte_mode)),
+                      .p1_rdnw(p_rdnw),
+                      .p1_full(p_full_w[1]),
+                      .p2_clk(h_phi2),
+                      .p2_select(h_selectData & (!h_data_available_w[0] & h_data_available_w[1]  & !one_byte_mode )),
+                      .p2_rdnw(h_rd),
+                      .p2_data_available(h_data_available_w[1])
                       ); 
 
    // Infer all state
-`ifdef PARASITE_RNWCLK_INTERFACE_D
    always @ ( negedge p_phi2 or negedge h_rst_b )   
-`else   
-   always @ ( posedge p_westb_b or negedge h_rst_b )
-`endif     
      begin
         if ( ! h_rst_b)
           begin
@@ -126,7 +101,7 @@ module ph_reg3 (
              byte0_q_r <= byte0_d_w ;
              byte1_q_r <= byte1_d_w ;
           end
-     end // always @ ( posedge p_westb_b or negedge h_rst_b )
+     end
 
 endmodule // ph_byte
 
