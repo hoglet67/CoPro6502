@@ -89,7 +89,7 @@ module ph_reg3 (
                       ); 
 
    // Infer all state
-   always @ ( negedge p_phi2 or negedge h_rst_b )   
+   always @ ( posedge p_phi2 or negedge h_rst_b )   
      begin
         if ( ! h_rst_b)
           begin
