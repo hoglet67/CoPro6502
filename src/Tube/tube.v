@@ -321,7 +321,7 @@ module tube (
 
    // Latch host side register select signals on phi2 - found that the L1B CPLD was
    // more robust when this was done avoiding bus hold issues ?
-   always @ ( h_phi2 or h_rst_b or h_select_reg0_d_w or h_select_fifo_d_w or h_rdnw   )
+   always @ (posedge h_phi2 or negedge h_rst_b)
      begin
         if ( ! h_rst_b )
           begin
@@ -329,7 +329,7 @@ module tube (
              h_select_reg0_q_r <= 1'b0;
              h_rdnw_q_r <= 1'b0;             
           end
-        else if ( !h_phi2 ) 
+        else
           begin
              h_rdnw_q_r <= h_rdnw;                          
              h_select_reg0_q_r    <= h_select_reg0_d_w;          
