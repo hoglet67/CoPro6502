@@ -142,14 +142,15 @@ always @(MBT_REBOOT or state or sw)
                //icap_din    = 16'h32c1;
                
                case (sw)
-                    4'b0000: icap_din    = 16'h4000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0001: icap_din    = 16'h8000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0010: icap_din    = 16'hC000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0011: icap_din    = 16'h0000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0100: icap_din    = 16'h4000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0101: icap_din    = 16'h8000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0110: icap_din    = 16'hC000;   //  Warm boot start address [15:0] = 0x0000
-                    4'b0111: icap_din    = 16'h0000;   //  Warm boot start address [15:0] = 0x0000
+                    4'b0000: icap_din    = 16'h4000;
+                    4'b0001: icap_din    = 16'h8000;
+                    4'b0010: icap_din    = 16'hC000;
+                    4'b0011: icap_din    = 16'h0000;
+                    4'b0100: icap_din    = 16'h4000;
+                    4'b1000: icap_din    = 16'h8000;
+                    4'b1001: icap_din    = 16'h8000;
+                    4'b1010: icap_din    = 16'h8000;
+                    4'b1011: icap_din    = 16'h8000;                    
                     default: icap_din    = 16'h32c1;
                endcase  
                
@@ -171,14 +172,15 @@ always @(MBT_REBOOT or state or sw)
                //icap_din    = 16'h0305;
                
                case (sw)
-                    4'b0000: icap_din    = 16'h0305;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x05
-                    4'b0001: icap_din    = 16'h030a;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x0a
-                    4'b0010: icap_din    = 16'h030f;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x0f
-                    4'b0011: icap_din    = 16'h0315;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x
-                    4'b0100: icap_din    = 16'h031a;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x
-                    4'b0101: icap_din    = 16'h031f;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x
-                    4'b0110: icap_din    = 16'h0324;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x
-                    4'b0111: icap_din    = 16'h032a;   //  SPI read opcode [7:0] = 0x03 concat with Warm boot start address [23:16] = 0x
+                    4'b0000: icap_din    = 16'h0305;
+                    4'b0001: icap_din    = 16'h030a;
+                    4'b0010: icap_din    = 16'h030f;
+                    4'b0011: icap_din    = 16'h0315;
+                    4'b0100: icap_din    = 16'h031a;
+                    4'b1000: icap_din    = 16'h031f;
+                    4'b1001: icap_din    = 16'h031f;
+                    4'b1010: icap_din    = 16'h031f;
+                    4'b1011: icap_din    = 16'h031f;
                     default: icap_din    = 16'h0305;
                endcase
                
