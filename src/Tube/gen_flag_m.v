@@ -87,9 +87,11 @@ module gen_flag_m (
     input p1_select,
     input p1_phase,
     input p1_clk,
+    input p1_clk_en,
     input p2_select,
     input p2_rdnw,
     input p2_clk,
+    input p2_clk_en,
     input p2_phase,                     
     output p2_data_available,
     output p1_full
@@ -126,7 +128,7 @@ module gen_flag_m (
      begin
         if ( ! rst_b )
           p2_data_avail_q_r <= 1'b0;
-        else
+        else if (p2_clk_en)
           p2_data_avail_q_r <= p2_data_avail_d_w ;
      end
    
@@ -134,7 +136,7 @@ module gen_flag_m (
      begin
         if ( ! rst_b)
           p1_full_q_r <= 1'b0;        
-        else
+        else if (p1_clk_en)
           p1_full_q_r <= p1_full_d_w ;
      end
    

@@ -134,6 +134,7 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
             p_data_out : out   std_logic_vector(7 downto 0);
             p_rdnw     : in    std_logic;
             p_phi2     : in    std_logic;
+            p_phi2_en  : in    std_logic;
             p_rst_b    : out   std_logic;
             p_nmi_b    : inout std_logic;
             p_irq_b    : inout std_logic
@@ -289,7 +290,8 @@ begin
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
         p_rdnw          => cpu_R_W_n,
-        p_phi2          => p_tube_clk,
+        p_phi2          => clk_cpu,
+        p_phi2_en       => cpu_clken,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
@@ -377,13 +379,13 @@ begin
                    p_tube_clk    <= not clken_counter(0);
                when x"1"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= not clken_counter(1);
+                   p_tube_clk    <= (not clken_counter(1)) and clken_counter(0);
                when x"2"   =>
                    cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= not clken_counter(2);
+                   p_tube_clk    <= (not clken_counter(2)) and clken_counter(1) and clken_counter(0);
                when x"3"   =>
                    cpu_clken     <= clken_counter(3) and clken_counter(2) and clken_counter(1) and clken_counter(0);
-                   p_tube_clk    <= not clken_counter(3);
+                   p_tube_clk    <= (not clken_counter(3)) and clken_counter(2) and clken_counter(1) and clken_counter(0);
                when others =>
                    cpu_clken     <= clken_counter(0);
                    p_tube_clk    <= not clken_counter(0);

@@ -30,6 +30,7 @@ module hp_bytequad (
                   input [3:0] p_selectData,
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                   input p_phi2,
+                  input p_phi2_en,
                   input p_rdnw,
 `else                    
                   input p_rdstb_b,
@@ -81,6 +82,7 @@ module hp_bytequad (
                     .p_selectData(p_selectData[0]),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                     .p_phi2(p_phi2),
+                    .p_phi2_en(p_phi2_en),
                     .p_rdnw(p_rdnw),
 `else                    
                     .p_rdstb_b(p_rdstb_b),
@@ -99,6 +101,7 @@ module hp_bytequad (
                     .p_selectData(p_selectData[1]),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                     .p_phi2(p_phi2),
+                    .p_phi2_en(p_phi2_en),
                     .p_rdnw(p_rdnw),
 `else                    
                     .p_rdstb_b(p_rdstb_b),
@@ -117,6 +120,7 @@ module hp_bytequad (
                  .p_selectData( p_selectData[2]),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                  .p_phi2(p_phi2),
+                 .p_phi2_en(p_phi2_en),
                  .p_rdnw(p_rdnw), 
 `else
                  .p_rdstb_b(p_rdstb_b),
@@ -137,6 +141,7 @@ module hp_bytequad (
                     .p_selectData(p_selectData[3]),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                     .p_phi2(p_phi2),
+                    .p_phi2_en(p_phi2_en),
                     .p_rdnw(p_rdnw),
 `else                    
                     .p_rdstb_b(p_rdstb_b),

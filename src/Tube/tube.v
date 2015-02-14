@@ -78,6 +78,7 @@ module tube (
 `ifdef PARASITE_RNWCLK_INTERFACE_D
              input       p_rdnw,
              input       p_phi2,
+             input       p_phi2_en,
 `else             
              input       p_rd_b,
              input       p_wr_b,             
@@ -285,6 +286,7 @@ module tube (
                          .p_selectData( p_select_fifo_r ),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                          .p_phi2(p_phi2),
+                         .p_phi2_en(p_phi2_en),
                          .p_rdnw(p_rdnw),                         
 `else                         
                          .p_rdstb_b( p_rd_b),
@@ -321,6 +323,7 @@ module tube (
                          .p_selectData(p_select_fifo_r ),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                          .p_phi2(p_phi2),
+                         .p_phi2_en(p_phi2_en),
                          .p_rdnw( (!dack_b_w) ^ p_rdnw),
 `else                         
                          .p_rdstb_b( (dack_b_w) ? p_rd_b : p_wr_b ),
@@ -364,13 +367,12 @@ module tube (
 
    // Provide option for retiming read of status/command reg from host to parasite
 `ifdef PARASITE_RNWCLK_INTERFACE_D
-   always @ ( posedge p_phi2 or negedge h_rst_b )   
+   always @ ( posedge p_phi2 or negedge h_rst_b )
 `else   
    always @ ( negedge p_rd_b or negedge h_rst_b )
 `endif     
      if ( !h_rst_b )
        p_reg0_q_r <= 6'b000000;
-     else
+     else if (p_phi2_en)
        p_reg0_q_r <= h_reg0_q_r[5:0];
-   
 endmodule

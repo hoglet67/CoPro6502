@@ -9,6 +9,7 @@ module ph_fifo (
                 input p_selectData,
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
+                input p_phi2_en,
                 input p_rdnw,
 `else                
                 input p_clk,
@@ -53,7 +54,7 @@ assign p_full = fifo_full;
 
 `ifdef PARASITE_RNWCLK_INTERFACE_D
     assign fifo_wr_clk = ~p_phi2;
-    assign fifo_wr_en = p_selectData & ~p_rdnw;
+    assign fifo_wr_en = p_selectData & ~p_rdnw & p_phi2_en;
 `else   
    // TODO: Not Ipplemented
 `endif

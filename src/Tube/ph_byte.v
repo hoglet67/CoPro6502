@@ -30,6 +30,7 @@ module ph_byte (
                 input p_selectData,
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
+                input p_phi2_en,
                 input p_rdnw,
 `else                
                 input p_clk,
@@ -58,16 +59,19 @@ module ph_byte (
                        .p2_rdnw(h_rd),
                        .p2_select(h_selectData),
                        .p2_clk(h_phi2),
+                       .p2_clk_en(1'b1),
                        .p2_phase(h_phi2),
                        .p1_select(p_selectData),
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p1_rdnw(p_rdnw),
                        .p1_phase(p_phi2),
-                       .p1_clk(p_phi2),                      
+                       .p1_clk(p_phi2),
+                       .p1_clk_en(p_phi2_en),
 `else                      
                        .p1_rdnw(p_westb_b),
                        .p1_phase(1'b1),
                        .p1_clk( p_clk),
+                       .p1_clk_en(1'b1),
 `endif                      
                        .p2_data_available(h_data_available),
                        .p1_full(p_full)

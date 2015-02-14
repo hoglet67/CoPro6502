@@ -31,6 +31,7 @@ module ph_reg3 (
                 input       p_selectData,
 `ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
+                input p_phi2_en,
                 input p_rdnw,
 `else                                
                 input       p_rdstb_b,                
@@ -53,7 +54,7 @@ module ph_reg3 (
 `ifdef PARASITE_RNWCLK_INTERFACE_D
    assign byte0_d_w = ( p_selectData & !p_rdnw & ( !p_full_w[0] | one_byte_mode) ) ? p_data : byte0_q_r;
    assign byte1_d_w = ( p_selectData & !p_rdnw & (  p_full_w[0] & !one_byte_mode) ) ? p_data : byte1_q_r;      
-   wire   p_write_b =  p_rdnw | p_phi2;
+   wire   p_write_b =  p_rdnw | p_phi2 | ~p_phi2_en;
 `else   
    // Compute D and resets for state bits
    assign byte0_d_w = ( p_selectData & ( !p_full_w[0] | one_byte_mode) ) ? p_data : byte0_q_r;
@@ -111,7 +112,7 @@ module ph_reg3 (
 
    // Infer all state
 `ifdef PARASITE_RNWCLK_INTERFACE_D
-   always @ ( negedge p_phi2 or negedge h_rst_b )   
+   always @ ( negedge p_phi2 or negedge h_rst_b )
 `else   
    always @ ( posedge p_westb_b or negedge h_rst_b )
 `endif     
@@ -121,13 +122,12 @@ module ph_reg3 (
              byte0_q_r <= 8'hAA;
              byte1_q_r <= 8'hEE;             
           end
-        else
+        else if (p_phi2_en)
           begin
              byte0_q_r <= byte0_d_w ;
              byte1_q_r <= byte1_d_w ;
           end
      end // always @ ( posedge p_westb_b or negedge h_rst_b )
-
 endmodule // ph_byte
 
    
