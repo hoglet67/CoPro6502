@@ -322,11 +322,18 @@ begin
 	ram_wr <= '1';
 	ram_addr  <= (others => '1');
 	ram_data  <= (others => '1');
-    
+
 --------------------------------------------------------
 -- test signals
 --------------------------------------------------------
-    test <= (others => '0');
+    test(8) <= cpu_NMI_n;
+    test(7) <= h_phi2;
+    test(6) <= not((not p_cs_b) and cpu_clken);
+    test(5) <= cpu_R_W_n;
+    test(4) <= cpu_addr(2);
+    test(3) <= cpu_addr(1);
+    test(2) <= cpu_addr(0);
+    test(1) <= cpu_clken;
     
 --------------------------------------------------------
 -- boot mode generator

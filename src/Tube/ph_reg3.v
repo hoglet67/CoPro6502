@@ -50,6 +50,15 @@ module ph_reg3 (
       
    assign h_data = ( h_data_available_w[0]) ? byte0_q_r : byte1_q_r;   
    assign h_zero_bytes_available = ! (h_data_available_w[0] | (  h_data_available_w[1] &  !one_byte_mode )) ;
+
+   //This was a work around for a SAVE issue cause by too much latency through the sumchronizers 
+   //reg           h_zero_bytes_available;  
+   //wire          h_zero_bytes_available0;  
+   //reg           h_zero_bytes_available1;  
+   //always @ ( negedge h_phi2) begin
+   //  h_zero_bytes_available1 <= h_zero_bytes_available0;
+   //  h_zero_bytes_available <= h_zero_bytes_available1;
+   //end
    
    // Register 3 is intended to enable high speed transfers of large blocks of data across the tube. 
    // It can operate in one or two byte mode, depending on the V flag. In one byte mode the status 
