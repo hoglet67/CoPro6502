@@ -28,7 +28,7 @@ entity LX9CoPro6502 is
 
 
         -- Ram Signals
-		ram_ub_b     : out   std_logic;
+        ram_ub_b     : out   std_logic;
         ram_lb_b     : out   std_logic;
         ram_cs       : out   std_logic;
         ram_oe       : out   std_logic;
@@ -149,9 +149,10 @@ architecture BEHAVIORAL of LX9CoPro6502 is
     signal phi2          : std_logic;
     signal phi3          : std_logic;
     signal cpu_clken     : std_logic;
-    signal clken_counter : std_logic_vector (3 downto 0);
+    signal clken_counter : std_logic_vector (1 downto 0);
     signal bootmode      : std_logic;
     signal RSTn          : std_logic;
+    signal RSTn_sync     : std_logic;
 
 -------------------------------------------------
 -- parasite signals
@@ -209,7 +210,7 @@ begin
             Mode            => "01",
             Abort_n         => '1',
             SO_n            => '1',
-            Res_n           => RSTn,
+            Res_n           => RSTn_sync,
             Enable          => cpu_clken,
             Clk             => clk_16M00,
             Rdy             => '1',
@@ -232,7 +233,7 @@ begin
             irq_n_i     => cpu_IRQ_n_sync,
             nmi_n_i     => cpu_NMI_n_sync,
             rdy_i       => '1',
-            rst_rst_n_i => RSTn,
+            rst_rst_n_i => RSTn_sync,
             so_n_i      => '1',
             a_o         => cpu_addr(15 downto 0),
             d_o         => cpu_dout,
@@ -247,7 +248,7 @@ begin
 
     GenAlanDCore: if UseAlanDCore generate
         inst_r65c02: r65c02 port map(
-            reset    => RSTn,
+            reset    => RSTn_sync,
             clk      => clk_16M00,
             enable   => cpu_clken,
             nmi_n    => cpu_NMI_n_sync,
@@ -274,11 +275,11 @@ begin
         h_rst_b         => h_rst_b,
         h_irq_b         => h_irq_b,
         p_addr          => cpu_addr(2 downto 0),
-        p_cs_b          => p_cs_b,
+        p_cs_b          => not((not p_cs_b) and cpu_clken),
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
         p_rdnw          => cpu_R_W_n,
-        p_phi2          => phi1,
+        p_phi2          => clk_16M00,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
@@ -297,8 +298,8 @@ begin
         ram_data     when ram_cs_b = '0' else
         x"f1";
     
-	ram_ub_b <= '0';
-	ram_lb_b <= '0';
+    ram_ub_b <= '0';
+    ram_lb_b <= '0';
     ram_cs <= ram_cs_b;
     ram_oe_int <= not ((not ram_cs_b) and cpu_R_W_n);
     ram_oe <= ram_oe_int;
@@ -311,9 +312,9 @@ begin
     
     testpr : process(sw, debug_clk, sync, cpu_addr, h_addr, h_cs_b, cpu_dout, p_data_out, p_cs_b, cpu_NMI_n, cpu_IRQ_n)
     begin
-	test(7) <= bootmode;
-	test(8) <= ram_cs_b;
-	
+    test(7) <= bootmode;
+    test(8) <= ram_cs_b;
+    
         if (sw(1) = '1' and sw(2) = '1') then
         
             test(6) <= debug_clk;
@@ -375,9 +376,9 @@ begin
 --------------------------------------------------------
 -- boot mode generator
 --------------------------------------------------------
-    boot_gen : process(clk_16M00, RSTn)
+    boot_gen : process(clk_16M00, RSTn_sync)
     begin
-        if RSTn = '0' then
+        if RSTn_sync = '0' then
             bootmode <= '1';
         elsif rising_edge(clk_16M00) then
             if p_cs_b = '0' then
@@ -386,9 +387,9 @@ begin
         end if;
     end process;
 
-        sync_gen : process(clk_16M00, RSTn)
+    sync_gen : process(clk_16M00, RSTn_sync)
     begin
-        if RSTn = '0' then
+        if RSTn_sync = '0' then
             cpu_NMI_n_sync <= '1';
             cpu_IRQ_n_sync <= '1';
         elsif rising_edge(clk_16M00) then
@@ -412,12 +413,6 @@ begin
 --------------------------------------------------------
     clk_gen : process(clk_16M00, RSTn)
     begin
---        if RSTn = '0' then
---            clken_counter <= (others => '0');
---            cpu_clken <= '0';
---            phi       <= '0';
---            phi2      <= '0';
---        els
         if rising_edge(clk_16M00) then
             clken_counter <= clken_counter + 1;
             cpu_clken     <= clken_counter(0) and clken_counter(1);
@@ -426,6 +421,7 @@ begin
             phi2          <= phi1;
             phi3          <= phi2;
         end if;
+        RSTn_sync     <= RSTn;
     end process;
     
 end BEHAVIORAL;
