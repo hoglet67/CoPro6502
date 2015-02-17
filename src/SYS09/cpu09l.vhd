@@ -250,7 +250,7 @@ use ieee.std_logic_unsigned.all;
 
 entity cpu09 is
 	port (	
-		clk      :	in std_logic;                     -- E clock input (falling edge)
+		clk      :	in std_logic;                     -- E clock input (rising edge)
 		rst      :  in std_logic;                     -- reset input (active high)
 		vma      : out std_logic;                     -- valid memory address (active high)
       lic_out  : out std_logic;                     -- last instruction cycle (active high)
@@ -489,7 +489,7 @@ begin
 --                           return_state, fetch_state  )
 state_stack_proc: process( clk, st_ctrl, return_state )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
 	   case st_ctrl is
       when reset_st =>
@@ -511,7 +511,7 @@ end process;
 --
 int_vec_proc: process( clk, iv_ctrl )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
       case iv_ctrl is
       when reset_iv =>
@@ -544,7 +544,7 @@ end process;
 --pc_reg: process( clk, pc_ctrl, hold, pc, out_alu, data_in )
 pc_reg: process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case pc_ctrl is
 	 when reset_pc =>
@@ -574,7 +574,7 @@ end process;
 ea_reg: process( clk )
 begin
 
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold= '0' then
     case ea_ctrl is
 	 when reset_ea =>
@@ -602,7 +602,7 @@ end process;
 --acca_reg : process( clk, acca_ctrl, hold, out_alu, acca, data_in )
 acca_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case acca_ctrl is
     when reset_acca =>
@@ -628,7 +628,7 @@ end process;
 --accb_reg : process( clk, accb_ctrl, hold, out_alu, accb, data_in )
 accb_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case accb_ctrl is
     when reset_accb =>
@@ -652,7 +652,7 @@ end process;
 --ix_reg : process( clk, ix_ctrl, hold, out_alu, xreg, data_in )
 ix_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case ix_ctrl is
     when reset_ix =>
@@ -678,7 +678,7 @@ end process;
 --iy_reg : process( clk, iy_ctrl, hold, out_alu, yreg, data_in )
 iy_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case iy_ctrl is
     when reset_iy =>
@@ -704,7 +704,7 @@ end process;
 --sp_reg : process( clk, sp_ctrl, hold, sp, out_alu, data_in, nmi_enable )
 sp_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case sp_ctrl is
     when reset_sp =>
@@ -733,7 +733,7 @@ end process;
 --up_reg : process( clk, up_ctrl, hold, up, out_alu, data_in )
 up_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case up_ctrl is
     when reset_up =>
@@ -759,7 +759,7 @@ end process;
 --md_reg : process( clk, md_ctrl, hold, out_alu, data_in, md )
 md_reg : process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case md_ctrl is
     when reset_md =>
@@ -793,7 +793,7 @@ end process;
 --cc_reg: process( clk, cc_ctrl, hold, cc_out, cc, data_in )
 cc_reg: process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case cc_ctrl is
 	 when reset_cc =>
@@ -818,7 +818,7 @@ end process;
 --dp_reg: process( clk, dp_ctrl, hold, out_alu, dp, data_in )
 dp_reg: process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case dp_ctrl is
 	 when reset_dp =>
@@ -844,7 +844,7 @@ end process;
 --op_reg: process( clk, op_ctrl, hold, op_code, data_in )
 op_reg: process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case op_ctrl is
 	 when reset_op =>
@@ -868,7 +868,7 @@ end process;
 --pre_reg: process( clk, pre_ctrl, hold, pre_code, data_in )
 pre_reg: process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if hold = '0' then
     case pre_ctrl is
 	 when reset_pre =>
@@ -891,7 +891,7 @@ end process;
 --change_state: process( clk, rst, state, hold, next_state )
 change_state: process( clk )
 begin
-  if clk'event and clk = '0' then
+  if clk'event and clk = '1' then
     if rst = '1' then
       fic     <= '0';
 	   nmi_ack <= '0';
