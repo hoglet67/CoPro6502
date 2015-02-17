@@ -35,7 +35,7 @@
           ack_s1 <= 1'b0;
           ack_s2 <= 1'b0;
           ack_edge <= 1'b0;
-          p1_state <= 2'b00;
+          p1_state <= { 1'b0, init};
         end else begin
           ack_s1 <= ack;
           ack_s2 <= ack_s1;
@@ -66,7 +66,7 @@
           req_s1 <= 1'b0;
           req_s2 <= 1'b0;
           req_edge <= 1'b0;
-          p2_state <= 2'b00;
+          p2_state <= { init, 1'b0 };
         end else begin
           req_s1 <= req;
           req_s2 <= req_s1;
