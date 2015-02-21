@@ -151,6 +151,10 @@ always @(MBT_REBOOT or state or sw)
                     4'b1001: icap_din    = 16'h8000;
                     4'b1010: icap_din    = 16'h8000;
                     4'b1011: icap_din    = 16'h8000;                    
+                    4'b1100: icap_din    = 16'hC000;
+                    4'b1101: icap_din    = 16'hC000;
+                    4'b1110: icap_din    = 16'hC000;
+                    4'b1111: icap_din    = 16'hC000;                    
                     default: icap_din    = 16'h32c1;
                endcase  
                
@@ -181,6 +185,10 @@ always @(MBT_REBOOT or state or sw)
                     4'b1001: icap_din    = 16'h031f;
                     4'b1010: icap_din    = 16'h031f;
                     4'b1011: icap_din    = 16'h031f;
+                    4'b1100: icap_din    = 16'h0324;
+                    4'b1101: icap_din    = 16'h0324;
+                    4'b1110: icap_din    = 16'h0324;
+                    4'b1111: icap_din    = 16'h0324;
                     default: icap_din    = 16'h0305;
                endcase
                

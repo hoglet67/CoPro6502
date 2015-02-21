@@ -157,7 +157,7 @@ begin
             when x"06F" => DATA <= digit1;
             when x"070" => DATA <= digit2;
             when x"071" => DATA <= x"4D";
-            when x"072" => DATA <= x"68";
+            when x"072" => DATA <= x"48";
             when x"073" => DATA <= x"7A";
             when x"074" => DATA <= x"20";
             when x"075" => DATA <= x"36";

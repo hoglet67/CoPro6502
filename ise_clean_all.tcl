@@ -20,4 +20,7 @@ project close
 project open LX9Co-6502fast.xise
 project clean
 project close
+project open LX9Co-z80fast.xise
+project clean
+project close
 exit
