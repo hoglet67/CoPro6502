@@ -6,7 +6,6 @@ entity tuberom_65c102_banner is
     port (
         CLK  : in  std_logic;
         ADDR : in  std_logic_vector(10 downto 0);
-        SW   : in  std_logic_vector(1 downto 0);
         DATA : out std_logic_vector(7 downto 0)
         );
 end;
@@ -14,9 +13,6 @@ end;
 architecture RTL of tuberom_65c102_banner is
 
     signal rom_addr : std_logic_vector(11 downto 0);
-
-    signal digit1 : std_logic_vector(7 downto 0);
-    signal digit2 : std_logic_vector(7 downto 0);
     
 begin
 
@@ -25,18 +21,6 @@ begin
         rom_addr              <= (others => '0');
         rom_addr(10 downto 0) <= ADDR;
     end process;
-
-    -- Original: Acorn TUBE 65C102 Co-Processor
-    -- Updated:  Acorn TUBE 32Mhz 65C102 Co-Pro
-    
-    digit1 <= x"33" when SW = "00" else
-              x"31" when SW = "01" else
-              x"30"; 
-
-    digit2 <= x"32" when SW = "00" else
-              x"36" when SW = "01" else
-              x"38" when SW = "10" else
-              x"34";
 
     p_rom : process
     begin
@@ -154,8 +138,8 @@ begin
             when x"06C" => DATA <= x"42";
             when x"06D" => DATA <= x"45";
             when x"06E" => DATA <= x"20";
-            when x"06F" => DATA <= digit1;
-            when x"070" => DATA <= digit2;
+            when x"06F" => DATA <= x"3F";
+            when x"070" => DATA <= x"3F";
             when x"071" => DATA <= x"4D";
             when x"072" => DATA <= x"48";
             when x"073" => DATA <= x"7A";
