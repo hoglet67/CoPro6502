@@ -6,7 +6,6 @@ entity tuberom_z80_banner is
     port (
         CLK  : in  std_logic;
         ADDR : in  std_logic_vector(11 downto 0);
-        SW   : in  std_logic_vector(1 downto 0);
         DATA : out std_logic_vector(7 downto 0)
         );
 end;
@@ -15,9 +14,6 @@ architecture RTL of tuberom_z80_banner is
 
     signal rom_addr : std_logic_vector(11 downto 0);
 
-    signal digit1 : std_logic_vector(7 downto 0);
-    signal digit2 : std_logic_vector(7 downto 0);
-
 begin
 
     p_addr : process(ADDR)
@@ -25,19 +21,6 @@ begin
         rom_addr              <= (others => '0');
         rom_addr(11 downto 0) <= ADDR;
     end process;
-    
-    -- Original: Acorn TUBE Z80 64k 1.21
-    -- Updated:  Acorn TUBE Z80 32Mhz   
-    
-    digit1 <= x"33" when SW = "00" else
-              x"32" when SW = "01" else
-              x"31" when SW = "10" else
-              x"30"; 
-
-    digit2 <= x"36" when SW = "00" else
-              x"34" when SW = "01" else
-              x"32" when SW = "10" else
-              x"38";
     
     p_rom : process
     begin
@@ -718,13 +701,13 @@ begin
             when x"29F" => DATA <= x"38";
             when x"2A0" => DATA <= x"30";
             when x"2A1" => DATA <= x"20";
-            when x"2A2" => DATA <= digit1;
-            when x"2A3" => DATA <= digit2;
-            when x"2A4" => DATA <= x"4D";
-            when x"2A5" => DATA <= x"48";
-            when x"2A6" => DATA <= x"7A";
-            when x"2A7" => DATA <= x"20";
-            when x"2A8" => DATA <= x"20";
+            when x"2A2" => DATA <= x"3F";
+            when x"2A3" => DATA <= x"3F";
+            when x"2A4" => DATA <= x"3F";
+            when x"2A5" => DATA <= x"20";
+            when x"2A6" => DATA <= x"4D";
+            when x"2A7" => DATA <= x"48";
+            when x"2A8" => DATA <= x"7A";
             when x"2A9" => DATA <= x"20";
             when x"2AA" => DATA <= x"0D";
             when x"2AB" => DATA <= x"0D";
