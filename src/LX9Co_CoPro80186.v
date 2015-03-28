@@ -148,6 +148,7 @@ module LX9CoPro80186 (
   
   wire [19:0] pc;
   wire trigger;
+  reg [8:0] reset_counter;
   
 // Instantiate the module
 dcm_32_16 instance_name (
@@ -156,10 +157,17 @@ dcm_32_16 instance_name (
     .CLK0_OUT1(), 
     .CLK2X_OUT()
     );
-    
 
+  // Ensure reset is held active for 256 clock cycles on power up
+  // Needed as Beeb's reset is missed when using multiboot loader as initialization takes too long
+  always @(posedge clk)
+  begin
+      if (reset_counter[8] == 0)
+          reset_counter <= reset_counter + 1;
+  end
+    
   wire rst;
-  assign rst = !p_rst_b;
+  assign rst = !p_rst_b | !reset_counter[8];
 
 
   bootrom bootrom (
@@ -528,6 +536,8 @@ tube tube_inst(
   assign ram_addr = ram_addr_int;
   
   assign h_irq_b = 1;
+  
+
 
 
 endmodule

@@ -155,6 +155,7 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
     signal RSTn          : std_logic;
     signal RSTn_sync     : std_logic;
     signal clken_counter : std_logic_vector (3 downto 0);
+    signal reset_counter : std_logic_vector (8 downto 0);
     
 -------------------------------------------------
 -- parasite signals
@@ -366,6 +367,19 @@ begin
     end process;
 
 --------------------------------------------------------
+-- power up reset
+--------------------------------------------------------
+    reset_gen : process(clk_cpu)
+    begin
+        if rising_edge(clk_cpu) then
+            if (reset_counter(8) = '0') then
+                reset_counter <= reset_counter + 1;
+            end if;
+            RSTn_sync <= RSTn AND reset_counter(8);
+        end if;
+    end process;
+
+--------------------------------------------------------
 -- interrupt synchronization
 --------------------------------------------------------
     sync_gen : process(clk_cpu, RSTn_sync)
@@ -400,7 +414,6 @@ begin
                when others =>
                    cpu_clken     <= clken_counter(0);
             end case;
-            RSTn_sync     <= RSTn;
         end if;
     end process;
 
