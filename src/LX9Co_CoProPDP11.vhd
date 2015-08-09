@@ -122,10 +122,10 @@ begin
       iwait           => open,            -- if '1', the cpu is waiting for an interrupt
       br7             => cpu_NMI_req,     -- interrupt request, 7
       bg7             => cpu_NMI_ack,     -- interrupt grant, 7
-      int_vector7     => "0" & x"84",     -- interrupt vector, 7
+      int_vector7     => "0" & x"80",     -- interrupt vector, 7
       br6             => cpu_IRQ_req,     -- interrupt request, 6
       bg6             => cpu_IRQ_ack,     -- interrupt grant, 6
-      int_vector6     => "0" & x"80",     -- interrupt vector, 6
+      int_vector6     => "0" & x"84",     -- interrupt vector, 6
       br5             => '0',             -- interrupt request, 5
       bg5             => open,            -- interrupt grant, 5
       int_vector5     => (others => '0'), -- interrupt vector, 5
@@ -234,19 +234,27 @@ begin
 --------------------------------------------------------
 -- test signals
 --------------------------------------------------------
---    test(8) <= '1' when ifetch = '1' and cpu_addr = x"f800" else '0';
---    test(7) <= '1' when ifetch = '1' and cpu_addr = x"F81E" else '0';
---    test(8) <= cpu_IRQ_sync;
---    test(7) <= cpu_NMI_sync;
-    test(8) <= '1' when ifetch = '1' and cpu_addr = x"F83E" else '0';
-    test(7) <= '1' when ifetch = '1' and cpu_addr = x"F84E" else '0';
-    test(6) <= '1' when ifetch = '1' and cpu_addr = x"F858" else '0';
-    test(5) <= '1' when ifetch = '1' and cpu_addr = x"FB12" else '0';
-    test(4) <= '1' when ifetch = '1' and cpu_addr = x"FE0E" else '0';
-    test(3) <= cpu_IRQ_req;
-    test(2) <= '1' when ifetch = '1' and cpu_addr = x"FE6A" else '0';
-    test(1) <= '1' when ifetch = '1' and cpu_addr = x"F892" else '0';
+
+    test(8) <= cpu_wr;
+    test(7) <= cpu_dw8;
+    test(6) <= '1' when cpu_addr(15 downto 4) = x"f5f" else '0';
+    test(5) <= '1' when cpu_addr(15 downto 8) = x"f5" else '0';
+
+--    test(8) <= '1' when cpu_wr = '1' and cpu_addr = x"f5fb" else '0';
+--    test(7) <= '1' when cpu_wr = '1' and cpu_addr = x"f5fa" else '0';
+--    test(6) <= '1' when cpu_wr = '1' and cpu_addr = x"f5f9" else '0';
+--    test(5) <= '1' when cpu_wr = '1' and cpu_addr = x"f5f8" else '0';
     
+--    test(8) <= '1' when ifetch = '1' and cpu_addr = x"ff72" else '0';
+--    test(7) <= '1' when ifetch = '1' and cpu_addr = x"ff82" else '0';
+--    test(6) <= '1' when ifetch = '1' and cpu_addr = x"ff84" else '0';
+--    test(5) <= '1' when ifetch = '1' and cpu_addr = x"ff94" else '0';
+    test(4) <= cpu_IRQ_req;
+    test(3) <= cpu_NMI_req;
+    test(2) <= '1' when ifetch = '1' and (cpu_addr = x"ff84" or cpu_addr = x"ff72") else '0';
+    test(1) <= '1' when ifetch = '1' and cpu_addr = x"fef4" else '0';
+
+--    
 --------------------------------------------------------
 -- clock enable generator
 --------------------------------------------------------
