@@ -235,24 +235,25 @@ begin
 -- test signals
 --------------------------------------------------------
 
-    test(8) <= cpu_wr;
-    test(7) <= cpu_dw8;
-    test(6) <= '1' when cpu_addr(15 downto 4) = x"f5f" else '0';
-    test(5) <= '1' when cpu_addr(15 downto 8) = x"f5" else '0';
+--    test(8) <= clk_cpu;
+--    test(7) <= clk_tube;
+--    test(6) <= '1' when p_cs_b = '0' and cpu_addr(3 downto 1) = "101" and cpu_wr = '0' else '0';
+--    test(5) <= cpu_NMI_n;
+--    test(4) <= cpu_din(3);
+--    test(3) <= cpu_din(2);
+--    test(2) <= cpu_din(1);
+--    test(1) <= cpu_din(0);
+        
 
---    test(8) <= '1' when cpu_wr = '1' and cpu_addr = x"f5fb" else '0';
---    test(7) <= '1' when cpu_wr = '1' and cpu_addr = x"f5fa" else '0';
---    test(6) <= '1' when cpu_wr = '1' and cpu_addr = x"f5f9" else '0';
---    test(5) <= '1' when cpu_wr = '1' and cpu_addr = x"f5f8" else '0';
     
---    test(8) <= '1' when ifetch = '1' and cpu_addr = x"ff72" else '0';
---    test(7) <= '1' when ifetch = '1' and cpu_addr = x"ff82" else '0';
---    test(6) <= '1' when ifetch = '1' and cpu_addr = x"ff84" else '0';
---    test(5) <= '1' when ifetch = '1' and cpu_addr = x"ff94" else '0';
-    test(4) <= cpu_IRQ_req;
-    test(3) <= cpu_NMI_req;
-    test(2) <= '1' when ifetch = '1' and (cpu_addr = x"ff84" or cpu_addr = x"ff72") else '0';
-    test(1) <= '1' when ifetch = '1' and cpu_addr = x"fef4" else '0';
+    test(8) <= '1' when ifetch = '1' and cpu_addr = o"174340" else '0';
+    test(7) <= '1' when ifetch = '1' and cpu_addr = o"174470" else '0';
+    test(6) <= '1' when ifetch = '1' and cpu_addr = o"174514" else '0';
+    test(5) <= '1' when ifetch = '1' and cpu_addr = o"174564" else '0';
+    test(4) <= '1' when ifetch = '1' and cpu_addr = o"174600" else '0';
+    test(3) <= '1' when ifetch = '1' and cpu_addr = o"174610" else '0';
+    test(2) <= '1' when ifetch = '1' and cpu_addr = o"174612" else '0';
+    test(1) <= '1' when ifetch = '0' and cpu_addr = x"80a6" else '0';
 
 --    
 --------------------------------------------------------
@@ -262,9 +263,9 @@ begin
     begin
         if rising_edge(clk_16M00) then
             clken_counter <= clken_counter + 1;
-            clk_cpu       <= not clken_counter(1);
+            clk_cpu       <= not clken_counter(0);
+            clk_tube      <= not clken_counter(0);
             clk_ram       <= clk_cpu;
-            clk_tube      <= clk_cpu;
         end if;
     end process;
 
