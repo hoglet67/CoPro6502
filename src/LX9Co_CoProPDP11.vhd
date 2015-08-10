@@ -155,7 +155,7 @@ begin
       psw_in_we_odd   => '0',             -- psw input from the control register address @ 177776, write enable for the odd address part
       psw_out         => open,            -- psw output, current psw that the cpu uses
       pir_in          => x"0000",         -- pirq value input from the control register
-      modelcode       => 20,              -- cpu model code
+      modelcode       => 40,              -- cpu model code
       init_r7         => x"f800",         -- start address after reset = o'173000' = m9312 hi rom
       init_psw        => x"00a0"          -- initial psw sets interrupt priority 5, allowing BR6 and BR7
     );
@@ -246,14 +246,14 @@ begin
         
 
     
-    test(8) <= '1' when ifetch = '1' and cpu_addr = o"174340" else '0';
-    test(7) <= '1' when ifetch = '1' and cpu_addr = o"174470" else '0';
-    test(6) <= '1' when ifetch = '1' and cpu_addr = o"174514" else '0';
-    test(5) <= '1' when ifetch = '1' and cpu_addr = o"174564" else '0';
-    test(4) <= '1' when ifetch = '1' and cpu_addr = o"174600" else '0';
-    test(3) <= '1' when ifetch = '1' and cpu_addr = o"174610" else '0';
-    test(2) <= '1' when ifetch = '1' and cpu_addr = o"174612" else '0';
-    test(1) <= '1' when ifetch = '0' and cpu_addr = x"80a6" else '0';
+    test(8) <= '1' when ifetch = '1' and cpu_addr = o"176320" else '0';
+    test(7) <= '1' when ifetch = '1' and cpu_addr = o"176404" else '0';
+    test(6) <= '1' when ifetch = '1' and cpu_addr = o"176406" else '0';
+    test(5) <= '1' when ifetch = '1' and cpu_addr = o"176430" else '0';
+    test(4) <= '1' when ifetch = '1' and cpu_addr = o"176432" else '0';
+    test(3) <= '1' when ifetch = '1' and cpu_addr = x"1000"   else '0';
+    test(2) <= '1' when ifetch = '1' and cpu_addr = x"0000"   else '0';
+    test(1) <= cpu_IRQ_n;
 
 --    
 --------------------------------------------------------
