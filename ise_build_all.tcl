@@ -23,5 +23,8 @@ project close
 project open LX9Co-z80fast.xise
 process run "Generate Programming File"
 project close
+project open LX9Co-PDP11.xise
+process run "Generate Programming File"
+project close
 exit
 

@@ -797,6 +797,7 @@ begin
       1 when 3,
       1 when 23 | 24,                  -- kdf11
       1 when 34,
+      1 when 35 | 40,
       1 when 44,
       1 when 45 | 50 | 55,
       1 when 60,
@@ -808,6 +809,7 @@ begin
       1 when 3,
       1 when 23 | 24,                  -- kdf11
       1 when 34,
+      1 when 35 | 40,
       1 when 44,
       1 when 45 | 50 | 55,
       1 when 60,

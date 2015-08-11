@@ -23,4 +23,7 @@ project close
 project open LX9Co-z80fast.xise
 project clean
 project close
+project open LX9Co-PDP11.xise
+project clean
+project close
 exit
