@@ -36,7 +36,6 @@ architecture BEHAVIORAL of LX9CoProPDP11 is
 -- clock and reset signals
 -------------------------------------------------
 
-    signal clk_16M00     : std_logic;
     signal clk_cpu       : std_logic;
     signal clk_ram       : std_logic;
     signal clk_tube      : std_logic;
@@ -92,16 +91,9 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_32_16 : entity work.dcm_32_16 port map (
-        CLKIN_IN  => fastclk,
-        CLK0_OUT  => clk_16M00,
-        CLK0_OUT1 => open,
-        CLK2X_OUT => open
-    );
-
 
     inst_tuberom : entity work.tuberom_pdp11 port map (
-        CLK             => clk_16M00,
+        CLK             => clk_ram,
         ADDR            => cpu_addr(10 downto 1),
         DATA            => rom_data_out
     );
@@ -243,8 +235,6 @@ begin
 --    test(3) <= cpu_din(2);
 --    test(2) <= cpu_din(1);
 --    test(1) <= cpu_din(0);
-        
-
     
     test(8) <= '1' when ifetch = '1' and cpu_addr = o"176320" else '0';
     test(7) <= '1' when ifetch = '1' and cpu_addr = o"176404" else '0';
@@ -255,26 +245,19 @@ begin
     test(2) <= '1' when ifetch = '1' and cpu_addr = x"0000"   else '0';
     test(1) <= cpu_IRQ_n;
 
---    
 --------------------------------------------------------
 -- clock enable generator
 --------------------------------------------------------
-    clk_gen : process(clk_16M00, RSTn)
-    begin
-        if rising_edge(clk_16M00) then
-            clken_counter <= clken_counter + 1;
-            clk_cpu       <= not clken_counter(0);
-            clk_tube      <= not clken_counter(0);
-            clk_ram       <= clk_cpu;
-        end if;
-    end process;
+    clk_cpu       <= fastclk;
+    clk_tube      <= fastclk;
+    clk_ram       <= not fastclk;
 
 --------------------------------------------------------
 -- power up reset
 --------------------------------------------------------
-    reset_gen : process(clk_16M00)
+    reset_gen : process(clk_cpu)
     begin
-        if rising_edge(clk_16M00) then
+        if rising_edge(clk_cpu) then
             if (reset_counter(8) = '0') then
                 reset_counter <= reset_counter + 1;
             end if;
