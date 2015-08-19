@@ -1,0 +1,1490 @@
+; PDP11 Tube Client Code
+; ======================
+; Copyright (C)1989,2008,2014,2015 J.G.Harston
+;
+; v0.10        1989 JGH: Initial version, untested proof of concept.
+; v0.11        2005 JGH: Altered some labels to assemble from BASIC
+; v0.12        2008 JGH: Interupt handler data transfers.
+; v0.13        2008 JGH: Added EMT handler.
+; v0.14        2008 JGH: Checks executed code for ROM and Unix headers.
+; v0.15        2008 JGH: Rearranged MOS interface code around, changed some labels.
+; v0.16        2014 JGH: Optimised some common calls to SEND_BYTE.
+; v0.17 01-Jan-2015 JGH: Addresses in control blocks allowed to be unaligned.
+VERSION:	EQU	&0018
+; v0.18 09-Aug-2015 DMB: Bugfix: CLICOM calling OSCLI with wrong register, RDLINE has
+;                        (R1),R1 wrong way around, IRQHandler needs to have IRQs disabled.
+;                   JGH: GBPB from channel 0 and EXECUTE uses FETCHBYTE. EXECUTE checks
+;                        RESET/OSCLI flag on error, saves/restores PROG. IRQ_DATA stores
+;                        ADDR with MOVBs.
+;                   DMB: EMTVEC corrected. Indirect JMP/JSRs may be wrong, testing with @vec instead
+;                        of @#vec and JSR PC,@(SP)+ in EMT dispatcher.
+;                   JGH: Uses OSASCI for SEND_TXT, OSBYTE returns 16-bit results, MEMBOT and MEMTOP
+;                        are variables.
+;                   DMB: GetADDR in IRQ_DATA needs to use @#ADDR+n instead of @ADDR+n. MOVB used to
+;                        read errors.
+VERSION:	EQU	&0019
+; v0.19 10-Aug-2015 DMB: Bugfix: EMT dispatcher index into vectors, unbalanced stack in Release.
+;                        BIT #n,R in EXECUTE should be BIT #n,R. A few ADD/SUB #n wrong way around.
+;                   JGH: Code with a Unix header copied to MEMBOT instead of &0000 as no MMU in
+;                        this implementation.
+;                        Bugs: EXECUTE doesn't prepare valid stack frame for code with Unix header.
+;       11-Aug-2015 DMB: Bugfix, OSWORD <>0 wasn't fetching block lengths correctly. EMT 14 wrote
+;                        wrong 'address' if not passed 'handler'. ESCHAND should use @ESCADDR.
+;                        HANDLERS equate had wrong arithmetic.
+;                   JGH: INIT_ENV correctly initialises EMTs 0-15 and nulls 16-255 instead of
+;                        setting 16-31 to garbage and missing 240-255 completely. EQUs used to allow
+;                        more handlers to be added easily.
+; v0.19a 11-Aug-2015 JGH: Crunched some blocks of common code.
+; v0.19b 11-Aug-2015 JGH: Crunched NMI data transfer code.
+; v0.19c 12-Aug-2015 JGH: STARTUP uses internal stack. MEMBOT and MEMTOP fetched from variables. All
+;                         unused hardware vectors set to NULLIRQ.
+; v0.19d 13-Aug-2015 JGH: Tidied up and optimised EXECUTE, OSCLI saves all registers, uses internal
+;                         stack. EMT14 optimised.
+; v0.19e 16-Aug-2015 JGH: TRAP jumps to error, EMT 15 used instead of MKERR.
+; v0.19f 16-Aug-2015 DMB: Bugfix: INIT_ENV was looping forever, wrong number of WORKSPACE words initialised
+;                         starting from wrong workspace offset, TRAP vector was wrong. Wrong address
+;                         mode in MOV @#COM_BLK,R0 in CLICOM.
+; v0.19g 16-Aug-2015 BMB: All NMIs were failing to update ADDR by returning via wrong exit.
+VERSION:	EQU	&0020
+; v0.20  17-Aug-2015 JGH: EXECUTE possibly not working when entering BASIC.
+; v0.20a 18-Aug-2015 DMB: Bugfix: EMT handler lost R0, EMT14 restored ERRV even after attempts to change it.
+;                         Optimised EMT15 to free up space to fit EMT14 bugfix.
+; v0.20b 18-Aug-2015 DMB: Bugfix: EMT15 optimisation used EMTHANDLER ERRV instead of mainline ERRV.
+VERSION:	EQU	&0021
+; v0.21 19-Aug-2015 JGH: Incremented to version 0.21. Added conditional switch to remove BPUT/BGET/GBPB to
+;                        channel 0, saves about 100 bytes if removed.
+;
+;
+; This code may be freely reused.
+;
+; This code assumes a single memory space and assumes that code can access I/O devices, low memory
+; vectors and user memory with ordinary MOV instructions. This will work with no seperate
+; Kernal/User space, or with code never running in User mode.
+
+; Some naming conventions
+; xxxxVEC         - hardware vectors, eg EMTVEC, NMIVEC, etc
+; xxxxV           - software vectors, eg ESCV, ERRV, etc.
+; xxxx or xxxHAND - handler for xxxx, eg ESCHAND, ERRHAND, etc.
+; OSxxx or _xxx   - routines handled by xxx, eg OSFILE handled by _FILE
+
+; Memory map:
+;          +-----------------------+ 0000
+;          | Hardware vectors, etc |
+;   MEMBOT +-----------------------+ 0100
+;          |                       |
+;          |                       |
+;   MEMTOP |   ^^^User Stack^^^    |
+;   WORKSP +-----------------------+ F500
+;          | ERRBLK-->   <--CLISTK |
+;          +-----------------------+ F530
+;          | CLIBUF-->   <--ERRSTK |
+; HANDLERS +-----------------------+
+;          | EXITV    EXITADDR     | F5D8
+;          | ESCV     ESCADDR      | F5DC
+;          | ERRV     ERRADDR      | F5E0
+;          | EVENTV   EVENTADDR    | F5E4
+;          | USERIRQV USERIRQADDR  | F5E8
+;          | EMTV     EMTADDR      | F5EC
+;          | SPARE    LPTR         | F5F0
+;          | MEMBOT   MEMTOP       | F5F4
+;     ADDR | Transfer address      | F5F8
+;     PROG | Current program       | F5FC
+;   PROG+2 | unused byte           | F5FE
+;   ESCFLG | Escape flag           | F5FF
+; EMTTABLE +-----------------------+
+;          | EMT 0 code address    | F600
+;          | EMT 1 code address    | F602
+;          | EMT 2 code address    | F604
+;          | EMT 3 code address    | F606
+;          | EMT 4 code address    | F608
+;          | ...                   |
+;          | EMT 255 code address  | F7FE
+;    START +-----------------------+ F800
+;          | Tube client code      |
+;          +-----------------------+ FFF0
+;          | Tube I/O registers    |
+;          +-----------------------+ FFFF
+
+
+; PDP-11 hardware addresses
+; =========================
+STACKVEC:       EQU  &04		; Stack too low
+EMTVEC:         EQU  &18   		; Vector called by EMT call
+TRAPVEC:        EQU  &1C   		; Vector called by TRAP call DMB
+
+
+; Tube client system configuration tweekables
+; ===========================================
+START:          EQU  &F800 		; Start of code
+TUBEIO:         EQU  &FFF0 		; Base of Tube I/O registers
+NMIVEC:         EQU  &80   		; Vector called by Tube NMIs with priority 7
+IRQVEC:         EQU  &84   		; Vector called by Tube IRQs with priority 6
+
+EMTMAX:         EQU  256   		; Number of EMTs
+EMTTABLE:       EQU  START-EMTMAX*2	; EMT dispatch table
+WORKSP:         EQU  EMTTABLE-256  	; 256 bytes for buffers, etc
+RAMSTART:       EQU  &0100 		; Lowest available user memory address
+RAMEND:         EQU  WORKSP		; Highest available user memory address
+
+;NOCHNZERO:	EQU  1			; Remove bput/bget#0 -> wrch/rdch, saves about 100 bytes
+
+
+; Internal buffers, etc
+; =====================
+ERRBLK:         EQU  WORKSP    		; Buffer to store host error block
+CLIBUF:         EQU  WORKSP+&30		; Space to enter command line from CLI prompt
+CLISTK:         EQU  CLIBUF		; Internal stack for CLI commands
+					; as main memory may be overwritten
+CLIEND:         EQU  HANDLERS
+ERRSTK:         EQU  CLIEND		; Internal stack for host errors
+
+WORKSPMAX:      EQU  16					; 16 bytes of general workspace
+HANDLEMAX:      EQU  6					; 6 environment handlers
+HANDLERS:       EQU  WORKSP+256-WORKSPMAX-4*HANDLEMAX	; Address of environment handlers
+EXITV:          EQU  HANDLERS+&00	; Address of exit handler
+EXITADDR:       EQU  HANDLERS+&02	; unused
+ESCV:           EQU  HANDLERS+&04	; Address of escape handler
+ESCADDR:        EQU  HANDLERS+&06	; Address of escape flag
+ERRV:           EQU  HANDLERS+&08	; Address of error handler
+ERRADDR:        EQU  HANDLERS+&0A	; Address of error buffer
+EVENTV:         EQU  HANDLERS+&0C	; Address of event handler
+EVENTADDR:      EQU  HANDLERS+&0E	; unused
+USERIRQV:       EQU  HANDLERS+&10	; Address of unknown IRQ handler
+USERIRQADDR:    EQU  HANDLERS+&12	; unused
+EMTV:           EQU  HANDLERS+&14	; Old SP within EMT handler
+EMTADDR:        EQU  HANDLERS+&16	; Address of EMT dispatch table
+
+SPARE:          EQU  WORKSP+&F0		; unused
+LPTR:           EQU  WORKSP+&F2		; Point to command line (unused)
+MEMBOT:         EQU  WORKSP+&F4		; Lowest user memory address
+MEMTOP:         EQU  WORKSP+&F6		; Highest user memory address
+ADDR:           EQU  WORKSP+&F8 	; Transfer address
+PROG:           EQU  WORKSP+&FC 	; Current program
+PROG2:          EQU  WORKSP+&FE 	; unused
+ESCFLG:         EQU  WORKSP+&FF 	; Escape flag
+
+
+; Tube I/O devices
+; ================
+TUBE1S:         EQU  TUBEIO+0 		; Tube Status 1
+TUBE1:          EQU  TUBEIO+2 		; Tube Data 1 - VDU
+TUBE2S:         EQU  TUBEIO+4 		; Tube Status 2
+TUBE2:          EQU  TUBEIO+6 		; Tube Data 2 - Command
+TUBE3S:         EQU  TUBEIO+8 		; Tube Status 3
+TUBE3:          EQU  TUBEIO+10		; Tube Data 3 - Data
+TUBE4S:         EQU  TUBEIO+12		; Tube Status 4
+TUBE4:          EQU  TUBEIO+14		; Tube Data 4 - Interrupt
+
+
+; Code Entry
+; ==========
+; Set up vectors, hardware, memory, etc.
+; Must be entered in Kernel mode.
+	ORG  START
+	JMP  STARTUP			; Jump to start up Tube code
+
+
+; STARTUP
+; =======
+; Tube data: via R1: string &00  --  via R2: &7F or &80
+;
+BANNER:
+	EQUB 13
+	EQUS "PDP11 TUBE 64K "
+	EQUB ((VERSION >> 8) AND 15)+48
+	EQUS "."
+	EQUB ((VERSION >> 4) AND 15)+48
+	EQUB (VERSION AND 15)+48
+#ifdef TESTBUILD
+	EQUB 96+TESTBUILD
+#endif
+	EQUB 13
+	EQUB 13
+	EQUB 0
+	ALIGN
+STARTUP:
+	MOV  #CLISTK,SP			; Use internal stack
+	JSR  PC,INIT_ENV		; Set up default handlers, preserving PROG
+	MOV  @#PROG,@#ADDR		; Set current program as default entry address
+	MOV  #BANNER,R1			; Point to startup banner
+	JSR  PC,SEND_TXT		; Print it via Tube WRCH protocol
+	;CLR  R0			; SEND_TXT returns R0=0
+	JSR  PC,_WRCH			; Send terminating zero byte
+	CLC				; Clear Carry Flag to indicate Reset
+	JSR  PC,CLI_WAIT		; Wait for and check result byte
+					; Fall through to CLICOM if nothing executed
+
+; Supervisor Command line prompt
+; ==============================
+; Allow user to enter *commands.
+; We deliberately call _WORD and _CLI so if EMTs vectors are trashed we can still access MOS and so
+; that errors go via ERRV instead of us having to check returned V flag.
+; We will normally be running in Kernal mode so we can see the system vectors and high memory.
+;
+CLICOM:
+EXITHAND:
+	MOV  @#MEMTOP,SP		; Put stack at top of user memory
+	MOV  #3,R0
+	JSR  PC,INIT_IRQ		; Initialise IRQ/NMI and environment handlers
+CLILOOP:
+	MOV  #PROMPT,R1
+	JSR  PC,SEND_TXT		; Display prompt
+	;CLR  R0			; SEND_TXT returns R0=0
+	;MOV  #COM_BLK,R1		; Point to control block, SENT_TXT returns R1=COM_BLK
+	JSR  PC,_WORD			; Read a line of text
+	BCS  COM_ESC			; Escape pressed
+	MOV  @#COM_BLK,R0		; Get address of input buffer DMB
+	JSR  PC,_CLI			; Execute command
+	BR   CLILOOP			; Loop back for another line
+PROMPT:
+	EQUS "PDP11>*"			; Command prompt
+	EQUB 0
+	ALIGN
+;
+COM_BLK:
+	EQUW CLIBUF			; Input buffer
+	EQUB CLIEND-CLIBUF		; Buffer length
+	EQUB 32				; Lowest acceptable char
+	EQUB 255			; Highest acceptable char
+	ALIGN
+;
+COM_ESC:
+	MOV  #126,R0
+	JSR  PC,_BYTE			; Acknowledge Escape
+;	JSR  PC,MKERR
+	EMT  15
+	EQUB 17,"Escape",0
+	ALIGN
+
+; Default error handler
+; ---------------------
+; On entry, R0=>error block
+ERRHAND:
+	MOV  @#MEMTOP,SP		; Reset stack to top of user memory
+	MOV  R0,R1			; Point R1=>error block
+	INC  R1				; Step past error number
+	JSR  PC,_NEWL			; Print a newline
+	JSR  PC,SEND_TXT		; Print error message
+	JSR  PC,_NEWL			; Print another newline
+	BR   CLICOM
+
+; Default escape handler
+; ----------------------
+ESCHAND:
+	ADD  R0,R0			; Move b6 into b7
+	MOVB R0,@ESCADDR		; Store Escape flag
+	RTS  PC
+
+
+; Fetch word from unaligned R1 to R1
+; ==================================
+; Unaligned version of MOV (R1),R1, corrupts R0
+; FETCHWORD2 - R1=>word+2
+; FETCHWORD  - R1=>word
+;
+FETCHWORD2:
+	SUB  #2,R1			; Step back to point to word
+FETCHWORD:
+	MOVB (R1)+,R0			; Fetch low byte
+	BIC  #&FF00,R0			; Ensure 8-bit value
+	MOVB (R1),R1			; Fetch high byte
+	BIC  #&FF00,R1			; Ensure 8-bit word
+	SWAB R1				; Swap high byte to top of register
+	BIS  R0,R1			; Merge together
+	RTS  PC
+
+
+; Print zero-terminated text string at R1
+; =======================================
+SEND_TXTLP:
+	JSR  PC,_ASCII			; Send to WRCH via Tube R1
+SEND_TXT:
+	MOVB (R1)+,R0			; Get byte from R1, increment R1
+	BNE  SEND_TXTLP			; Loop until &00 byte
+	RTS  PC
+
+
+; *************
+; MOS INTERFACE
+; *************
+
+; OSCLI - Send command line to host
+; =================================
+; On entry: R0=>command string
+; On exit:  R0=return value
+;
+; Tube data: &02 string &0D  --  &7F or &80
+;
+_CLI:
+	MOV  R1,-(SP)			; Save registers
+	MOV  R2,-(SP)
+	MOV  R3,-(SP)
+	MOV  R4,-(SP)
+	MOV  R5,-(SP)
+
+; As a *command may result in data transfer, that data may end up overwriting stack in user memory,
+; so use a temporary stack to do OSCLI. If OSCLI ends up jumping to a new process, a new stack will
+; be set up by that new process. If we are already using the internal stack we continue using it
+; so that transient OSCLIs can call more OSCLIs.
+
+	MOV  SP,R5			; Copy stack pointer so we can stack it
+	CMP  R5,#WORKSP			; Check where the stack is
+	BCC  CLI_SYSSTK			; We're already using internal stack
+	MOV  #CLISTK,SP			; Use internal stack
+CLI_SYSSTK:
+	MOV  R5,-(SP)			; Save caller's stack pointer
+	MOV  @#PROG,-(SP)		; Save current program as top item on stack
+	JSR  PC,CLI_GO			; Do the OSCLI call
+	MOV  (SP)+,@#PROG		; Restore current program
+	MOV  (SP),SP			; Restore caller's stack pointer
+	MOV  (SP)+,R5			; Restore registers
+	MOV  (SP)+,R4
+	MOV  (SP)+,R3
+	MOV  (SP)+,R2
+	MOV  (SP)+,R1
+	CLR  R0				; Return R0=0 from OSCLI
+CLI_DONE:
+	RTS  PC
+
+CLI_GO:
+	MOV  R0,R1			; R1=pointer to command string
+	MOV  #2,R0
+	JSR  PC,SEND_CMD		; Send command &02 - OSCLI
+	JSR  PC,SEND_STR		; Send command string at R1
+CLI_WAIT1:
+	SEC				; Set Carry to indicate OSCLI
+CLI_WAIT:
+	JSR  PC,WAIT_BYTE		; Wait for result via Tube R2 (preserves Cy)
+					; WAIT_BYTE returns flags set from R0
+	BPL  CLI_DONE			; No code to be executed
+					; Fall through into EXECUTE
+
+
+; EXECUTE - Enter code at ADDR
+; ============================
+; Checks for possible code header, makes code current PROGRAM.
+; On entry, ADDRESS=code entry address
+;           CC=entering from RESET
+;           CS=entering from OSCLI/OSBYTE
+;
+; Caller should preserve registers before calling here.
+;
+EXECUTE:
+	MOV  #0,R0			; R0=0 - prepare for raw code
+	ROL  R0				; Save RESET/OSCLI flag in Carry in R0
+	MOV  @#ADDR,R1			; Get transfer address
+	MOV  R1,-(SP)			; Save entry address
+	MOVB 7(R1),R2			; Get copyright offset
+	BIC  #&FF00,R2			; Ensure 8-bit value
+	ADD  R2,R1			; R1=>copyright string
+	TSTB (R1)+			; Check for copyright string
+	BNE  EXEC_NOTROM
+	CMPB (R1)+,#ASC"("
+	BNE  EXEC_NOTROM
+	CMPB (R1)+,#ASC"C"
+	BNE  EXEC_NOTROM
+	CMPB (R1)+,#ASC")"
+	BNE  EXEC_NOTROM
+	MOV  (SP),R1			; Get entry address back
+	MOVB 6(R1),R2			; Get ROM type
+	BIT  #&40,R2			; DMB: BIT, not TST
+	BEQ  EXEC_NOTLANG
+	BIC  #&FFF0,R2			; Mask out non-CPU bits
+	CMP  R2,#&07
+	BNE  EXEC_NOTPDP
+	MOVB 6(R1),R2			; Get ROM type again
+	BIT  #&20,R2			; Does Tube transfer address exist? DMB: BIT, not TST
+	BEQ  EXEC_ROM			; No, use stacked entry address
+	MOVB 7(R1),R2			; Get copyright offset
+	BIC  #&FF00,R2			; Ensure 8-bit value
+	ADD  R2,R1			; Point to copyright message
+	INC  R1				; Step past first zero byte
+EXEC_SKIP:
+	TSTB (R1)+			; Find terminating zero byte
+	BNE  EXEC_SKIP
+	ADD  #4,R1			; Step past transfer address
+	JSR  PC,FETCHWORD		; R1=offset from start address
+	ADD  (SP)+,R1			; Add start entry to offset, R1 is now entry address
+	MOV  R1,-(SP)			; Push it back
+EXEC_ROM:
+	BIS  #2,R0			; R0.1=1 to indicate code with header (will become R1=1)
+					; See if a Unix header also exists
+;
+EXEC_NOTROM:
+	MOV  (SP)+,R1			; Get entry address back
+	BIC  #1,R1			; Ensure word aligned
+	MOV  (R1),R2			; Get magic number
+	CMP  R2,#&105			; &o0405 - overlay
+	BCS  EXEC_CODE			; &o0407 - normal
+	CMP  R2,#&109			; &o0410 - read-only text
+	BCC  EXEC_CODE			; &o0411 - seperated I&D
+	TST  (R1)+			; Step to next entry
+	MOV  (R1)+,R3			; Size of text
+	MOV  (R1)+,R4			; Size of initialised data
+	ADD  R4,R3			; Size of program
+	MOV  (R1)+,R4			; Size of uninitialised data
+	MOV  @#MEMBOT,R2		; Destination address
+	ADD  #8,R1			; Set past other fields to start of code
+
+; R1=source
+; R2=dest
+; R3=size of code+data
+; R4=size to be zeroed
+
+	ASR  R3				; Divide by two to get size in words
+EXEC_COPY:
+	MOV  (R1)+,(R2)+		; Copy program to MEMBOT
+	DEC  R3				; Decrement number of words to copy
+	BNE  EXEC_COPY
+	ASR  R4				; Divide by two to get size in words
+	BEQ  EXEC_ENTER			; No uninitialised data to clear
+EXEC_ZERO:
+	CLR  (R2)+			; Zero uninitialised data
+	DEC  R4				; Decrement number of words to clear
+	BNE  EXEC_ZERO
+EXEC_ENTER:
+	BIC  #&FFFE,R0			; Prepare R0=0 for code without a ROM header
+	MOV  @#MEMBOT,R1		; Entry address
+					; Build an empty stack frame
+	CLR  -(SP)			; argv[1]=0
+	CLR  -(SP)			; argv[0]=0
+	CLR  -(SP)			; argn=0
+
+EXEC_CODE:
+	MOV  #&0BBC,R5			; R5=&0BBC to indicate BBC EMTs available
+	ASR  R0				; R0=0/1 for raw/header, Cy=RESET/OSCLI
+	MOV  R1,@#PROG			; Set as current program
+	MOV  R1,-(SP)			; Stack destination address
+	MOV  #BANNER,R1			; R1=><cr> for no command line
+	RTS  PC				; Jump to code via RTS
+
+EXEC_NOTLANG:
+;	ASR  R0
+;	BCC  EXEC_CLICOM		; Entered from RESET, drop into CLICOM
+;;	JSR  PC,MKERR
+;	EMT  15
+;	EQUB 249,"This is not a language",0
+;	ALIGN
+;
+EXEC_NOTPDP:
+	ASR  R0
+	BCC  EXEC_CLICOM		; Entered from RESET, drop into CLICOM
+	MOV  #3,R0
+	JSR  PC,INIT_HANDLES		; Connect to default error handler
+;	JSR  PC,MKERR
+	EMT  15
+	EQUB 249,"Not PDP11 code",0
+	ALIGN
+
+EXEC_CLICOM:
+	JMP  CLICOM			; Drop into Supervisor command prompt
+
+
+; OSBYTE
+; ======
+; On entry: R0,R1,R2=OSBYTE parameters
+; On exit:  R0 preserved
+;           If R0<&80, R1=returned value
+;           If R0>&7F, R1, R2, Carry=returned values
+;
+; Tube data: &04 X A    --  X
+;            &06 X Y A  --  Cy Y X
+;
+BYTE_WAIT:
+	BR   CLI_WAIT1			; Jump to wait for ack. from OSCLI/OSBYTE
+_BYTE:
+	MOV  R0,-(SP)			; Save R0
+	TSTB R0
+	BMI  BYTE_HI			; Jump with high OSBYTEs
+	MOV  #4,R0
+	JSR  PC,SEND_CMD_R1		; Send command and second parameter
+	MOV  (SP),R0			; Get first parameter from top of stack
+	JSR  PC,SEND_BYTE		; Send first parameter
+	JSR  PC,WAIT_BYTE		; Wait for response
+	MOV  R0,R1			; Pass to R1
+	BR   BYTE_DONE
+;	MOV  (SP)+,R0			; Restore R0
+;	RTS  PC
+
+; OSBYTE >&7F
+; -----------
+BYTE_HI:
+;	CMP  R0,#&82
+;	BEQ  MEM82			; Fetch address high word
+;	CMP  R0,#&83
+;	BEQ  MEM83			; Fetch low memory limit
+;	CMP  R0,#&84
+;	BEQ  MEM84			; Fetch high memory limit
+;
+	CMP  R0,#&82
+	BCS  BYTE_HI1			; Not a memory OSBYTE
+	BEQ  MEM82			; Fetch address high word
+	CMP  R0,#&85
+	BCS  MEM83			; Fetch low/high memory limit
+BYTE_HI1:
+	MOV  #6,R0
+	JSR  PC,SEND_CMD_R1		; Send command and second parameter
+	MOV  R2,R0
+	JSR  PC,SEND_BYTE		; Send third parameter
+	MOV  (SP)+,R0			; Get first parameter from stack
+	JSR  PC,SEND_BYTE		; Send first parameter
+	CMP  R0,#&9D			; Was it Fast BPut?
+	BEQ  BYTE_DONE1			; Don't wait for response
+	CMP  R0,#&8E			; Was it language startup?
+	BEQ  BYTE_WAIT			; Wait for program startup
+	MOV  R0,-(SP)			; Save R0 again
+	JSR  PC,WAIT_BYTE		; Wait for response
+	ADD  #&FF80,R0			; Copy b7 into Carry
+	JSR  PC,WAIT_BYTE		; Wait for response
+	BIC  #&FF00,R0			; Ensure 8-bit value
+	MOV  R0,R2			; Pass to R2
+	SWAB R0
+	MOV  R0,R1			; Pass to R1 as b8-b15 of result
+	JSR  PC,WAIT_BYTE		; Wait for response
+	BIC  #&FF00,R0			; Ensure 8-bit value
+	BIS  R0,R1			; Merge with b8-b15 set from R2
+	BR   BYTE_DONE
+;BYTE_DONE:
+;	MOV  (SP)+,R0			; Restore R0
+;	RTS  PC
+
+; Read memory locations
+; ---------------------
+MEM82:
+	MOV  #&86,R0			; Point to ADDR+2
+MEM83:
+MEM84:
+	ASL  R0				; A=&0106,&0108,&010C
+	MOV  MEMBOT-&106(R0),R1		; Fetch address value
+	MOV  R1,R2			; R2=R1 DIV 256
+	SWAB R2
+	BIC  #&FF00,R2
+BYTE_DONE:
+	MOV  (SP)+,R0			; Restore R0
+BYTE_DONE1:
+	RTS  PC
+
+
+; OSWORD
+; ======
+; On entry: R0=OSWORD number
+;           R1=>control block
+;
+_WORD:
+	TST  R0
+	BEQ  RDLINE			; OSWORD 0, jump to read line
+;
+; OSWORD <>&00
+; ------------
+; Tube data: &08 function in_length block out_length  --  block
+;
+	MOV  R3,-(SP)			; Save R3
+	MOV  R2,-(SP)			; Save R2
+	MOV  R0,-(SP)			; Save R0
+	MOV  #8,R0
+	JSR  PC,SEND_CMD		; Send command &08 - OSWORD
+	MOV  (SP),R0			; Get R0 back
+	JSR  PC,SEND_BYTE		; Send OSWORD number
+	TSTB R0				; Check OSWORD number
+	BPL  WORDLO			; <&80, calculate control block sizes
+	MOVB (R1)+,R2			; Get transmit size from control block DMB: should be R1
+	MOVB (R1),R3			; Get receive size from control block DMB: should be R1
+	BR   WORDGO			; Jump to send OSWORD command
+WORDLO:
+	MOV  #&10,R2			; OSWORD &15-&7F uses 16 bytes both ways
+	MOV  #&10,R3
+	CMP  R0,#&15			; OSWORD &01-&7F use fixed control block sizes
+	BCC  WORDGO			; OSWORD &15-&7F, jump to send OSWORD command
+	ADD  R0,R0			; Double R0 to index into table
+	ADD  #WORD_TABLE-2,R0		; Point to table entry DMB: #WORD_TABLE
+	MOVB (R0)+,R2			; Fetch send length
+	MOVB (R0),R3			; Fetch receive length
+WORDGO:
+	MOV  R2,R0			; Get transmit block length
+	JSR  PC,SEND_BYTE		; Send transmit block length
+	ADD  R2,R1			; Point to past end of control block
+	DEC  R2				; Convert 0 to -1
+	CMP  R2,#&80			; Check length of transmit block
+	BCC  WORD_NOTX			; Transmit block=0 or >&80, send nothing
+WORD_TX:
+	MOVB -(R1),R0			; Get byte from control block
+	JSR  PC,SEND_BYTE		; Send byte to Tube R2
+	DEC  R2
+	BPL  WORD_TX			; Loop to send control block
+WORD_NOTX:
+	MOV  R3,R0			; Get recive block length
+	JSR  PC,SEND_BYTE		; Send receive block length
+	ADD  R3,R1			; Point past end of control block
+	DEC  R3				; Convert 0 to -1
+	CMP  R3,#&80			; Check length of received block
+	BCC  WORD_NORX			; Receive block=0 or >&80, receive nothing
+WORD_RX:
+	JSR  PC,WAIT_BYTE		; Get byte from Tube R2
+	MOVB R0,-(R1)			; Store byte in control block
+	DEC  R3
+	BPL  WORD_RX			; Loop to receive control block
+WORD_NORX:
+	MOV  (SP)+,R0			; Restore registers
+	MOV  (SP)+,R2
+	MOV  (SP)+,R3
+	RTS  PC
+;
+; Table of OSWORD control block lengths for &01-&14
+; -------------------------------------------------
+; low byte=send length, high byte=recive length
+WORD_TABLE:
+	EQUW &0500	; &01 =TIME
+	EQUW &0005	; &02 TIME=
+	EQUW &0500	; &03 =TIMER
+	EQUW &0005	; &04 TIMER=
+	EQUW &0504	; &05 =MEM
+	EQUW &0005	; &06 MEM=
+	EQUW &0008	; &07 SOUND
+	EQUW &000E	; &08 ENVELOPE
+	EQUW &0504	; &09 =POINT
+	EQUW &0901	; &0A Read bitmap
+	EQUW &0501	; &0B Read palette
+	EQUW &0005	; &0C Write palette
+	EQUW &0800	; &0D Read graphics coords
+	EQUW &1910	; &0E =TIME$
+	EQUW &0020	; &0F TIME$=
+	EQUW &0110	; &10 Net_Tx
+	EQUW &0D0D	; &11 Net_Rx
+	EQUW &8000	; &12 Net_Params
+	EQUW &0808	; &13 Net_Info
+	EQUW &8080	; &14 NetFS_Op
+
+
+; Read a line of text
+; -------------------
+; Tube data: &0A block  --  &FF or &7F string &0D
+;
+RDLINE:
+	MOV  #10,R0
+	JSR  PC,SEND_CMD		; Send command &0A - RDLINE
+	ADD  #2,R1
+	MOV  #3,R2
+	JSR  PC,SEND_BLK		; Send 3-byte control block
+	MOV  #7,R0
+	JSR  PC,SEND_BYTE		; Send &0700
+	CLR  R0
+	JSR  PC,SEND_BYTE
+	JSR  PC,WAIT_BYTE		; Wait for response
+	ADD  #&FF80,R0			; Copy b7 into Carry
+	BCS  RD_DONE
+	JSR  PC,FETCHWORD2		; Get address to store text, allowing for nonalignment
+	CLR  R2				; Clear count of received bytes
+RD_STR:
+	JSR  PC,WAIT_BYTE		; Wait for byte from Tube R2
+	MOVB R0,(R1)+			; Store it
+	INC  R2				; Increment number of bytes
+	CMP  R0,#13			; Check current byte
+	BNE  RD_STR			; Loop until <cr> and Clear Carry
+	DEC  R2				; R2 is length of string
+RD_DONE:
+	RTS  PC
+
+
+; OSARGS - Read info on open file or filing system
+; ================================================
+; On entry: R0=function
+;           R1=handle
+;           R2=>control block
+; On exit:  R0=returned value
+;           R1 preserved
+;           R2 preserved
+;
+; Tube Data: &0C handle block function  --  result block
+;
+_ARGS:
+	MOV  R2,-(SP)			; Save control block pointer
+	MOV  R1,-(SP)			; Save handle
+	MOV  R0,-(SP)			; Save function
+	MOV  #&0C,R0
+	JSR  PC,SEND_CMD_R1		; Send command and handle
+	MOV  R2,R1
+	MOV  #4,R2
+	JSR  PC,SEND_BLK		; Send four-byte control block
+	MOV  (SP)+,R0
+	JSR  PC,SEND_BYTE		; Send function
+	JSR  PC,WAIT_BYTE		; Wait for returned result
+	MOV  R0,-(SP)			; Save result
+	MOV  #4,R2			; Prepare to wait for 4-byte control block
+;	JSR  PC,WAIT_BLK		; Wait for four-byte control block
+;	MOV  (SP)+,R0			; Get result back
+;	MOV  (SP)+,R1			; Get handle back
+;	MOV  (SP)+,R2			; Get control block pointer back
+;	RTS  PC
+	BR   FILE_DONE		; Wait for control block, restore and return
+
+
+; OSFIND - Open or Close a file
+; =============================
+; On entry: R0=function
+;           R1=handle or =>filename
+; On exit:  R0=zero or handle
+;
+; Tube data: &12 function string &0D  --  handle
+;            &12 &00 handle  --  &7F
+;
+_FIND:
+	MOV  R0,-(SP)			; Save R0
+	MOV  #&12,R0
+	JSR  PC,SEND_CMD		; Send command &12 - OSFIND
+	MOV  (SP)+,R0			; Get R0 back
+	JSR  PC,SEND_BYTE		; Send function
+	TST  R0				; Check function
+	BNE  OPEN			; Jump to deal with OPEN
+; CLOSE
+	JSR  PC,SEND_BYTE_R1		; Send handle to Tube
+	JSR  PC,WAIT_BYTE		; Wait for acknowledgement
+	CLR  R0				; Zero R0
+	RTS  PC
+OPEN:
+	MOV  R1,-(SP)			; Save R1
+	JSR  PC,SEND_STR		; Send string at R1
+	JSR  PC,WAIT_BYTE		; Wait for returned handle
+	MOV  (SP)+,R1			; Restore R1
+	RTS  PC
+
+
+; OSFILE - Operate on whole files
+; ===============================
+; On entry: R0=function
+;           R1=>control block
+; On exit:  R0=result
+;           R1 preserved
+;           control block updated
+;
+; Tube data: &14 block string <cr> function  --  result block
+;
+_FILE:
+	MOV  R2,-(SP)			; Save R2
+	MOV  R1,-(SP)			; Save R1
+	MOV  R0,-(SP)			; Save function
+	MOV  #&14,R0
+	JSR  PC,SEND_CMD		; Send command &14 - OSFILE
+	ADD  #2,R1			; Point to control block contents
+	MOV  #16,R2
+	JSR  PC,SEND_BLK		; Send 16-byte control block
+	JSR  PC,FETCHWORD2		; Get address of filename, allowing for nonalignment
+	JSR  PC,SEND_STR		; Send filename string
+	MOV  (SP)+,R0
+	JSR  PC,SEND_BYTE		; Send function
+	JSR  PC,WAIT_BYTE		; Wait for returned result
+	MOV  (SP),R1			; Get control block pointer back
+	MOV  R0,-(SP)			; Save result
+	ADD  #2,R1			; Point to control block contents
+	MOV  #16,R2			; Prepate to wait for 16-byte control block
+FILE_DONE:
+	JSR  PC,WAIT_BLK		; Wait for control block
+	MOV  (SP)+,R0			; Get result back
+	MOV  (SP)+,R1			; Get control block pointer back
+	MOV  (SP)+,R2			; Get R2 back
+	RTS  PC
+
+
+; OS_GBPB - Multiple byte read and write
+; =====================================
+; On entry: R0=function
+;           R1=>control block
+; On exit:  R0=returned value
+;              control block updated
+;
+; Tube data: &16 block function  --   block Carry result
+;
+_GBPB:
+#ifndef NOCHNZERO
+	TSTB (R1)			; Check handle
+	BNE  GBPB1			; Non-zero handle
+	TST  R0				; Check function
+	BEQ  GBPB1			; Pass OSGBPB 0 to Tube
+	CMP  R0,#5
+	BCS  GBPB_RDWR			; Channel 0 via OSRDCH/OSWRCH
+#endif
+GBPB1:
+	MOV  R2,-(SP)			; Save R2
+	MOV  R0,-(SP)			; Save function
+	MOV  #&16,R0
+	JSR  PC,SEND_CMD		; Send command &16 - OSGBPB
+	MOV  #13,R2
+	JSR  PC,SEND_BLK		; Send 13-byte control block
+	MOV  (SP)+,R0
+	JSR  PC,SEND_BYTE		; Send function
+	MOV  #13,R2
+	JSR  PC,WAIT_BLK		; Wait for 13-byte control block
+	MOV  (SP)+,R2			; Get R2 back
+	BR   WAIT_CHAR			; Get Carry and result byte
+;
+; Read or write block of memory to/from OSWRCH/OSRDCH
+; ---------------------------------------------------
+; NB, only uses 16-bit address and count, b16-b31 ignored and not updated
+;
+#ifndef NOCHNZERO
+GBPB_RDWR:
+	MOV  R2,-(SP)			; Save R2
+	MOV  R0,-(SP)			; Save function
+	MOV R1,-(SP)			; Save pointer to control block
+	INC R1				; Point to Address
+	JSR PC,FETCHWORD		; R1=Address, allowing for nonalignment
+	MOV R1,R2			; R2=Address
+	MOV (SP)+,R1			; Restore pointer to control block
+
+GBPB_LP:
+	CMP  (SP),#3
+	BCC  GBPB_RD			; Function 3/4, read characters
+					; Function 1/2, write characters
+	MOVB (R2)+,R0			; Get character from memory
+	JSR  PC,_WRCH			; Write it
+	BR   GBPB_NEXT			; Jump to update and loop
+GBPB_RD:
+	JSR  PC,_RDCH			; Read character
+	BCS  GBPB_EXIT			; Carry set, exit
+	MOVB R0,(R2)+			; Store character
+GBPB_NEXT:
+	TSTB 5(R1)			; Test byte low byte
+	BNE  GBPB_LO			; Count<>&xx00
+	DECB 6(R1)			; Decrement count high byte
+GBPB_LO:
+	DECB 5(R1)			; Decrement count low byte
+	BNE  GBPB_LP			; Loop until all done
+	TSTB 6(R1)			; Test count high byte
+	BNE  GBPB_LP			; Loop until all done
+	CLC				; Clear carry for OK
+GBPB_EXIT:
+	MOVB R2,1(R1)
+	SWAB R2
+	MOVB R2,2(R1)			; Update address
+	TST  (SP)+			; Drop function
+	MOV  (SP)+,R2			; Restore R2
+	MOV  #0,R0			; R0=0, function supported, don't affect Carry
+	RTS  PC
+#endif
+
+
+; OSBGET - Get a byte from open file
+; ==================================
+; On entry: R1=handle
+; On exit:  R0=byte Read
+;           R1=preserved
+;           Cy set if EOF
+;
+; Tube data: &0E handle --  Carry byte
+;
+_BGET:
+#ifndef NOCHNZERO
+	TST  R1				; Check handle
+	BEQ  _RDCH			; BGET#0 calls OSRDCH
+#endif
+	MOV  #&0E,R0
+	JSR  PC,SEND_CMD_R1		; Send command and handle
+	BR   WAIT_CHAR			; Wait for Carry, Byte
+
+
+; OSRDCH - Wait for character from input stream
+; =============================================
+; On exit: R0=char, Cy=carry
+;
+; Tube data: &00  --  Carry Char
+;
+_RDCH:
+	CLR  R0
+	JSR  PC,SEND_CMD		; Send command &00 - OSRDCH
+WAIT_CHAR:
+	JSR  PC,WAIT_BYTE		; Get returned byte
+	ADD  #&FF80,R0			; Copy b7 into carry
+					; Continue to fetch byte from Tube R2
+
+
+; Wait for byte in Tube Register 1 to return in R0, preserving Carry
+; ==================================================================
+WAIT_BYTE:
+	MOVB @#TUBE2S,R0		; Read Tube R2 status
+	BPL  WAIT_BYTE			; Loop until b7 set
+	MOVB @#TUBE2,R0			; Get byte from Tube R2
+	RTS  PC
+
+
+; OSBPUT - Put a byte to an open file
+; ===================================
+; On entry: R0=byte to write
+;           R1=handle
+; On exit:  R0=preserved
+;           R1=preserved
+;
+; Tube data: &10 handle byte  --  &7F
+;
+_BPUT:
+#ifndef NOCHNZERO
+	TST  R1				; Check handle
+	BEQ  _WRCH			; BPUT#0 calls OSWRCH
+#endif
+	MOV  R0,-(SP)			; Save R0
+	MOV  #&10,R0
+	JSR  PC,SEND_CMD_R1		; Send command and handle
+	MOV  (SP),R0			; Get R0 back
+	JSR  PC,SEND_BYTE		; Send byte to Tube
+	JSR  PC,WAIT_BYTE		; Wait for acknowledgement
+	MOV  (SP)+,R0			; Restore R0
+	RTS  PC
+
+
+; OSASCI - Send ASCII character
+; =============================
+_ASCII:
+	CMP  #13,R0			; If not <cr>, send raw character
+	BNE  _WRCH			; If <cr>, fall through to send NEWL
+
+
+; OSNEWL - Send LF/CR sequence
+; ============================
+_NEWL:
+	MOV  #10,R0
+	JSR  PC,_WRCH			; Output LF
+	MOV  #13,R0			; Fall through into WRCH
+
+
+; OSWRCH - Send character in R0 to Tube Register 1
+; ================================================
+_WRCH:
+	MOV  R0,-(SP)			; Save R0
+SEND_R1LP:
+	MOVB @#TUBE1S,R0		; Read Tube R1 status
+	BIC  #&BF,R0    		; Check b6 of status
+	BEQ  SEND_R1LP  		; Loop until b6 set
+	MOV  (SP)+,R0   		; Get R0 back
+	MOVB R0,@#TUBE1 		; Send byte to Tube R1
+	RTS  PC
+
+
+; TRAP handler
+; ============
+; TRAP is used for Unix calls and is followed by a variable number of inline parameters,
+; so it is impossible to simply do a null return. So, the safest option is to give the
+; standard CoPro client 'unsupported' error.
+TRAP_HANDLER:
+	EMT  15
+	EQUB 255
+	EQUS "Bad"
+	EQUB 0
+	ALIGN
+
+
+; EMT handler
+; ===========
+; On extry, R0-R5 contain any parameters
+;           PSW ignored
+; On exit,  R0-R5 contain any returned values
+;           C returns any returned value
+;           V set if error, R0=>error block
+;
+EMT_HANDLER:
+	BIC  #&FFF0,2(SP)		; Clear stacked flags
+	MOV  @#ERRV,-(SP)		; Save old ERR handler
+	MOV  @#EMTV,-(SP)		; Save old EMT SP
+	MOV  SP,@#EMTV			; Save current EMT SP
+	MOV  #EMT_ERROR,@#ERRV		; Catch EMT errors
+	TST  -(SP)			; Make space on stack
+	MOV  R0,-(SP)			; Save R0
+	MOV  8(SP),R0			; Get return address
+;	MOV  -2(R0),R0			; Get EMT instruction
+	MOV  -(R0),R0			; Get EMT instruction v0.20a
+	BIC  #&FF00,R0			; Get EMT number
+	;CMP  R0,#EMTMAX
+	;BCC  EMT_IGNORE		; Out of range
+	ADD  R0,R0			; Index into dispatch table
+	ADD  @#EMTADDR,R0		; Index into dispatch table
+	MOV  (R0),2(SP)			; Copy address to stack
+	MOV  (SP)+,R0			; Restore R0
+	JSR  PC,@(SP)+			; Jump to routine
+;	BVS  EMT_ERROR			; V set, set stacked V flag
+	BVC  EMT_NOERROR		; V clear, jump to check Carry
+EMT_ERROR:
+	MOV  @#EMTV,SP			; Get saved EMT SP
+	BIS  #2,6(SP)			; Set stacked V flag
+EMT_NOERROR:
+	BCC  EMT_EXIT			; C clear, jump to exit
+	BIS  #1,6(SP)			; Set stacked C flag
+EMT_EXIT:
+	MOV  (SP)+,@#EMTV		; Restore old EMT SP
+	MOV  (SP)+,@#ERRV		; Restore old error handler
+	RTI				; Return from EMT
+;EMT_IGNORE:
+	;MOV  (SP)+,R0			; Restore R0
+	;TST  (SP)+			; Balance stack
+	;BR   EMT_EXIT
+
+
+; EMT 15 - Generate an error
+; --------------------------
+EMT15:
+;	TST  (SP)+			; Drop return to EMT handler
+;	MOV  (SP)+,@#EMTV		; Restore old EMT SP
+;	MOV  (SP)+,@#ERRV		; Restore mainline error handler
+;	MOV  (SP),R0			; Get return address pointing to inline error block
+;	MOV  @#ERRV,(SP)		; Replace with address of error handler
+;	RTI				; Jump to handler, restoring PSW
+; v0.20a optimisation
+	MOV  6(SP),R0			; Get return address pointing to inline error block
+	MOV  4(SP),6(SP)		; Replace return address with mainline error handler
+	RTS  PC				; Return to EMT handler, thence to error handler
+
+
+; EMT 14 - Read/Write handlers, etc.
+; ----------------------------------
+; On entry: R0=0..255 to claim EMTs 0..255
+;           R1=new routine address or 0 to read
+;           R0=&FFxx to set environment handlers
+;           R1=new handler address or 0 to read
+;           R2=new handler data address or 0 to read
+; On exit:  R0=preserved
+;           R1=old address
+;           R2=old handler address or preserved
+;
+EMT14:
+; So that EMT14 can change the ERRV we have to rewind out of the EMT handler and restore ERRV so that
+; it can be changed. Otherwise, the EMT handler will just restore ERRV to whatever it was before.
+	TST  (SP)+			; Drop return to EMT handler
+	MOV  (SP)+,@#EMTV		; Restore old EMT SP
+	MOV  (SP)+,@#ERRV		; Restore mainline error handler
+	MOV  R0,-(SP)			; Save R0
+	BMI  EMT14_HANDLER		; Negative, set up handler
+	CMP  R0,#EMTMAX
+	BCC  EMT14_QUIT			; Out of range
+	ADD  R0,R0			; Double R0 to offset into table
+	ADD  @#EMTADDR,R0		; Index into EMT dispatch table
+	MOV  (R0),-(SP)			; Get old address
+	TST  R1
+	BEQ  EMT14_READ			; Zero, just read
+	MOV  R1,(R0)			; Store new address if non-zero
+	BR   EMT14_READ
+
+EMT14_HANDLER:
+	COM  R0
+	CMP  R0,#HANDLEMAX
+	BCC  EMT14_QUIT			; Out of range
+	ADD  R0,R0
+	ADD  R0,R0			; Times four to offset into table
+	ADD  #HANDLERS,R0		; Index into handlers
+	MOV  (R0),-(SP)			; Save old handler address
+	TST  R1
+	BEQ  EMT14_HAND2		; Just read old handler address
+	MOV  R1,(R0)			; Store new handler address
+EMT14_HAND2:
+	TST  (R0)+			; DMB: Step to data address
+	MOV  (R0),-(SP)			; Save old data address
+	TST  R2
+	BEQ  EMT14_HAND3		; Just read old data address
+	MOV  R2,(R0)			; Store new data address
+EMT14_HAND3:
+	MOV  (SP)+,R2			; Get old data
+EMT14_READ:
+	MOV  (SP)+,R1			; Get old address
+EMT14_QUIT:
+	MOV  (SP)+,R0			; Restore R0
+;	RTS  PC
+	RTI
+
+; EMT 13 - Misc control functions
+; -------------------------------
+; On entry: R0=0 - Load BBC BASIC
+;              1 - Set up default environment: IRQ/NMI, EMTs, handlers
+;              2 - Set up default EMTs and handlers
+;              3 - Set up default handlers only
+EMT13:
+	TST  R0
+	BEQ  EMTXX			; R0=0 - unsupported
+	CMP  R0,#1
+	BEQ  INIT_ENV			; R0=1 - Set up hardware and software handlers and EMTs
+;	CMP  R0,#2
+;	BEQ  INIT_HANDLES		; Set up software handlers and EMTs
+;	CMP  R0,#3
+;	BEQ  INIT_HANDLES		; Set up software handlers
+	CMP  R0,#4
+	BCS  INIT_HANDLES		; R0=2, R0=3 - Set up software handlers
+					; Fall through with others, returning R0 preserved
+
+EMTXX:					; EMTs 16-255
+EVENT:					; Null event handler
+	RTS  PC
+
+; EMT 0 - Exit current program
+; ----------------------------
+EMT0:
+;	JMP  @#EXITV			; Jump via exit handler
+	JMP  @EXITV			; DMB Jump via exit handler
+
+
+; Set up default system environment
+; =================================
+INIT_ENV:
+	CLR  R0
+INIT_LP1:
+	MOV  #NULLIRQ,(R0)+		; Set all hardware vectors to NULLIRQ
+	CLR  (R0)+			; Allow all interupts
+	CMP  R0,#&100			; Hardware vectors at at &0000-&00FF
+	BNE  INIT_LP1
+;
+;	MOV  #CLICOM,@#STACKVEC		; Could also catch Bad Stack vector
+;					; There's no easy way to recover from a Bad Stack, so would have
+;					; bomb out to somewhere safe.
+	MOV  #TRAP_HANDLER,@#TRAPVEC	; Set up TRAP vector to give an error
+	MOV  #EMT_HANDLER,@#EMTVEC	; Set up EMT vector
+;	CLR  @#EMTVEC+2			; EMT processor status - allow all interupts
+INIT_IRQ:
+	MOV  #NMI_ACK,@#NMIVEC+0	; Set up NMI vector
+	MOV  #&00E0,@#NMIVEC+2		; NMI processor status - bar all interupts
+	MOV  #IRQ,@#IRQVEC+0		; Set up IRQ vector
+	MOV  #&00C0,@#IRQVEC+2		; IRQ processor status - bar all except NMIs
+;
+INIT_HANDLES:
+						; Should check R0, if R0=3 set handlers only
+	MOV  #HANDLERS,R2			; R2=> Start of handlers DMB
+	MOV  #HANDDEFAULT,R1			; R1=> Default handlers and EMTs
+	MOV  #HANDLEMAX*2+WORKSPMAX/2+16,R0	; R0=word count of handlers (2 per handle) + workspace (counted in bytes) + core EMTs DMB
+	MOV  @#PROG,-(SP)			; Save PROG
+INIT_LP2:
+	MOV  (R1)+,(R2)+		; Set up initial settings
+	DEC  R0				; and EMT dispatch table
+	BNE  INIT_LP2
+	MOV  (SP)+,@#PROG		; Restore PROG
+;
+	MOV  #EMTMAX-16,R0		; Number of unused EMTs
+INIT_CLR:
+	MOV  (R1),(R2)+			; EMTs 16-255 do nothing
+	DEC  R0
+	BNE  INIT_CLR
+INIT_DONE:
+	RTS  PC				; Return with R0=0, R1,R2 corrupted
+
+; Default settings and EMT table
+; ==============================
+HANDDEFAULT:
+	EQUW EXITHAND		; &D8 - Default exit handler
+	EQUW 0			; &DA - Default exit address
+	EQUW ESCHAND		; &DC - Default escape handler
+	EQUW ESCFLG		; &DE - Default escape flag
+	EQUW ERRHAND		; &E0 - Default error handler
+	EQUW ERRBLK		; &E2 - Default error buffer
+	EQUW EVENT		; &E4 - Default event handler
+	EQUW 0			; &E6 - Unused
+	EQUW USERIRQ		; &E8 - Default unknown IRQ handler
+	EQUW 0			; &EA - Unused
+	EQUW 0			; &EC - Holds old SP within EMT handler
+	EQUW EMTTABLE		; &EE - Default EMT dispatch table
+
+	EQUW 0			; &F0 - unused
+	EQUW BANNER		; &F2 - Line pointer
+	EQUW RAMSTART		; &F4 - Lowest user memory
+	EQUW RAMEND		; &F6 - Highest user memory
+	EQUD 0			; &F8 - Transfer address
+	EQUW STARTUP		; &FC - Default current program
+	EQUB 0			; &FE - Spare byte
+	EQUB 0			; &FF - Escape flag
+EMTDEFAULT:
+	EQUW EMT0		; EMT  0 - QUIT
+	EQUW _CLI		; EMT  1 - OSCLI
+	EQUW _BYTE		; EMT  2 - OSBYTE
+	EQUW _WORD		; EMT  3 - OSWORD
+	EQUW _WRCH		; EMT  4 - OSWRCH
+	EQUW _NEWL		; EMT  5 - OSNEWL
+	EQUW _RDCH		; EMT  6 - OSRDCH
+	EQUW _FILE		; EMT  7 - OSFILE
+	EQUW _ARGS		; EMT  8 - OSARGS
+	EQUW _BGET		; EMT  9 - OSBGET
+	EQUW _BPUT		; EMT 10 - OSBPUT
+	EQUW _GBPB		; EMT 11 - OSGBPB
+	EQUW _FIND		; EMT 12 - OSFIND
+	EQUW EMT13		; EMT 13 - System control
+	EQUW EMT14		; EMT 14 - Set handlers
+	EQUW EMT15		; EMT 15 - ERROR
+	EQUW EMTXX		; EMTs 16-255 - unused
+
+
+; *****************
+; TUBE I/O ROUTINES
+; *****************
+
+; Send <cr>-string at R1 to Tube Register 2
+; =========================================
+SEND_STR:
+	MOVB (R1)+,R0			; Get byte from R1, increment R1
+	JSR  PC,SEND_BYTE		; Send byte via Tube R2
+	CMP  R0,#13			; Test current character
+	BNE  SEND_STR			; Loop until <cr> sent
+	RTS  PC
+
+
+; Send block at R1 to Tube Register 2
+; ===================================
+SEND_BLK:
+	ADD  R2,R1			; Add length of control block to R1
+SEND_BLKLP:
+	MOVB -(R1),R0			; Decrement R1, Get byte from R1
+	JSR  PC,SEND_BYTE		; Send byte via Tube R2
+	DEC  R2				; Decrement count
+	BNE  SEND_BLKLP			; Loop until all sent
+	RTS  PC
+
+
+; Wait for block at R1 from Tube Register 2
+; =========================================
+WAIT_BLK:
+	ADD  R2,R1			; Add length of control block to R1
+WAIT_BLKLP:
+	JSR  PC,WAIT_BYTE		; Wait for byte via Tube R2
+	MOVB R0,-(R1)			; Decrement R1, store byte to R1
+	DEC  R2				; Decrement count
+	BNE  WAIT_BLKLP			; Loop until all received
+	RTS  PC
+
+
+; Send command in R0 followed by byte in R1
+; =========================================
+SEND_CMD_R1:
+	JSR  PC,SEND_CMD		; Send command
+
+
+; Send byte in R1 to Tube Register 2
+; ==================================
+SEND_BYTE_R1:
+	MOV  R1,R0			; Pass byte to R0 and fall through
+
+
+; Send byte in R0 to Tube Register 2
+; ==================================
+SEND_CMD:
+SEND_BYTE:
+	MOV  R0,-(SP)			; Save R0
+SEND_BYTELP:
+	MOVB @#TUBE2S,R0		; Read Tube R2 status
+	BIC  #&BF,R0			; Check b6 of status
+	BEQ  SEND_BYTELP		; Loop until b6 set
+	MOV  (SP)+,R0			; Get R0 back
+	MOVB R0,@#TUBE2			; Send byte to Tube R2
+	RTS  PC
+
+
+; Host->Client communication via interupts
+; ========================================
+Get_R1:
+	MOVB @#TUBE1S,R0		; Read Tube R1 status
+	BPL  Get_R1			; Loop until b7 set
+	MOVB @#TUBE1,R0			; Get byte from Tube R1
+	RTS  PC
+
+Get_R4:
+	MOVB @#TUBE4S,R0		; Read Tube R4 status
+	BPL  Get_R4			; Loop until b7 set
+	MOVB @#TUBE4,R0			; Get byte from Tube R4
+	RTS  PC
+
+
+; Interrupt handler
+; ================
+; When Host sends a byte to R1 or R4 it generates a Client IRQ.
+; Within the interupt handler PSW has been saved on the stack
+;  and further interrupts are disabled.
+;
+IRQ:
+	MOV  R0,-(SP)			; Save R0
+	MOVB @#TUBE4S,R0		; Read Tube R4 status
+	BMI  IRQ_R4			; If b7 set, R4 generated the interrupt
+	MOVB @#TUBE1S,R0		; Read Tube R1 status
+	BMI  IRQ_R1			; If b7 set, R1 generated the interrupt
+	MOV  (SP)+,R0			; Get R0 back
+;	JMP  @#USERIRQV			; Something else generated the interrupt
+	JMP  @USERIRQV			; DMB Something else generated the interrupt
+
+; Data present in Tube R1 generated an interrupt
+;
+IRQ_R1:
+	MOVB @#TUBE1,R0			; Get byte from Tube R1
+	BMI  IRQ_ESCAPE 		; b7 set, change Escape state
+;
+; R1<&80 - Host event being passed to client
+; Tube data: via R1: &00 Y X A
+;
+	MOV  R1,-(SP)			; Save R1
+	MOV  R2,-(SP)			; Save R2
+	JSR  PC,Get_R1			; Wait for byte via Tube R1
+	MOV  R0,R2			; Pass to R2
+	JSR  PC,Get_R1			; Wait for byte via Tube R1
+	MOV  R0,R1			; Pass to R1
+	JSR  PC,Get_R1			; Wait for byte via Tube R1
+;	JSR  PC,@#EVENTV		; Call event vector
+	JSR  PC,@EVENTV			; DMB Call event vector
+	MOV  (SP)+,R2			; Restore R2
+;	BR   NMI_DONE2			; Restore registers and return from interrupt
+NMI_DONE2:
+	MOV  (SP)+,R1
+	MOV  (SP)+,R0
+	RTI				; Return from interupt
+
+; R1>&7F - Host changing Escape state
+; Tube data: via R1: flag, b7=1, b6=state
+;
+IRQ_ESCAPE:
+;	JSR  PC,@#ESCV			; Call Escape handler
+	JSR  PC,@ESCV			; DMB Call Escape handler
+	BR   NMI_DONE1			; Restore and return from interrupt
+;	MOV  (SP)+,R0			; Restore R0
+;	RTI				; Return from interupt
+
+; Data present in Tube R4 generated an interupt
+;
+IRQ_R4:
+	MOVB @#TUBE4,R0			; Get byte from Tube R4
+	BPL  IRQ_DATA			; b7=0, jump to do data transfer
+
+; R4>&7F - Error occured
+; Tube data: via R4: &FF, via R2: &00 err string &00
+;
+	MOV  R1,-(SP)			; Remove this when errjmp done
+	JSR  PC,WAIT_BYTE		; Wait for an initial byte from R2
+	MOV  @#ERRADDR,R1		; Point to error buffer
+	JSR  PC,WAIT_BYTE
+	MOVB R0,(R1)+			; Store error number
+IRQ_R4LP:
+	JSR  PC,WAIT_BYTE		; Wait for byte of error string
+	MOVB R0,(R1)+			; Store in error buffer
+	BNE  IRQ_R4LP			; Loop until terminating &00 received
+	MOV  (SP)+,R1			; Restore R1
+	MOV  (SP)+,R0			; Balance stack
+	MOV  @#ERRADDR,R0		; Point to error block
+	MOV  @#ERRV,(SP)		; Replace return address with error handler
+	RTI				; Restore PSW and jump to error handler
+
+;; Generate an error without using EMT call
+;; ----------------------------------------
+;MKERR:
+;	MOV  (SP)+,R0			; Point to inline error block
+;;	JMP  @#ERRV			; Jump to error handler
+;	JMP  @ERRV			; DMB Jump to error handler
+
+; R4<&80 - Data transfer
+; Tube data: via R4: action ID address sync, via R3: data
+;
+IRQ_DATA:
+; R0=transfer type, (sp)=mainline R0
+;
+	MOV  R1,-(SP)			; Save R1
+	MOV  R0,R1			; Save transfer type in R2
+	JSR  PC,Get_R4			; Wait for caller ID
+	CMP  R1,#5			; Is transfer 'release'?
+	BEQ  NMI_DONE2			; Exit if 'release'
+	JSR  PC,Get_R4			; Get data address byte 4
+	MOVB R0,@#ADDR+3
+	JSR  PC,Get_R4			; Get data address byte 3
+	MOVB R0,@#ADDR+2
+	JSR  PC,Get_R4			; Get data address byte 2
+	MOVB R0,@#ADDR+1
+	JSR  PC,Get_R4			; Get data address byte 1
+	MOVB R0,@#ADDR+0
+	MOVB @#TUBE3,R0			; Clear Tube3 FIFO
+	MOVB @#TUBE3,R0
+	JSR  PC,Get_R4			; Get sync byte
+	ADD  R1,R1			; Index into NMI dispatch table
+	MOV  NMIADDRS(R1),@#NMIVEC	; Set up NMI vector
+	MOV  @#ADDR,R0			; Get transfer address
+	CMP  R1,#12			; check transfer type
+	BCS  NMI_DONE2			; Jump to exit if not 256-byte transfers
+	BEQ  NMI6			; Jump with 256-byte write
+
+; Transfer 7 - Read 256 bytes from Host via R3
+; --------------------------------------------
+NMI7:
+	MOV  #256,R1			; Prepare to transfer 256 bytes
+NMI7_LOOP:
+	TSTB @#TUBE3S
+	BPL  NMI7_LOOP			; Wait for Tube R3 ready
+	MOVB @#TUBE3,(R0)+		; Fetch byte from Tube R3 and store
+	DEC  R1				; Decrement count
+	BNE  NMI7_LOOP			; Loop for 256 bytes
+	BR   NMI_DONE
+
+; Transfer 6 - Send 256 bytes to Host via R3
+; ------------------------------------------
+NMI6:
+	MOV  #256,R1			; Prepare to transfer 256 bytes
+NMI6_LOOP:
+	TSTB @#TUBE3S
+	BPL  NMI6_LOOP			; Wait for Tube R3 ready
+	MOVB (R0)+,@#TUBE3		; Fetch byte and send to Tube R3
+	DEC  R1				; Decrement count
+	BNE  NMI6_LOOP			; Loop for 256 bytes
+NMI6_DONE:
+	TSTB @#TUBE3S
+	BPL  NMI6_DONE			; Wait for Tube R3 ready again
+	CLRB @#TUBE3			; Send final sync byte
+NMI_DONE:
+	MOV  (SP)+,R1			; Restore and return
+NMI_DONE1:
+	MOV  R0,@#ADDR			; Save updated transfer address
+	MOV  (SP)+,R0
+	RTI
+
+
+; Transfer 3 - Read double bytes from host
+; ----------------------------------------
+NMI3:
+	MOV  R0,-(SP)
+	MOV  @#ADDR,R0			; Get transfer address
+	MOVB @#TUBE3,(R0)+		; Read two bytes
+	MOVB @#TUBE3,(R0)+
+	BR   NMI_DONE1
+
+; Transfer 2 - Send double bytes to host
+; --------------------------------------
+NMI2:
+	MOV  R0,-(SP)
+	MOV  @#ADDR,R0			; Get transfer address
+	MOVB (R0)+,@#TUBE3		; Send two bytes
+	MOVB (R0)+,@#TUBE3
+	BR   NMI_DONE1
+
+; Transfer 1 - Read single byte from host
+; ---------------------------------------
+NMI1:
+	MOV  R0,-(SP)
+	MOV  @#ADDR,R0			; Get transfer address
+	MOVB @#TUBE3,(R0)+		; Transfer byte from Tube
+	BR   NMI_DONE1
+
+; Transfer 0 - Send single byte to Host
+; -------------------------------------
+NMI0:
+	MOV  R0,-(SP)
+	MOV  @#ADDR,R0			; Get transfer address
+	MOVB (R0)+,@#TUBE3		; Transfer byte to Tube
+	BR   NMI_DONE1
+;NMI_DONE1:
+;	MOV  (SP)+,R0
+;	RTI
+
+; Transfers 4,5,6,7 - Just acknowledge NMI
+; ----------------------------------------
+NMI_ACK:
+	CLRB @#TUBE3			; Store to Tube R3 to acknowledge NMI
+USERIRQ:				; Default unknown IRQ handler
+NULLIRQ:				; Default unused hardware vector handler
+	RTI
+
+; NMI transfer dispatch table
+; ---------------------------
+NMIADDRS:
+	EQUW NMI0			; Single byte to host
+	EQUW NMI1			; Single byte from host
+	EQUW NMI2			; Double byte to host
+	EQUW NMI3			; Double byte from host
+	EQUW NMI_ACK			; Execute
+	EQUW NMI_ACK			; Release
+	EQUW NMI_ACK			; 256 bytes to host
+	EQUW NMI_ACK			; 256 bytes from host
+
+	EQUM TUBEIO-$			; Spare space
+
+; Tube I/O registers
+; ------------------
+	EQUW 0,0,0,0,0,0,0,0		; Tube registers
+

@@ -135,7 +135,7 @@ begin
       illhalt         => open,            -- a halt instruction was not executed because it was illegal in the current mode; for use in the cer cpu error register
       ysv             => open,            -- a yellow stack trap is in progress - for use in the cer cpu error register
       rsv             => open,            -- a red stack trap is in progress - for use in the cer cpu error register
-      cpu_stack_limit => x"8000",         -- the cpu stack limit control register value
+      cpu_stack_limit => x"0100",         -- the cpu stack limit control register value
       cpu_kmillhalt   => '0',             -- the control register setting for kernel mode illegal halt
       sr0_ic          => open,            -- sr0/mmr0 instruction complete flag
       sr1             => open,            -- sr1/mmr1, address of the current instruction
