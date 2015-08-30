@@ -8,7 +8,7 @@ entity LX9CoProZ80 is
         -- GOP Signals
         fastclk   : in    std_logic;
         test      : out   std_logic_vector(8 downto 1);
-        sw        : in    std_logic_vector(2 downto 1);
+        sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals (use 16 out of 22 DIL pins)
         h_phi2    : in    std_logic;  -- 1,2,12,21,23 are global clocks
@@ -19,10 +19,9 @@ entity LX9CoProZ80 is
         h_rst_b   : in    std_logic;
         h_irq_b   : inout std_logic;
 
-
         -- Ram Signals
-		ram_ub_b     : out   std_logic;
-		ram_lb_b     : out   std_logic;
+        ram_ub_b     : out   std_logic;
+        ram_lb_b     : out   std_logic;
         ram_cs       : out   std_logic;
         ram_oe       : out   std_logic;
         ram_wr       : out   std_logic;
@@ -32,66 +31,6 @@ entity LX9CoProZ80 is
 end LX9CoProZ80;
 
 architecture BEHAVIORAL of LX9CoProZ80 is
- 
-    component dcm_32_16
-        port (
-            CLKIN_IN  : in  std_logic;
-            CLK0_OUT  : out std_logic;
-            CLK0_OUT1 : out std_logic;
-            CLK2X_OUT : out std_logic
-        ); 
-    end component;
-
-    component tuberom_z80
-        port (
-            CLK  : in  std_logic;
-            ADDR : in  std_logic_vector(11 downto 0);
-            DATA : out std_logic_vector(7 downto 0));
-    end component;
-
-    component T80se
-        port (
-            RESET_n : in  std_logic;
-            CLK_n   : in  std_logic;
-            CLKEN   : in  std_logic;
-            WAIT_n  : in  std_logic;
-            INT_n   : in  std_logic;
-            NMI_n   : in  std_logic;
-            BUSRQ_n : in  std_logic;
-            M1_n    : out std_logic;
-            MREQ_n  : out std_logic;
-            IORQ_n  : out std_logic;
-            RD_n    : out std_logic;
-            WR_n    : out std_logic;
-            RFSH_n  : out std_logic;
-            HALT_n  : out std_logic;
-            BUSAK_n : out std_logic;
-            A       : out std_logic_vector(15 downto 0);
-            DI      : in  std_logic_vector(7 downto 0);
-            DO      : out std_logic_vector(7 downto 0)
-        );
-    end component;
-    
-    component tube
-        port(
-            h_addr     : in    std_logic_vector(2 downto 0);
-            h_cs_b     : in    std_logic;
-            h_data     : inout std_logic_vector(7 downto 0);
-            h_phi2     : in    std_logic;
-            h_rdnw     : in    std_logic;
-            h_rst_b    : in    std_logic;
-            h_irq_b    : inout std_logic;
-            p_addr     : in    std_logic_vector(2 downto 0);
-            p_cs_b     : in    std_logic;
-            p_data_in  : in    std_logic_vector(7 downto 0);
-            p_data_out : out   std_logic_vector(7 downto 0);
-            p_rdnw     : in    std_logic;
-            p_phi2     : in    std_logic;
-            p_rst_b    : out   std_logic;
-            p_nmi_b    : inout std_logic;
-            p_irq_b    : inout std_logic
-          );
-    end component;
 
 -------------------------------------------------
 -- clock and reset signals
@@ -117,7 +56,7 @@ architecture BEHAVIORAL of LX9CoProZ80 is
 
     signal ram_cs_b        : std_logic;
     signal ram_oe_int      : std_logic;
-    signal ram_wr_int      : std_logic;	
+    signal ram_wr_int      : std_logic; 
     signal rom_cs_b        : std_logic;
     signal rom_data_out    : std_logic_vector (7 downto 0);
 
@@ -144,19 +83,31 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_32_16 : dcm_32_16 port map (
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => open,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
+
+    inst_dcm_32_16 : entity work.dcm_32_16 port map (
         CLKIN_IN   => fastclk,
         CLK0_OUT   => cpu_clk,
         CLK0_OUT1  => open,
         CLK2X_OUT  => open);
         
-    inst_tuberom : tuberom_z80 port map (
+    inst_tuberom : entity work.tuberom_z80 port map (
         CLK        => cpu_clk,
         ADDR       => cpu_addr(11 downto 0),
         DATA       => rom_data_out
     );
 
-    inst_Z80 : T80se port map (
+    inst_Z80 : entity work.T80se port map (
         RESET_n    => RSTn_sync,
         CLK_n      => cpu_clk,
         CLKEN      => cpu_clken,
@@ -177,7 +128,7 @@ begin
         DO         => cpu_dout
     );
 
-    inst_tube: tube port map (
+    inst_tube: entity work.tube port map (
         h_addr     => h_addr,
         h_cs_b     => h_cs_b,
         h_data     => h_data,
@@ -209,9 +160,9 @@ begin
         rom_data_out when rom_cs_b = '0' else
         ram_data     when ram_cs_b = '0' else
         x"fe";
-    
-	ram_ub_b <= '0';
-	ram_lb_b <= '0';
+
+    ram_ub_b <= '0';
+    ram_lb_b <= '0';
     ram_cs <= ram_cs_b;
     ram_oe_int <= not ((not ram_cs_b) and (not cpu_rd_n));
     ram_oe <= ram_oe_int;

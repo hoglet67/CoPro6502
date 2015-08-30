@@ -8,7 +8,7 @@ entity LX9CoProPDP11 is
         -- GOP Signals
         fastclk   : in    std_logic;
         test      : out   std_logic_vector(8 downto 1);
-        sw        : in    std_logic_vector(2 downto 1);
+        sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals
         h_phi2    : in    std_logic;
@@ -91,6 +91,17 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => open,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
 
     inst_tuberom : entity work.tuberom_pdp11 port map (
         CLK             => clk_ram,

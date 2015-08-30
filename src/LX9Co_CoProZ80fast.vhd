@@ -12,7 +12,7 @@ entity LX9CoProZ80fast is
         -- GOP Signals
         fastclk   : in    std_logic;
         test      : out   std_logic_vector(8 downto 1);
-        sw        : in    std_logic_vector(2 downto 1);
+        sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals (use 16 out of 22 DIL pins)
         h_phi2    : in    std_logic;  -- 1,2,12,21,23 are global clocks
@@ -36,95 +36,6 @@ end LX9CoProZ80fast;
 
 architecture BEHAVIORAL of LX9CoProZ80fast is
  
-    component dcm_32_56
-        port (
-            CLKIN_IN  : in  std_logic;
-            CLK0_OUT  : out std_logic;
-            CLK0_OUT1 : out std_logic;
-            CLK2X_OUT : out std_logic
-        ); 
-    end component;
-
-    component tuberom_z80_banner
-        port (
-            CLK  : in  std_logic;
-            ADDR : in  std_logic_vector(11 downto 0);
-            DATA : out std_logic_vector(7 downto 0));
-    end component;
-
-    component T80se
-        port (
-            RESET_n : in  std_logic;
-            CLK_n   : in  std_logic;
-            CLKEN   : in  std_logic;
-            WAIT_n  : in  std_logic;
-            INT_n   : in  std_logic;
-            NMI_n   : in  std_logic;
-            BUSRQ_n : in  std_logic;
-            M1_n    : out std_logic;
-            MREQ_n  : out std_logic;
-            IORQ_n  : out std_logic;
-            RD_n    : out std_logic;
-            WR_n    : out std_logic;
-            RFSH_n  : out std_logic;
-            HALT_n  : out std_logic;
-            BUSAK_n : out std_logic;
-            A       : out std_logic_vector(15 downto 0);
-            DI      : in  std_logic_vector(7 downto 0);
-            DO      : out std_logic_vector(7 downto 0)
-        );
-    end component;
-
-    component NextZ80
-        port(
-            DI      : in  std_logic_vector(7 downto 0);
-            CLK     : in  std_logic;
-            RESET   : in  std_logic;
-            INT     : in  std_logic;
-            NMI     : in  std_logic;
-            WT      : in  std_logic;          
-            DO      : out std_logic_vector(7 downto 0);
-            ADDR    : out std_logic_vector(15 downto 0);
-            WR      : out std_logic;
-            MREQ    : out std_logic;
-            IORQ    : out std_logic;
-            HALT    : out std_logic;
-            M1      : out std_logic
-        );
-    end component;
-    
-    component tube
-        port(
-            h_addr     : in    std_logic_vector(2 downto 0);
-            h_cs_b     : in    std_logic;
-            h_data     : inout std_logic_vector(7 downto 0);
-            h_phi2     : in    std_logic;
-            h_rdnw     : in    std_logic;
-            h_rst_b    : in    std_logic;
-            h_irq_b    : inout std_logic;
-            p_addr     : in    std_logic_vector(2 downto 0);
-            p_cs_b     : in    std_logic;
-            p_data_in  : in    std_logic_vector(7 downto 0);
-            p_data_out : out   std_logic_vector(7 downto 0);
-            p_rdnw     : in    std_logic;
-            p_phi2     : in    std_logic;
-            p_rst_b    : out   std_logic;
-            p_nmi_b    : inout std_logic;
-            p_irq_b    : inout std_logic
-          );
-    end component;
-
-    component RAM_64K
-        port(
-            clk     : in std_logic;
-            we_uP   : in std_logic;
-            ce      : in std_logic;
-            addr_uP : in std_logic_vector(15 downto 0);
-            D_uP    : in std_logic_vector(7 downto 0);          
-            Q_uP    : out std_logic_vector(7 downto 0)
-        );
-    end component;
-
 -------------------------------------------------
 -- clock and reset signals
 -------------------------------------------------
@@ -183,27 +94,41 @@ architecture BEHAVIORAL of LX9CoProZ80fast is
     signal digit2      : std_logic_vector (7 downto 0);
     signal digit3      : std_logic_vector (7 downto 0);
 
+    signal sw_out      : std_logic_vector (3 downto 0);
+    
 begin
 
 ---------------------------------------------------------------------
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_32_56 : dcm_32_56 port map (
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => sw_out,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
+
+    inst_dcm_32_56 : entity work.dcm_32_56 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => cpu_clk,
         CLK0_OUT1 => open,
         CLK2X_OUT => open
     );
 
-    inst_tuberom : tuberom_z80_banner port map (
+    inst_tuberom : entity work.tuberom_z80_banner port map (
         CLK        => cpu_clk,
         ADDR       => cpu_addr(11 downto 0),
         DATA       => rom_data_out
     );
 
     GenT80Core: if UseT80Core generate
-        inst_Z80 : T80se port map (
+        inst_Z80 : entity work.T80se port map (
             RESET_n    => RSTn_sync,
             CLK_n      => cpu_clk,
             CLKEN      => cpu_clken,
@@ -226,7 +151,7 @@ begin
     end generate;
     
     GenNextCore: if UseNextCore generate
-        Inst_Z80: NextZ80 PORT MAP(
+        Inst_Z80: entity work.NextZ80 PORT MAP(
             RESET => not RSTn_sync,
             CLK   => cpu_clk,
             WT    => not cpu_clken,
@@ -248,7 +173,7 @@ begin
         cpu_wr_n   <= not cpu_wr;
     end generate;
 
-    inst_tube: tube port map (
+    inst_tube: entity work.tube port map (
         h_addr     => h_addr,
         h_cs_b     => h_cs_b,
         h_data     => h_data,
@@ -269,7 +194,7 @@ begin
 
     tube_cs_b <= not ((not p_cs_b) and cpu_clken);
     
-    Inst_RAM_64K: RAM_64K PORT MAP(
+    Inst_RAM_64K: entity work.RAM_64K PORT MAP(
         clk     => cpu_clk,
         we_uP   => ram_wr_int,
         ce      => '1',
@@ -290,17 +215,17 @@ begin
     -- Original: Acorn TUBE Z80 64k 1.21
     -- Updated:  Acorn TUBE Z80 112 Mhz   
 
-    digit1 <= x"31" when SW = "00" else
+    digit1 <= x"31" when sw_out(1 downto 0) = "00" else
               x"06"; 
 
-    digit2 <= x"31" when SW = "00" else
-              x"35" when SW = "01" else
-              x"33" when SW = "10" else
+    digit2 <= x"31" when sw_out(1 downto 0) = "00" else
+              x"35" when sw_out(1 downto 0) = "01" else
+              x"33" when sw_out(1 downto 0) = "10" else
               x"31";
               
-    digit3 <= x"32" when SW = "00" else
-              x"36" when SW = "01" else
-              x"32" when SW = "10" else
+    digit3 <= x"32" when sw_out(1 downto 0) = "00" else
+              x"36" when sw_out(1 downto 0) = "01" else
+              x"32" when sw_out(1 downto 0) = "10" else
               x"36";
     
     ram_cs_b <= '0' when cpu_mreq_n = '0' and rom_cs_b = '1' else '1';
@@ -387,7 +312,7 @@ begin
     clk_gen : process(cpu_clk)
     begin
         if rising_edge(cpu_clk) then
-            case "00"&sw is
+            case "00" & sw_out(1 downto 0) is
                when x"0"   =>
                    if (clken_counter = 1) then
                        clken_counter <= (others => '0');

@@ -8,7 +8,7 @@ entity LX9CoPro6809 is
         -- GOP Signals
         fastclk   : in    std_logic;
         test      : out   std_logic_vector(8 downto 1);
-        sw        : in    std_logic_vector(2 downto 1);
+        sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals (use 16 out of 22 DIL pins)
         h_phi2    : in    std_logic;  -- 1,2,12,21,23 are global clocks
@@ -32,65 +32,6 @@ end LX9CoPro6809;
 
 architecture BEHAVIORAL of LX9CoPro6809 is
  
-    component dcm_32_16
-        port (
-            CLKIN_IN  : in  std_logic;
-            CLK0_OUT  : out std_logic;
-            CLK0_OUT1 : out std_logic;
-            CLK2X_OUT : out std_logic
-        ); 
-    end component;
-
-    component tuberom_6809
-        port (
-            CLK  : in  std_logic;
-            ADDR : in  std_logic_vector(10 downto 0);
-            DATA : out std_logic_vector(7 downto 0));
-    end component;
-
-    component cpu09
-        port (
-            clk      : in std_logic;
-            rst      : in std_logic;
-            data_in  : in std_logic_vector(7 downto 0);
-            irq      : in std_logic;
-            firq     : in std_logic;
-            nmi      : in std_logic;
-            halt     : in std_logic;
-            hold     : in std_logic;          
-            vma      : out std_logic;
-            lic_out  : out std_logic;
-            ifetch   : out std_logic;
-            opfetch  : out std_logic;
-            ba       : out std_logic;
-            bs       : out std_logic;
-            addr     : out std_logic_vector(15 downto 0);
-            rw       : out std_logic;
-            data_out : out std_logic_vector(7 downto 0)
-        );
-    end component;
-    
-    component tube
-        port(
-            h_addr     : in    std_logic_vector(2 downto 0);
-            h_cs_b     : in    std_logic;
-            h_data     : inout std_logic_vector(7 downto 0);
-            h_phi2     : in    std_logic;
-            h_rdnw     : in    std_logic;
-            h_rst_b    : in    std_logic;
-            h_irq_b    : inout std_logic;
-            p_addr     : in    std_logic_vector(2 downto 0);
-            p_cs_b     : in    std_logic;
-            p_data_in  : in    std_logic_vector(7 downto 0);
-            p_data_out : out   std_logic_vector(7 downto 0);
-            p_rdnw     : in    std_logic;
-            p_phi2     : in    std_logic;
-            p_rst_b    : out   std_logic;
-            p_nmi_b    : inout std_logic;
-            p_irq_b    : inout std_logic
-          );
-    end component;
-
 -------------------------------------------------
 -- clock and reset signals
 -------------------------------------------------
@@ -144,19 +85,31 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_32_16 : dcm_32_16 port map (
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => open,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
+
+    inst_dcm_32_16 : entity work.dcm_32_16 port map (
         CLKIN_IN   => fastclk,
         CLK0_OUT   => cpu_clk,
         CLK0_OUT1  => open,
         CLK2X_OUT  => open);
 
-    inst_tuberom : tuberom_6809 port map (
+    inst_tuberom : entity work.tuberom_6809 port map (
         CLK        => cpu_clk,
         ADDR       => cpu_addr(10 downto 0),
         DATA       => rom_data_out
     );
 
-    Inst_cpu09: cpu09 PORT MAP(
+    Inst_cpu09: entity work.cpu09 PORT MAP(
         clk        => cpu_clk,       -- E clock input (rising edge)
         rst        => not RSTn_sync,      -- reset input (active high)
         vma        => vma,           -- valid memory address (active high)
@@ -180,7 +133,7 @@ begin
     cpu_addr <= cpu_addr_int when bs = '0' 
                 else cpu_addr_int(15 downto 9) & '0' & cpu_addr_int(7 downto 0); 
 
-    inst_tube: tube port map (
+    inst_tube: entity work.tube port map (
         h_addr     => h_addr,
         h_cs_b     => h_cs_b,
         h_data     => h_data,

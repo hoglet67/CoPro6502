@@ -13,7 +13,7 @@ entity LX9CoPro6502 is
         -- GOP Signals
         fastclk   : in    std_logic;
         test      : out   std_logic_vector(8 downto 1);
-        sw        : in    std_logic_vector(2 downto 1);
+        sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals
         h_phi2    : in    std_logic;
@@ -36,103 +36,6 @@ entity LX9CoPro6502 is
 end LX9CoPro6502;
 
 architecture BEHAVIORAL of LX9CoPro6502 is
- 
-    component dcm_32_16
-        port (
-            CLKIN_IN  : in  std_logic;
-            CLK0_OUT  : out std_logic;
-            CLK0_OUT1 : out std_logic;
-            CLK2X_OUT : out std_logic
-        ); 
-    end component;
-
-    component tuberom_65c102
-        port (
-            CLK  : in  std_logic;
-            ADDR : in  std_logic_vector(10 downto 0);
-            DATA : out std_logic_vector(7 downto 0));
-    end component;
-
-    component T65
-        port(
-            Mode    : in  std_logic_vector(1 downto 0);
-            Res_n   : in  std_logic;
-            Enable  : in  std_logic;
-            Clk     : in  std_logic;
-            Rdy     : in  std_logic;
-            Abort_n : in  std_logic;
-            IRQ_n   : in  std_logic;
-            NMI_n   : in  std_logic;
-            SO_n    : in  std_logic;
-            DI      : in  std_logic_vector(7 downto 0);          
-            R_W_n   : out std_logic;
-            Sync    : out std_logic;
-            EF      : out std_logic;
-            MF      : out std_logic;
-            XF      : out std_logic;
-            ML_n    : out std_logic;
-            VP_n    : out std_logic;
-            VDA     : out std_logic;
-            VPA     : out std_logic;
-            A       : out std_logic_vector(23 downto 0);
-            DO      : out std_logic_vector(7 downto 0)
-        );
-    end component;
-
-    component r65c02_tc
-    port(
-        clk_clk_i   : in std_logic;
-        d_i         : in std_logic_vector(7 downto 0);
-        irq_n_i     : in std_logic;
-        nmi_n_i     : in std_logic;
-        rdy_i       : in std_logic;
-        rst_rst_n_i : in std_logic;
-        so_n_i      : in std_logic;          
-        a_o         : out std_logic_vector(15 downto 0);
-        d_o         : out std_logic_vector(7 downto 0);
-        rd_o        : out std_logic;
-        sync_o      : out std_logic;
-        wr_n_o      : out std_logic;
-        wr_o        : out std_logic
-        );
-    end component;
-    
-    component r65c02
-    port(
-        reset       : in std_logic;
-        clk         : in std_logic;
-        enable      : in std_logic;
-        nmi_n       : in std_logic;
-        irq_n       : in std_logic;
-        di          : in unsigned(7 downto 0);          
-        do          : out unsigned(7 downto 0);
-        addr        : out unsigned(15 downto 0);
-        nwe         : out std_logic;
-        sync        : out std_logic;
-        sync_irq    : out std_logic
-        );
-    end component;
-
-    component tube
-        port(
-            h_addr     : in    std_logic_vector(2 downto 0);
-            h_cs_b     : in    std_logic;
-            h_data     : inout std_logic_vector(7 downto 0);
-            h_phi2     : in    std_logic;
-            h_rdnw     : in    std_logic;
-            h_rst_b    : in    std_logic;
-            h_irq_b    : inout std_logic;
-            p_addr     : in    std_logic_vector(2 downto 0);
-            p_cs_b     : in    std_logic;
-            p_data_in  : in    std_logic_vector(7 downto 0);
-            p_data_out : out   std_logic_vector(7 downto 0);
-            p_rdnw     : in    std_logic;
-            p_phi2     : in    std_logic;
-            p_rst_b    : out   std_logic;
-            p_nmi_b    : inout std_logic;
-            p_irq_b    : inout std_logic
-          );
-    end component;
 
 -------------------------------------------------
 -- clock and reset signals
@@ -190,21 +93,33 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_32_16 : dcm_32_16 port map (
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => open,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
+  
+    inst_dcm_32_16 : entity work.dcm_32_16 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_16M00,
         CLK0_OUT1 => open,
         CLK2X_OUT => open
     );
 
-    inst_tuberom : tuberom_65c102 port map (
+    inst_tuberom : entity work.tuberom_65c102 port map (
         CLK             => clk_16M00,
         ADDR            => cpu_addr(10 downto 0),
         DATA            => rom_data_out
     );
 
     GenT65Core: if UseT65Core generate
-        inst_T65 : T65 port map (
+        inst_T65 : entity work.T65 port map (
             Mode            => "01",
             Abort_n         => '1',
             SO_n            => '1',
@@ -225,7 +140,7 @@ begin
     end generate;
     
     GenJensCore: if UseJensCore generate
-        Inst_r65c02_tc: r65c02_tc PORT MAP(
+        Inst_r65c02_tc: entity work.r65c02_tc PORT MAP(
             clk_clk_i   => phi0,
             d_i         => cpu_din,
             irq_n_i     => cpu_IRQ_n_sync,
@@ -245,7 +160,7 @@ begin
     end generate;
 
     GenAlanDCore: if UseAlanDCore generate
-        inst_r65c02: r65c02 port map(
+        inst_r65c02: entity work.r65c02 port map(
             reset    => RSTn_sync,
             clk      => clk_16M00,
             enable   => cpu_clken,
@@ -264,7 +179,7 @@ begin
         debug_clk <= cpu_clken;        
     end generate;
 
-    inst_tube: tube port map (
+    inst_tube: entity work.tube port map (
         h_addr          => h_addr,
         h_cs_b          => h_cs_b,
         h_data          => h_data,

@@ -97,7 +97,7 @@ NET "test<5>"      LOC = "P79"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 
 NET "test<6>"      LOC = "P78"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
 NET "test<7>"      LOC = "P75"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
 NET "test<8>"      LOC = "P74"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
-NET "sw<1>"        LOC = "P88"  | IOSTANDARD = LVCMOS33 ;
-NET "sw<2>"        LOC = "P87"  | IOSTANDARD = LVCMOS33 ;
-##NET "sw<3>"        LOC = "P85"  | IOSTANDARD = LVCMOS33 ;
-##NET "sw<4>"        LOC = "P84"  | IOSTANDARD = LVCMOS33 ;
+NET "sw<0>"        LOC = "P88"  | IOSTANDARD = LVCMOS33 ;
+NET "sw<1>"        LOC = "P87"  | IOSTANDARD = LVCMOS33 ;
+NET "sw<2>"        LOC = "P85"  | IOSTANDARD = LVCMOS33 ;
+NET "sw<3>"        LOC = "P84"  | IOSTANDARD = LVCMOS33 ;
