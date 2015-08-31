@@ -22,10 +22,6 @@
     <file xil_pn:name="src/LX9Co_6SLX9TQG144_MB.ucf" xil_pn:type="FILE_UCF">
       <association xil_pn:name="Implementation" xil_pn:seqID="0"/>
     </file>
-    <file xil_pn:name="src/DCM/dcm_32_16.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="53"/>
-      <association xil_pn:name="Implementation" xil_pn:seqID="0"/>
-    </file>
     <file xil_pn:name="src/ICAP_core.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="52"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="1"/>
@@ -195,7 +191,7 @@
     <property xil_pn:name="Optimization Goal" xil_pn:value="Speed" xil_pn:valueState="default"/>
     <property xil_pn:name="Optimize Instantiated Primitives" xil_pn:value="false" xil_pn:valueState="default"/>
     <property xil_pn:name="Other Bitgen Command Line Options" xil_pn:value="" xil_pn:valueState="default"/>
-    <property xil_pn:name="Other Bitgen Command Line Options spartan6" xil_pn:value="" xil_pn:valueState="default"/>
+    <property xil_pn:name="Other Bitgen Command Line Options spartan6" xil_pn:value="-g next_config_register_write:Disable" xil_pn:valueState="non-default"/>
     <property xil_pn:name="Other Compiler Options" xil_pn:value="" xil_pn:valueState="default"/>
     <property xil_pn:name="Other Compiler Options Map" xil_pn:value="" xil_pn:valueState="default"/>
     <property xil_pn:name="Other Compiler Options Par" xil_pn:value="" xil_pn:valueState="default"/>

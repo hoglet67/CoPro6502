@@ -10,6 +10,9 @@ module ICAP_reboot (
       .reconfigure(1'b1),
       .powerup(1'b1),
       .sw_in(sw),
+      .sw_out(),
+      .pwr_out(),
+      .initialized(),
       .test(test)
       );
            
