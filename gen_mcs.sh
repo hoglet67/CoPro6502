@@ -29,7 +29,8 @@ promgen                                 \
 -u 1A4000 working/LX9Co_BIST.bit        \
 -u 1F8000 working/LX9CoPro6502fast.bit  \
 -u 24C000 working/LX9CoProZ80fast.bit   \
--u 2A0000 working/LX9CoProPDP11.bit   \
+-u 2A0000 working/LX9CoProPDP11.bit     \
+-u 2F4000 working/LX9CoProNull.bit      \
 -o $NAME.mcs  -p mcs -w -spi -s 8192
 
 rm -f $NAME.cfi $NAME.prm

@@ -363,7 +363,7 @@ module ICAP_core
                icap_wr     = 0;
                
                case (design_num)
-                 5'b10000: icap_din    = 16'h0000;
+                 5'b10000: icap_din    = 16'h0300;
                  5'b00000: icap_din    = 16'h0305;
                  5'b00001: icap_din    = 16'h030a;
                  5'b00010: icap_din    = 16'h030f;
@@ -378,7 +378,7 @@ module ICAP_core
                  5'b01101: icap_din    = 16'h0324;
                  5'b01110: icap_din    = 16'h0324;
                  5'b01111: icap_din    = 16'h0324;
-                 default:  icap_din    = 16'h0305;
+                 default:  icap_din    = 16'h032f; // The Null Co Processor
                endcase
                
             end
@@ -399,7 +399,7 @@ module ICAP_core
                next_state  = GEN5_L;
                icap_ce     = 0;
                icap_wr     = 0;
-               icap_din[15:7] = 12'b0;
+               icap_din[15:8] = 8'b0;
                icap_din[7:4] = powerup ? sw_in : soft_dip[7:4];
                icap_din[3:0] = powerup ? sw_in : design_num[3:0];
             end
