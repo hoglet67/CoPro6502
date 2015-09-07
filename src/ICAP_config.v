@@ -23,7 +23,8 @@ module ICAP_config
    reg  [4:0]   design_num;
    wire [3:0]   pwr_out;
    wire         initialized;
-
+   reg          p_rst_b = 1'b1;
+   
    ICAP_core instance_core
      (
       .fastclk(fastclk),
@@ -38,12 +39,23 @@ module ICAP_config
       );
 
    always @(posedge fastclk) begin
-      if (!h_rst_b) begin
+      if (!p_rst_b || !h_rst_b) begin
          reconfigure <= reconfigure_sw_changed || reconfigure_hw_changed;      
       end
    end
    
    always @(negedge h_phi2) begin
+      // Mirror the reset bit of register FEE0, and allow this to reconfigure
+      if (!h_cs_b && !h_rdnw && h_addr == 3'b000) begin
+        if (h_data[6] && h_data[7]) begin
+            // Setting the T bit (bit 6) clears all tube registers
+            p_rst_b <= 1'b1;
+        end else if (h_data[5]) begin
+            // Setting the S bit (bit 5) asserts the parasite reset
+            // Clearing the S bit (bit 5) de-asserts the parasite reset
+            p_rst_b <= !h_data[7];
+        end
+      end      
       // Implement a write only register at FEE6 to change the current design
       if (!h_cs_b && !h_rdnw && h_addr == 3'b110) begin
          design_num <= h_data[4:0];
