@@ -48,9 +48,11 @@ architecture BEHAVIORAL of LX9CoPro68000 is
 -------------------------------------------------
     
     signal p_cs_b        : std_logic;
+    signal p_cs_b_old    : std_logic;
     signal tube_cs_b     : std_logic;
     signal p_data_in     : std_logic_vector (7 downto 0);
     signal p_data_out    : std_logic_vector (7 downto 0);
+    signal p_data_out_r  : std_logic_vector (7 downto 0);
 
 -------------------------------------------------
 -- ram/rom signals
@@ -165,10 +167,26 @@ begin
     ram_cs_b <= '0' when cpu_as = '0' and p_cs_b = '1' and rom_cs_b = '1'
                     else '1';
 
+    -- This is a bit of a cludge, but the 68000 asserts UDS/LDS for multiple cycles
+    -- which causes problems reading R3 data (address 101) because of an anomaly/bug
+    -- in the Tube implementation of R3. To get around this, we latch the data beging read
+    
+    tube_data_latch : process(cpu_clk)
+    begin
+        if rising_edge(cpu_clk) then
+            if (cpu_clken = '1') then
+                p_cs_b_old <= p_cs_b;
+                if (p_cs_b_old = '1' and p_cs_b = '0') then
+                    p_data_out_r <= p_data_out;
+                end if;
+            end if;
+        end if;
+    end process;
+
     cpu_din <=
-        p_data_out & p_data_out when p_cs_b   = '0' else
-        rom_data_out            when rom_cs_b = '0' else
-        ram_data                when ram_cs_b = '0' else
+        p_data_out_r & p_data_out_r when p_cs_b   = '0' else
+        rom_data_out                when rom_cs_b = '0' else
+        ram_data                    when ram_cs_b = '0' else
         x"f1f1";
 
     ram_ub_b <= cpu_uds;
@@ -185,15 +203,23 @@ begin
 -- test signals
 --------------------------------------------------------
 
-    test(8) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0074" else '0'; -- nmi vector
-    test(7) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0602" else '0'; -- default nmi
-    test(6) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05a6" else '0'; -- type 00 nmi
-    test(5) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05ba" else '0'; -- type 01 nmi
-    
-    test(4) <= cpu_R_W_n;
-    test(3) <= tube_cs_b;
-    test(2) <= cpu_irq_n_sync;
-    test(1) <= cpu_nmi_n_sync;
+    test(8) <= cpu_clken;
+    test(7) <= tube_cs_b;
+    test(6) <= '1' when p_cs_b = '0' and cpu_addr(2 downto 1) & cpu_uds = "101" and cpu_R_W_n = '1' else '0';
+    test(5) <= cpu_NMI_n;
+    test(4) <= cpu_as;
+    test(3) <= cpu_uds;
+    test(2) <= cpu_lds;
+    test(1) <= cpu_R_W_n;
+
+--    test(8) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0074" else '0'; -- nmi vector
+--    test(7) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0602" else '0'; -- default nmi
+--    test(6) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05a6" else '0'; -- type 00 nmi
+--    test(5) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05ba" else '0'; -- type 01 nmi    
+--    test(4) <= cpu_R_W_n;
+--    test(3) <= tube_cs_b;
+--    test(2) <= cpu_irq_n_sync;
+--    test(1) <= cpu_nmi_n_sync;
     
     -- test <= cpu_as & cpu_R_W_n & tube_cs_b & cpu_irq_n_sync & cpu_nmi_n_sync & trig2 & trig1 & trig0;
      
