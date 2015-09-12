@@ -78,6 +78,7 @@ architecture BEHAVIORAL of LX9CoPro68000 is
     signal cpu_R_W_n      : std_logic;
     signal cpu_data_drive : std_logic;
 
+
 begin
 
 ---------------------------------------------------------------------
@@ -184,7 +185,17 @@ begin
 -- test signals
 --------------------------------------------------------
 
-     test <= cpu_as & cpu_R_W_n & tube_cs_b & cpu_irq_n_sync & cpu_nmi_n_sync & trig2 & trig1 & trig0;
+    test(8) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0074" else '0'; -- nmi vector
+    test(7) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0602" else '0'; -- default nmi
+    test(6) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05a6" else '0'; -- type 00 nmi
+    test(5) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05ba" else '0'; -- type 01 nmi
+    
+    test(4) <= cpu_R_W_n;
+    test(3) <= tube_cs_b;
+    test(2) <= cpu_irq_n_sync;
+    test(1) <= cpu_nmi_n_sync;
+    
+    -- test <= cpu_as & cpu_R_W_n & tube_cs_b & cpu_irq_n_sync & cpu_nmi_n_sync & trig2 & trig1 & trig0;
      
 --------------------------------------------------------
 -- boot mode generator
