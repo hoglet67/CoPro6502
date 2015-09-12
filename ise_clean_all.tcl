@@ -26,6 +26,9 @@ project close
 project open LX9Co-PDP11.xise
 project clean
 project close
+project open LX9Co-68000.xise
+project clean
+project close
 project open LX9Co-Null.xise
 project clean
 project close

@@ -12,8 +12,8 @@
 # design 10xx      - 0x1f8000 - working/LX9CoPro6502fast.bit (32/16/8/4MHz)
 # design 11xx      - 0x24c000 - working/LX9CoProZ80fast.bit(36/24/12/8Mhz)
 # design 0111      - 0x2a0000 - working/LX9CoProPDP11.bit
-# design 0110      - 0x2f4000 - spare
-# design 0101      - 0x348000 - spare
+# design 0110      - 0x2f4000 - working/LX9CoProNull.bit
+# design 0101      - 0x348000 - working/LX9CoPro68000.bit
 # design ????      - 0x39c000 - spare
 
 NAME=multiboot/LX9CoProCombined_$(date +"%Y%m%d_%H%M")_$USER
@@ -31,6 +31,7 @@ promgen                                 \
 -u 24C000 working/LX9CoProZ80fast.bit   \
 -u 2A0000 working/LX9CoProPDP11.bit     \
 -u 2F4000 working/LX9CoProNull.bit      \
+-u 348000 working/LX9CoPro68000.bit     \
 -o $NAME.mcs  -p mcs -w -spi -s 8192
 
 rm -f $NAME.cfi $NAME.prm

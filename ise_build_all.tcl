@@ -26,6 +26,9 @@ project close
 project open LX9Co-PDP11.xise
 process run "Generate Programming File"
 project close
+project open LX9Co-68000.xise
+process run "Generate Programming File"
+project close
 project open LX9Co-Null.xise
 process run "Generate Programming File"
 project close

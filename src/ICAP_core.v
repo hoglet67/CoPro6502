@@ -334,6 +334,7 @@ module ICAP_core
                  5'b00010: icap_din    = 16'hC000;
                  5'b00011: icap_din    = 16'h0000;
                  5'b00100: icap_din    = 16'h4000;
+                 5'b00101: icap_din    = 16'h8000;
                  5'b00111: icap_din    = 16'h0000;
                  5'b01000: icap_din    = 16'h8000;
                  5'b01001: icap_din    = 16'h8000;
@@ -369,6 +370,7 @@ module ICAP_core
                  5'b00010: icap_din    = 16'h030f;
                  5'b00011: icap_din    = 16'h0315;
                  5'b00100: icap_din    = 16'h031a;
+                 5'b00101: icap_din    = 16'h0334;
                  5'b00111: icap_din    = 16'h032a;
                  5'b01000: icap_din    = 16'h031f;
                  5'b01001: icap_din    = 16'h031f;

@@ -87,17 +87,17 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
---    inst_ICAP_config : entity work.ICAP_config port map (
---        fastclk => fastclk,
---        sw_in   => sw,
---        sw_out  => open,
---        h_addr  => h_addr,
---        h_cs_b  => h_cs_b,
---        h_data  => h_data,
---        h_phi2  => h_phi2,
---        h_rdnw  => h_rdnw,
---        h_rst_b => h_rst_b 
---    );
+    inst_icap_config : entity work.icap_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => open,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
 
     inst_dcm_32_16 : entity work.dcm_32_16 port map (
         CLKIN_IN   => fastclk,
@@ -117,7 +117,7 @@ begin
         clkena_in  => cpu_clken,
         data_in    => cpu_din,
         IPL        => CPU_NMI_n_sync & CPU_IRQ_n_sync & CPU_NMI_n_sync,
-        dtack      => '0', -- TODO FIXME
+        dtack      => '0',
         addr       => cpu_addr,
         data_out   => cpu_dout,
         as         => cpu_as,
