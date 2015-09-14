@@ -2,10 +2,13 @@
 ;;; Source for Atom Tube Host
 ;;; J.G.Harston and D.M.Banks
 
-        load     = $4000        ; Load address of the host code
+        load     = $3000        ; Load address of the host code
 
         atmhdr   = 1            ; Whether to include an ARM header (form AtoMMC2)
         debug    = 0            ; Whether to include debugging of R2 commands
+
+        LangStart = $4000       ; start of the language in host memory
+        LangEnd   = $8000       ; end of the language in host memory
 
 ;;; MOS entry addresses
 ;;; -------------------
@@ -69,6 +72,7 @@
         TubeOwner  = $95        ; Tube owner
         R2Cmd      = $96        ; Computed address of R2 Command Handler
 
+        
 ;;; Optional 22-byte ATM Header
 ;;; --------------------------
 
@@ -84,15 +88,284 @@ IF (atmhdr = 1)
         EQUW    EndAddr - StartAddr
 ENDIF
 
-;;; Main Entry Point
-;;; ----------------
-
 .StartAddr
-        JMP TubeStartup         ; Start Tube system
+
+        ;;; Start up the Atom Tube system
+        ;;; ----------------------------
+
+.TubeStartup
+;;;     LDA #12
+;;;	JSR oswrch		; Clear screen, ready for startup banner
+        LDA #$C0
+        STA TubeS1              ; Clear all Tube Regs
+        LDA #$40
+        STA TubeS1
+        LDA #$A0
+        STA TubeS1              ; Reset client
+        LDA #$20
+        STA TubeS1
+.StartupLp1
+        BIT TubeS1
+        BPL StartupLp1          ; Loop until VDU data present
+        LDA TubeR1
+        BEQ Startup2            ; Get it, if CHR$0, finished
+	CMP #$60
+	BCC UpperCase
+	AND #$DF
+.UpperCase
+        JSR oswrch
+        JMP StartupLp1          ; Print character, loop for more
+.Startup2
+        LDA #(TubeBRK AND 255)
+        STA brkv+0              ; Claim BRKV
+        LDA #(TubeBRK DIV 256)
+        STA brkv+1
+        LDA #$8E
+        STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
+        JSR TubeFree            ; Set Tube 'free' and no owner
+
+	SEC			; Transfer the langue
+	JSR L0400
+
+	LDA #$80		; Send $80 ack and enter idle loop
+        JMP TubeSendIdle        ;
+
+	
+;;; Main Entry Point Block
+;;; ----------------------
+
+.L0400
+        JMP LanguageStartup         ; Copy Language and Start Tube system
+
+.L0403
         JMP TubeEscape          ; Copy Escape state across Tube
-        RTS                     ; Data transfer
+
+
+;;; Tube Transfer/Claim/Release
+;;; ---------------------------
+
+.L0406
+        CMP #&80                ; Claim/Release/Action via Tube
+        BCC TubeTransfer        ; If <&80, data transfer action
+        CMP #&C0                ; Is it claim or release?
+        BCS TubeClaim           ; &C0-&FF - jump to claim Tube
+        ORA #&40                ; Ensure release ID same as claim ID
+        CMP TubeOwner           ; Is the the same as the claim ID?
+        BNE TubeExit            ; No, exit.
+
+.TubeRelease
+        PHP                     ; Save IRQ state
+        SEI                     ; Disable IRQs
+        LDA #&05                ; Send &05 to R4 to interupt CoPro
+        JSR TubeSendR4
+        LDA TubeOwner           ; Send Tube ID to notify a Tube release
+        JSR TubeSendR4
+        PLP                     ; Get IRQ state back
+
+        ;; Clear Tube status and owner
+.TubeFree
+        LDA #&80
+        STA TubeOwner           ; Set Tube ID to 'unclaimed'
+        STA TubeStatus          ; Set Tube status to 'free'
+        RTS
+
+;;; Claim Tube
+;;; ----------
+
+.TubeClaim
+        ASL TubeStatus          ; Is Tube free?
+        BCS TubeClaim1          ; Yes, jump to claim it
+        CMP TubeOwner           ; Is Tube ID same as claimer?
+        BEQ TubeExit            ; Yes, exit as we already own it
+        CLC                     ; Signal 'can't claim Tube'
+        RTS                     ; And exit
+
+.TubeClaim1
+        STA TubeOwner           ; Store Tube ID
+
+.TubeExit
+        RTS
+
+;;; Tube data transfer
+;;; ------------------
+
+.TubeTransfer
+        PHP                     ; Save IRQ status
+        SEI                     ; Disable IRQs
+        STY TubeSrc + 1         ; Store pointer to control block
+        STX TubeSrc             ; Send action code to R4 to
+        JSR TubeSendR4          ; interrupt CoPro
+        TAX                     ; Save action code in X
+        LDY #&03                ; Prepare to send 4 byte control block
+        LDA TubeOwner           ; Send Tube ID via R4, interupting
+        JSR TubeSendR4          ; CoPro
+
+.TubeTransfer1
+        LDA (TubeSrc),Y         ; Get byte from Tube control block
+        JSR TubeSendR4          ; Send via R4
+        DEY
+        BPL TubeTransfer1       ; Loop for whole block
+        LDY #&18
+        STY TubeS1              ; Disable FIFO on R3, and NMI on R3 by default
+        LDA TransferFlags,X     ; Get Tube I/O setting according to
+        STA TubeS1              ; action code and set Tube
+        LSR A
+        LSR A                   ; Move b1 to Carry (b1 set = Copro->I/O)
+        BCC TubeTransfer2       ; If no pre-delay needed, jump past
+        BIT TubeR3              ; Read R3 twice to delay & empty FIFO
+        BIT TubeR3
+
+.TubeTransfer2
+        JSR TubeSendR4          ; Send flag via R4 to synchronise
+
+.TubeTransfer3
+        BIT TubeS4              ; Check R4 status
+        BVC TubeTransfer3       ; Loop until data has left R4
+        BCS TubeTransfer5       ; Carry still indicates direction
+        CPX #&04                ; Is action 'execute code'?
+        BNE TubeTransfer6       ; No, jump to finish
+
+.TubeTransfer4
+        JSR TubeRelease         ; Release Tube
+        JSR TubeSendR2          ; Send &80 via R2
+        JMP TubeIdleStartup     ; Jump to Tube Idle loop
+
+.TubeTransfer5
+        LSR A                   ; Move Tube I/O setting b2 into Carry (b2 set = NMI required)
+        BCC TubeTransfer6       ; It was clear, jump to exit
+        LDY #&88                ; Set Tube I/O to NMI on R3
+        STY TubeS1
+
+.TubeTransfer6
+        PLP                     ; Restore IRQ status
+        RTS                     ; And exit
+
+;;; Copy language across Tube
+;;; -------------------------
+;;;     On entry, A=1 - enter language, CLC=Break, SEC=OSBYTE 142
+;;;               A=0 - no language found at Break
+
+.LanguageStartup
+
+        CLI                     ; Enable IRQs
+        BCS LanguageEnter       ; Branch if selected with *fx142
+        BNE TestLastBreak       ; A<>0, jump to enter language
+        JMP TubeSendAck         ; A=0, jump to enter Tube Idle loop
+
+;;; Language entered at BREAK
+;;; -------------------------
+
+.TestLastBreak
+
+;;; The Atom does not have different break types
+;;; So always handles a for hard bread
+
+;;;     LDX &028D               ; Get last break type
+;;;     BEQ TubeTransfer4       ; If Soft Break, release Tube, send &80
+                                ; via R2 and enter Idle loop
+
+;;; The current language is not copied across the Tube on soft Break, only on
+;;; Power-On Break and Hard Break, or when entered explicitly with OSBYTE 142.
+
+;;; Language entered with OSBYTE 142, or on Hard Break
+;;; --------------------------------------------------
+
+.LanguageEnter
+        LDA #&FF
+        JSR L0406               ; Claim Tube with ID=&3F
+        BCC LanguageEnter       ; Loop until Tube available
+        JSR FindLanguageAddr    ; Find address to copy language to
+
+;;; Send language ROM via Tube 256 bytes at a time
+;;; ----------------------------------------------
+
+.TransferLanguage
+        PHP                     ; Save IRQ status
+        SEI                     ; Disable IRQs
+        LDA #&07                ; Start I/O->CoPro transfer 256 bytes
+        JSR StartTransfer       ; Use Tube address at .TubeAddr
+        LDY #&00
+        STY TubeCtrl            ; Start copying from &8000
+        
+.TransferBlock
+        LDA (TubeCtrl),Y        ; Get byte from ROM
+        STA TubeR3              ; Send to CoPro via R3
+        NOP                     ; Delay for a while
         NOP
         NOP
+        INY
+        BNE TransferBlock       ; Loop for 256 bytes
+        PLP                     ; Restore IRQs
+        INC TubeAddr + 1        ; Update Tube address
+        BNE TransferIncSrc
+        INC TubeAddr + 2
+        BNE TransferIncSrc
+        INC TubeAddr + 3
+
+.TransferIncSrc
+        INC TubeCtrl + 1        ; Update source address
+	LDA TubeCtrl + 1        ; Check b6 of source high byte
+	CMP #>LangEnd
+        BCC TransferLanguage    ; Loop until end of language
+        JSR FindLanguageAddr    ; Find start address language copied to
+        LDA #&04                ; Execute code in CoPro, finished by
+                                ; sending &80 to Copro in R2
+
+;;; Start a Tube transfer with address block at &0053
+;;; -------------------------------------------------
+
+.StartTransfer
+        LDY #>TubeAddr
+        LDX #<TubeAddr          ; Point to Tube control block
+        JMP L0406               ; Jump to do a data transfer
+
+;;; Set Tube address to destination to copy language to
+;;; ---------------------------------------------------
+;;; Also sets source address at &00/&01 to &80xx
+
+.FindLanguageAddr
+        LDA #&80
+        STA TubeAddr + 1        ; Set Tube address to &xxxx80xx
+	LDA #>LangStart
+        STA TubeCtrl + 1        ; Set source address to language
+        LDA #&20
+        AND LangStart + 6        ; Check relocation bit in ROM type
+        TAY                     ; If no relocation address, A=0, Y=0
+        STY TubeAddr            ; Set Tube address to &xxxx8000
+        BEQ FindLanguageAddr2   ; Jump forward with no relocation
+
+        LDX LangStart + 7        ; Get offset to ROM copyright
+.FindLanguageAddr1
+        INX
+        LDA LangStart, X         ; Skip past copyright message
+        BNE FindLanguageAddr1   ; Loop until terminating zero byte
+        LDA LangStart + 1, X     ; Get relocation address from after
+        STA TubeAddr            ; copyright message
+        LDA LangStart + 2, X
+        STA TubeAddr + 1
+        LDY LangStart + 3, X     ; Get two high bytes to Y and A
+        LDA LangStart + 4, X
+
+;;; Set Tube address high bytes
+;;; ---------------------------
+
+.FindLanguageAddr2
+        STA TubeAddr + 3        ; Set Tube address high bytes
+        STY TubeAddr + 2
+        RTS
+        
+;;; Tube data transfer flags
+;;; ------------------------
+
+.TransferFlags
+        EQUB $86                ; CoPro->I/O bytes
+        EQUB $88                ; I/O->CoPro bytes
+        EQUB $96                ; CoPro->I/O words
+        EQUB $98                ; I/O->CoPro words
+        EQUB $18                ; Set Execute Address in CoPro
+        EQUB $18                ; Release Tube
+        EQUB $82                ; CoPro->I/O 256 bytes
+        EQUB $18                ; I/O->CoPro 256 bytes
 
 ;;; pointers to R2 commands
 ;;; -----------------------
@@ -111,17 +384,6 @@ ENDIF
         EQUW file               ; A=14
         EQUW gbpb               ; A=16
 
-;;; UNUSED
-;;; Tube data transfer flags
-;;; ------------------------
-        EQUB $86                ; CoPro->I/O bytes
-        EQUB $88                ; I/O->CoPro bytes
-        EQUB $96                ; CoPro->I/O words
-        EQUB $98                ; I/O->CoPro words
-        EQUB $18                ; Set Execute Address in CoPro
-        EQUB $18                ; Release Tube
-        EQUB $82                ; CoPro->I/O 256 bytes
-        EQUB $18                ; I/O->CoPro 256 bytes
 
 ;;; BRK handler
 ;;; -----------
@@ -143,8 +405,9 @@ ENDIF
         BNE TubeBRKlp           ; Loop until terminating $00 sent
 
 ;;; Tube Idle startup
-;;;  -----------------
+;;; -----------------
 
+.TubeIdleStartup
         ;; Clear stack, enable IRQs
         LDX #$FF
         TXS
@@ -184,53 +447,6 @@ ENDIF
 .TubeAddr
         EQUD $00800000
 
-        ;;; Start up Tube system
-        ;;;  --------------------
-.TubeStartup
-        LDA #12
-        JSR oswrch              ; Clear screen, ready for startup banner
-        LDA #$C0
-        STA TubeS1              ; Clear all Tube Regs
-        LDA #$40
-        STA TubeS1
-        LDA #$A0
-        STA TubeS1              ; Reset client
-        LDA #$20
-        STA TubeS1
-.StartupLp1
-        BIT TubeS1
-        BPL StartupLp1          ; Loop until VDU data present
-        LDA TubeR1
-        BEQ Startup2            ; Get it, if CHR$0, finished
-        JSR oswrch
-        JMP StartupLp1          ; Print character, loop for more
-.Startup2
-        LDA #(TubeBRK AND 255)
-        STA brkv+0              ; Claim BRKV
-        LDA #(TubeBRK DIV 256)
-        STA brkv+1
-        LDA #$8E
-        STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
-        JSR TubeFree            ; Set Tube 'free' and no owner
-        JMP TubeSendAck         ; Send $7F ack and enter idle loop
-
-;;;  Clear Tube status and owner
-;;;  ---------------------------
-.TubeFree
-        LDA #$80
-        STA TubeStatus          ; Set Tube ID to 'unclaimed'
-        STA TubeOwner           ; Set Tube status to 'free'
-.TubeEscape
-        RTS
-
-.TubeError
-        EQUB 255
-        EQUS "HOST ERROR"
-        BRK
-
-;;; UNUSED
-.AtomCtrl
-        EQUW 0,0,0,0,0,0,0,0    ; Atom control block
 
 
 ;;; *****************
@@ -532,9 +748,24 @@ ENDIF
         BIT TubeS4
         BVC TubeSendR4          ; Loop until port free
         STA TubeR4
+IF (debug = 1)  
+        JSR DebugHexOut
+ENDIF
         RTS                     ; Send byte
 
+;;; Copy Escape state across Tube
+;;; -----------------------------
 
+;;; TODO
+
+.TubeEscape	
+        RTS
+
+.TubeError
+        EQUB 255
+        EQUS "HOST ERROR"
+        BRK
+	
 ;;; ***************************
 ;;; INTERFACE TO ATOM MOS CALLS
 ;;; ***************************
@@ -553,6 +784,7 @@ ENDIF
         PLA
         RTS
 
+	
 ;;; Debugging output, avoid trashing A
 ;;;
 
