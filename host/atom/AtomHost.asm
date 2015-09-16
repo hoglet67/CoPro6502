@@ -63,6 +63,13 @@
         TubeS4=TubeIO+6         ; Interrupts
         TubeR4=TubeIO+7
 
+;;; VIA Addresses
+	ViaBase       = $B800
+	ViaT1CounterL = ViaBase + 4
+	ViaT1CounterH = ViaBase + 5
+	ViaACR        = ViaBase + 11
+	ViaIER        = ViaBase + 14
+	
 ;;; Workspace in zero page
 ;;; ----------------------
 
@@ -71,13 +78,13 @@
         TubeStatus = $94        ; Tube status
         TubeOwner  = $95        ; Tube owner
         R2Cmd      = $96        ; Computed address of R2 Command Handler
+        LangFlag   = $98
 
-        
 ;;; Optional 22-byte ATM Header
 ;;; --------------------------
 
         org     load - 22
-        
+
 .AtmHeader
 
 IF (atmhdr = 1)
@@ -94,8 +101,11 @@ ENDIF
         ;;; ----------------------------
 
 .TubeStartup
-;;;     LDA #12
-;;;	JSR oswrch		; Clear screen, ready for startup banner
+        LDA #$01
+        STA LangFlag
+        LDA #12
+        JSR oswrch              ; Clear screen, ready for startup banner
+	JSR ViaInit             ; Initialize 50Hz interrupts
         LDA #$C0
         STA TubeS1              ; Clear all Tube Regs
         LDA #$40
@@ -109,9 +119,9 @@ ENDIF
         BPL StartupLp1          ; Loop until VDU data present
         LDA TubeR1
         BEQ Startup2            ; Get it, if CHR$0, finished
-	CMP #$60
-	BCC UpperCase
-	AND #$DF
+        CMP #$60
+        BCC UpperCase
+        AND #$DF
 .UpperCase
         JSR oswrch
         JMP StartupLp1          ; Print character, loop for more
@@ -124,13 +134,18 @@ ENDIF
         STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
         JSR TubeFree            ; Set Tube 'free' and no owner
 
-	SEC			; Transfer the langue
-	JSR L0400
+        LDA LangFlag            ; Skip language transfer if flag 0
+        BEQ Startup3
 
-	LDA #$80		; Send $80 ack and enter idle loop
+        SEC                     ; Transfer the language
+        JSR L0400
+
+        LDA #$80
         JMP TubeSendIdle        ;
 
-	
+.Startup3
+        JMP TubeSendAck         ; Send $7f ack and enter idle loop
+
 ;;; Main Entry Point Block
 ;;; ----------------------
 
@@ -286,7 +301,7 @@ ENDIF
         JSR StartTransfer       ; Use Tube address at .TubeAddr
         LDY #&00
         STY TubeCtrl            ; Start copying from &8000
-        
+
 .TransferBlock
         LDA (TubeCtrl),Y        ; Get byte from ROM
         STA TubeR3              ; Send to CoPro via R3
@@ -304,8 +319,8 @@ ENDIF
 
 .TransferIncSrc
         INC TubeCtrl + 1        ; Update source address
-	LDA TubeCtrl + 1        ; Check b6 of source high byte
-	CMP #>LangEnd
+        LDA TubeCtrl + 1        ; Check b6 of source high byte
+        CMP #>LangEnd
         BCC TransferLanguage    ; Loop until end of language
         JSR FindLanguageAddr    ; Find start address language copied to
         LDA #&04                ; Execute code in CoPro, finished by
@@ -326,7 +341,7 @@ ENDIF
 .FindLanguageAddr
         LDA #&80
         STA TubeAddr + 1        ; Set Tube address to &xxxx80xx
-	LDA #>LangStart
+        LDA #>LangStart
         STA TubeCtrl + 1        ; Set source address to language
         LDA #&20
         AND LangStart + 6        ; Check relocation bit in ROM type
@@ -353,7 +368,7 @@ ENDIF
         STA TubeAddr + 3        ; Set Tube address high bytes
         STY TubeAddr + 2
         RTS
-        
+
 ;;; Tube data transfer flags
 ;;; ------------------------
 
@@ -470,7 +485,7 @@ ENDIF
 ;;; -------------------
 .rdline
         LDX #$05
-        JSR TubeWaitBlock       ; Fetch 5-byte control block 
+        JSR TubeWaitBlock       ; Fetch 5-byte control block
         ;;
         ;; We have to do a RDLINE manually, as Atom doesn't provide it
         ;;
@@ -525,27 +540,52 @@ ENDIF
 
 .word
         JSR TubeWaitR2          ; Get A
-IF (debug = 1)  
+IF (debug = 1)
         JSR DebugHexOut
 ENDIF
-        JSR TubeWaitR2          ; Get in-length
-IF (debug = 1)  
+	PHA			; Stack the osword number	
+	JSR TubeWaitR2          ; Get in-length
+IF (debug = 1)
         JSR DebugHexOut
 ENDIF
         TAX
-        BEQ wordNoRequest
         JSR TubeWaitBlock
-.wordNoRequest
         JSR TubeWaitR2          ; Get out-length
-IF (debug = 1)  
+IF (debug = 1)
         JSR DebugHexOut
 ENDIF
         TAX
-        BEQ wordNoResponse
-        JSR TubeSendBlock
-.wordNoResponse
+	PLA			; Restore osword number
+	CMP #$01		; Read System Clock
+	BEQ word01ReadSys
+	CMP #$02		; Write System Clock
+	BEQ word02WriteSys
+
+;;; Default OSWORD HANDLER
+.wordSendBlock
+        JSR TubeSendBlock	; length of block in X
         JMP TubeIdle
 
+;;; OSWORD A=1 Read System Clock
+.word01ReadSys
+	LDY #4			; Copy the 5 byte time value
+.word01ReadSysLoop		; to the Tube Control block
+	LDA ViaTime, Y	
+	STA TubeCtrl, Y
+	DEY
+	BPL word01ReadSysLoop
+	BMI wordSendBlock
+	
+;;; OSWORD A=2 Write System Clock
+.word02WriteSys
+	LDY #4			; Copy the 5 byte time value
+.word02WriteSysLoop		; to the Via Time
+	LDA TubeCtrl, Y
+	STA ViaTime, Y	
+	DEY
+	BPL word02WriteSysLoop
+	BMI wordSendBlock
+	
 
 ;;; OSCLI
 ;;; =====
@@ -556,7 +596,7 @@ ENDIF
         LDA $100                ; Test for a zero-length string
         CMP #$0d
         BEQ TubeSendAck         ; Skip it
-        
+
         JSR oscli               ; Execute it
 
         ;; If the command returns here, the CoPro will get $7F as an acknowledgement.
@@ -697,16 +737,18 @@ ENDIF
         LDY #1
         RTS                     ; Return XY pointing to $0100
 
-;;; Get control block to 0,X
-;;; ------------------------
+;;; Get control block to TubeCtrl, X
+;;; --------------------------------
 .TubeWaitBlock
-        JSR TubeWaitR2
-        STA $FF,X
-IF (debug = 1)  
+	DEX
+	BMI TubeWaitBlockExit
+        JSR TubeWaitR2 
+IF (debug = 1)
         JSR DebugHexOut
 ENDIF
-        DEX
-        BNE TubeWaitBlock
+        STA TubeCtrl, X
+        JMP TubeWaitBlock
+.TubeWaitBlockExit
         RTS
 
 ;;; Get X and A from Tube R2
@@ -724,13 +766,15 @@ ENDIF
         RTS                     ; Get byte
 
 
-;;; Send control block from 0,X
-;;; ---------------------------
+;;; Send control block from TubeCtrl, X
+;;; -----------------------------------
 .TubeSendBlock
-        LDA $FF,X
+	DEX
+	BMI TubeSendBlockExit
+        LDA TubeCtrl, X
         JSR TubeSendR2
-        DEX
-        BNE TubeSendBlock
+        JMP TubeSendBlock
+.TubeSendBlockExit
         RTS
 
 ;;; Send byte in A via Tube R2
@@ -748,7 +792,7 @@ ENDIF
         BIT TubeS4
         BVC TubeSendR4          ; Loop until port free
         STA TubeR4
-IF (debug = 1)  
+IF (debug = 1)
         JSR DebugHexOut
 ENDIF
         RTS                     ; Send byte
@@ -758,14 +802,14 @@ ENDIF
 
 ;;; TODO
 
-.TubeEscape	
+.TubeEscape
         RTS
 
 .TubeError
         EQUB 255
         EQUS "HOST ERROR"
         BRK
-	
+
 ;;; ***************************
 ;;; INTERFACE TO ATOM MOS CALLS
 ;;; ***************************
@@ -784,24 +828,70 @@ ENDIF
         PLA
         RTS
 
+
+.ViaInit
+	LDA #<ViaISR		; Setup the interrupt handler
+	STA irq1v
+	LDA #>ViaISR
+	STA irq1v+1
+	LDA #$00		; Clear the timer
+	STA ViaTime
+	STA ViaTime + 1
+	STA ViaTime + 2
+	STA ViaTime + 3
+	STA ViaTime + 4
+	LDA #<9999		; 10ms timer interrupts
+	STA ViaT1CounterL
+	LDA #>9999
+	STA ViaT1CounterH
+	LDA #$40		; Enable T1 continuous interrupts
+	STA ViaACR  		; Disable everything else
+	LDA #$7F		; Disable all interrupts
+	STA ViaIER
+	LDA #$C0		; Enable T1 interrupts
+	STA ViaIER
+	RTS
+
+.ViaISR
+	LDA ViaT1CounterL	; Clear the interrupts flag
+	INC ViaTime
+	BNE ViaExit
+	INC ViaTime + 1
+	BNE ViaExit
+	INC ViaTime + 2
+	BNE ViaExit
+	INC ViaTime + 3
+	BNE ViaExit
+	INC ViaTime + 4
+.ViaExit
+	PLA			; the Atom stacks A for us
+	RTI
+
+.ViaTime
+	EQUB 0,0,0,0,0
 	
 ;;; Debugging output, avoid trashing A
 ;;;
 
 .DebugNewline
+	PHP
         PHA
         JSR osnewl
         PLA
+	PLP
         RTS
-        
+
 .DebugHexOut
+	PHP
         PHA
         JSR oshex
         PLA
+	PLP
         RTS
 
 .EndAddr
 
+	
 IF (atmhdr = 1)
         SAVE "TUBE",AtmHeader,EndAddr
 ELSE
