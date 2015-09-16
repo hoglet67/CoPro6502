@@ -5,7 +5,12 @@
         load     = $3000        ; Load address of the host code
 
         atmhdr   = 1            ; Whether to include an ARM header (form AtoMMC2)
-        debug    = 0            ; Whether to include debugging of R2 commands
+
+	debug    = 0
+
+        debug_r1 = debug        ; Whether to include debugging of R1 commands
+        debug_r2 = debug        ; Whether to include debugging of R2 commands
+        debug_r4 = debug        ; Whether to include debugging of R4 commands
 
         LangStart = $4000       ; start of the language in host memory
         LangEnd   = $8000       ; end of the language in host memory
@@ -37,6 +42,7 @@
 	SEXEC     = $CD	
 	SSTART    = $CF 
 	SEND      = $D1
+	ERRPTR    = $D5
 	MONFLAG   = $EA
 	NAME      = $140 
 	STROUT    = $F7D1
@@ -95,7 +101,8 @@
         TubeOwner  = $95        ; Tube owner
         R2Cmd      = $96        ; Computed address of R2 Command Handler
         LangFlag   = $98
-
+	EscapeFlag = $99
+	
 ;;; Optional 22-byte ATM Header
 ;;; --------------------------
 
@@ -113,10 +120,12 @@ StartAddr:
         ;;; ----------------------------
 
 TubeStartup:
-        LDA #$01
+        LDA #$00
         STA LangFlag
+	LDA #$00
+	STA EscapeFlag
         LDA #12
-        JSR OSWRCH              ; Clear screen, ready for startup banner
+        JSR AtomWRCH            ; Clear screen, ready for startup banner
 	JSR ViaInit             ; Initialize 50Hz interrupts
         LDA #$C0
         STA TubeS1              ; Clear all Tube Regs
@@ -131,17 +140,24 @@ StartupLp1:
         BPL StartupLp1          ; Loop until VDU data present
         LDA TubeR1
         BEQ Startup2            ; Get it, if CHR$0, finished
-        CMP #$60
-        BCC UpperCase
-        AND #$DF
-UpperCase:
-        JSR OSWRCH
+        JSR AtomWRCH
         JMP StartupLp1          ; Print character, loop for more
 Startup2:
         LDA #<TubeBRK
         STA BRKV+0              ; Claim BRKV
         LDA #>TubeBRK
         STA BRKV+1
+
+	LDA #<osloadtube	; Claim OSLOAD
+	STA LOADV
+	LDA #>osloadtube
+	STA LOADV+1
+
+	LDA #<ossavetube	; Claim OSSAVE
+	STA SAVEV
+	LDA #>ossavetube
+	STA SAVEV+1
+	
         LDA #$8E
         STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
         JSR TubeFree            ; Set Tube 'free' and no owner
@@ -162,10 +178,10 @@ Startup3:
 ;;; ----------------------
 
 L0400:
-        JMP LanguageStartup         ; Copy Language and Start Tube system
+        JMP LanguageStartup     ; Copy Language and Start Tube system
 
 L0403:
-        JMP TubeEscape          ; Copy Escape state across Tube
+        JMP EscapeCopy          ; Copy Escape state across Tube
 
 
 ;;; Tube Transfer/Claim/Release
@@ -416,20 +432,30 @@ R2CmdHandlers:
 ;;; -----------
 
 TubeBRK:
+	LDA #<TubeHostError	; Default error messsage
+	STA ERRPTR
+	LDA #>TubeHostError
+	STA ERRPTR+1
+	LDX #$FF		; Error number 255
+	
+TubeError:
         LDA #$FF
         JSR TubeSendR4
         LDA TubeR2              ; Get ACK byte from CoPro
+.if (debug_r2 = 1)
+        JSR DebugHexOut
+.endif
         LDA #$00
         JSR TubeSendR2          ; Send $00 to R2 to specify ERROR
         TAY
-        LDA TubeError,Y
-        JSR TubeSendR2          ;  Send via R2
-TubeBRKlp:
-        INY
-        LDA TubeError,Y
+	TXA			; Get the error number
         JSR TubeSendR2          ; Send via R2
-        TAX
-        BNE TubeBRKlp           ; Loop until terminating $00 sent
+TubeErrorLp:
+        LDA (ERRPTR),Y
+        JSR TubeSendR2          ; Send via R2
+        INY
+	TAX
+        BNE TubeErrorLp        	; Loop until terminating $00 sent
 
 ;;; Tube Idle startup
 ;;; -----------------
@@ -439,32 +465,33 @@ TubeIdleStartup:
         LDX #$FF
         TXS
         CLI
-
+	BNE TubeIdleLoop
+	
 ;;;  Tube idle loop
 ;;;  --------------
 
 TubeIdle:
-        LDA $B001               ; Read keyboard hardware
-        AND #$20                ; was escape pressed?
-        BNE TubeIdle1
-        JSR TubeEscape          ; Escape pressed, pass to Client
-TubeIdle1:
+.if (debug_r2 = 1)
+	JSR DebugNewline
+.endif		
+TubeIdleLoop:
+	JSR EscapeCheck
         BIT TubeS1
         BPL TubeIdle2           ; Nothing in VDU port, jump to check Command port
 TubeWRCH:
         LDA TubeR1
-        JSR OSWRCH              ; Get character and send to OSWRCH
+        JSR AtomWRCH            ; Get character and send to OSWRCH
 TubeIdle2:
         BIT TubeS2
-        BPL TubeIdle            ; Nothing in Command port, loop back
+        BPL TubeIdleLoop        ; Nothing in Command port, loop back
         BIT TubeS1
         BMI TubeWRCH            ; Check VDU port again
         LDX TubeR2              ; Get command
-.if (debug = 1)
-        JSR DebugNewline
-        TXA
-        JSR DebugHexOut
-.endif
+.if (debug_r2 = 1)
+	JSR DebugNewline
+	TXA
+	JSR DebugHexOut
+.endif	
         LDA R2CmdHandlers, X    ; Read command handler
         STA R2Cmd
         LDA R2CmdHandlers + 1, X
@@ -533,15 +560,24 @@ RdLineLp2:
         JMP TubeIdle
 RdLineEsc:
         LDA #$FF
-        BNE TubeSendIdle        ; Return $FF for Escape, return to Tube idle loop
+        JMP TubeSendIdle        ; Return $FF for Escape, return to Tube idle loop
 
 
 bytelo:
-        LDX #$02
-        JSR TubeWaitBlock       ; Fetch 2-byte control block
+	JSR TubeWaitR2
+	TAX
+	JSR TubeWaitR2
+
+	CMP #$7E
+	BEQ osbyte7e
+	
         LDA #0
         JMP TubeSendIdle
 
+osbyte7e:			; OSBYTE 7e = Ack detection of escape condition
+	JSR EscapeClear
+	LDA #$ff		
+	JMP TubeSendIdle	; ff = escape condition cleared
 bytehi:
         LDX #$03
         JSR TubeWaitBlock       ; Fetch 3-byte control block
@@ -552,20 +588,11 @@ bytehi:
 
 word:
         JSR TubeWaitR2          ; Get A
-.if (debug = 1)
-        JSR DebugHexOut
-.endif
 	PHA			; Stack the osword number	
 	JSR TubeWaitR2          ; Get in-length
-.if (debug = 1)
-        JSR DebugHexOut
-.endif
         TAX
         JSR TubeWaitBlock
         JSR TubeWaitR2          ; Get out-length
-.if (debug = 1)
-        JSR DebugHexOut
-.endif
         TAX
 	PLA			; Restore osword number
 	CMP #$01		; Read System Clock
@@ -605,9 +632,26 @@ clii:
 
         JSR ReadString          ; Read string to $0100
 
-        LDA $100                ; Test for a zero-length string
-        CMP #$0d
+	LDX #$FF
+cliskip:
+	INX
+	LDA $100, X		; Skip leading spaces or stars
+	CMP #$20
+	BEQ cliskip
+	CMP #$2A
+	BEQ cliskip
+
+	CMP #$0D		; Test for a zero-length string
         BEQ TubeSendAck         ; Skip it
+
+	LDY #0
+clicopy:
+	LDA $100, X
+	STA $100, Y
+	INX
+	INY
+	CMP #$0D
+	BNE clicopy
 
         JSR OSCLI               ; Execute it
 
@@ -631,6 +675,9 @@ TubeSendIdle:
         BIT TubeS2
         BVC TubeSendIdle        ; Loop until Command port free
         STA TubeR2
+.if (debug_r2 = 1)
+        JSR DebugHexOut
+.endif
         JMP TubeIdle            ; Send byte and jump to Tube idle loop
 
 
@@ -717,14 +764,42 @@ args:
 
 ;;; OSGBPB
 ;;; ------
-gbpb:
-        RTS
+;;; OSGBPB   R2 <== &16 block A
+;;;          R2 ==> block Cy A
 
+gbpb:
+        LDX #$0D		; Block length
+        JSR TubeWaitBlock
+	JSR TubeWaitR2          ; Get A
+	PHA
+        LDX #$0D		; Block length
+        JSR TubeSendBlock	; Send block
+	LDA #$00
+	JSR TubeSendR2		; Send Cy
+	PLA
+	JSR TubeSendR2		; Send A
+        JMP TubeIdle
+
+	
 ;;; OSFILE
 ;;; ------
-file:
-        RTS
+;;; OSFILE   R2 <== &14 block string &0D A
+;;;          R2 ==> A block
 
+file:
+	LDX #$10		; Block length
+        JSR TubeWaitBlock
+file1:	
+        JSR TubeWaitR2          ; Get String
+	CMP #$0D
+	BNE file1
+	JSR TubeWaitR2          ; Get A
+	LDA #$01		; Send object type 01 "File Found"
+	JSR TubeSendR2
+	LDX #$10		; Block length
+        JSR TubeSendBlock	; Send block
+        JMP TubeIdle
+	
 ;;; Atom OSLOAD and OSSAVE can't be used, as will have to pass data across Tube
 ;;; manually Not sure how to set load/exec addresses without doing a DELETEBGET.
 ;;; Maybe do a zero-length DELETEBGET, then OPENOUT it
@@ -755,9 +830,6 @@ TubeWaitBlock:
 	DEX
 	BMI TubeWaitBlockExit
         JSR TubeWaitR2 
-.if (debug = 1)
-        JSR DebugHexOut
-.endif
         STA TubeCtrl, X
         JMP TubeWaitBlock
 TubeWaitBlockExit:
@@ -775,6 +847,9 @@ TubeWaitR2:
         BIT TubeS2
         BPL TubeWaitR2          ; Loop until data present
         LDA TubeR2
+.if (debug_r2 = 1)
+        JSR DebugHexOut
+.endif
         RTS                     ; Get byte
 
 
@@ -789,14 +864,28 @@ TubeSendBlock:
 TubeSendBlockExit:
         RTS
 
+;;; Send byte in A via Tube R1
+;;; --------------------------
+TubeSendR1:
+        BIT TubeS1
+        BVC TubeSendR1          ; Loop until port free
+        STA TubeR1
+.if (debug_r1 = 1)
+        JSR DebugHexOut
+.endif
+        RTS
+
 ;;; Send byte in A via Tube R2
 ;;; --------------------------
 TubeSendR2:
         BIT TubeS2
         BVC TubeSendR2          ; Loop until port free
         STA TubeR2
+.if (debug_r2 = 1)
+        JSR DebugHexOut
+.endif
         RTS
-;;; Send byte
+
 
 ;;; Send byte in A via Tube R4
 ;;; --------------------------
@@ -804,7 +893,7 @@ TubeSendR4:
         BIT TubeS4
         BVC TubeSendR4          ; Loop until port free
         STA TubeR4
-.if (debug = 1)
+.if (debug_r4 = 1)
         JSR DebugHexOut
 .endif
         RTS                     ; Send byte
@@ -812,16 +901,48 @@ TubeSendR4:
 ;;; Copy Escape state across Tube
 ;;; -----------------------------
 
-;;; TODO
+EscapeSet:
+	LDA EscapeFlag
+	ORA #$40
+	BNE EscapeUpdate
+	
+EscapeClear:
+	LDA EscapeFlag
+	AND #$BF
+	
+EscapeUpdate:
+	STA EscapeFlag
 
-TubeEscape:
-        RTS
+EscapeCopy:
+	LDA EscapeFlag
+	AND #$40		; Bit 6 is the escape state
+	ORA #$80		; Bit 7 must be set
+	JMP TubeSendR1
 
-TubeError:
-        .byte 255
+
+EscapeCheck:
+        LDA $B001    	   	; Read keyboard hardware
+	EOR EscapeFlag
+        AND #$20
+	BNE EscapeReturn	; No Change
+
+	LDA EscapeFlag		; Update the escape key state in B5
+	EOR #$20
+	STA EscapeFlag
+
+	SEC
+	AND #$20		; Is the change the key being pressed?
+	BNE EscapeSet		; If so, set the escape condition
+	
+EscapeReturn:
+	CLC
+	RTS
+	
+
+TubeHostError:
         .byte "HOST ERROR"
-        BRK
-
+	BRK
+	
 ;;; ***************************
 ;;; INTERFACE TO ATOM MOS CALLS
 ;;; ***************************
@@ -829,16 +950,23 @@ TubeError:
 ;;; Interface to Atom OSRDCH
 ;;; ------------------------
 AtomRDCH:
+	LDA EscapeFlag
+	AND #$DF
+	STA EscapeFlag
         JSR OSRDCH
         PHA
-        CLC                     ; Wait for a character
-        LDA $B001
-        AND #$20                ; Read keyboard hardware
-        BNE AtomRDCHok
-        SEC                     ; SEC as Escape key pressed
-AtomRDCHok:
+	JSR EscapeCheck
         PLA
         RTS
+
+;;; Interface to Atom OSRDCH
+;;; ------------------------
+AtomWRCH:
+        CMP #$60
+        BCC AtomWRCH1
+        AND #$DF
+AtomWRCH1:
+        JMP OSWRCH
 
 
 ViaInit:

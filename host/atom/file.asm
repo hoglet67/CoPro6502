@@ -143,6 +143,37 @@ read_file_adapter:
 ; Read data to memory
 ;
 ; a = number of bytes to read (0 = 256)
+; TubeR3 points to target
+;
+read_block_tube:
+    tax
+
+	; ask PIC for (A) bytes of data (0=256)
+	writeportFAST	ALATCH_REG	; set ammount to read
+	jsr				interwritedelay
+	SLOWCMDI 		CMD_READ_BYTES		; set command
+    
+    jsr  expect64orless
+
+    jsr	prepare_read_data				; tell pic to release the data we just read
+
+
+@looptube:
+    readportFAST	AREAD_DATA_REG	; then read it
+
+    ;; Send to tube R3
+    STA TubeR3
+	
+    dex
+    bne  @looptube
+
+    rts
+
+;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+;
+; Read data to memory
+;
+; a = number of bytes to read (0 = 256)
 ; (RWPTR) points to target
 ;
 read_block:
@@ -167,9 +198,6 @@ read_block:
     bne  @loop
 
     rts
-
-
-
 
 
 
@@ -230,6 +258,33 @@ write_file_adapter:
 ; write a block of data
 ;
 ; a = block length (0=256)
+; Tube R3 = source
+;
+write_block_tube:
+    tax                     ; save away the block size
+    pha
+
+    jsr	prepare_write_data	; take it
+
+@looptube:
+    ;; Read from tube R3
+    LDA TubeR3
+    writeportFAST	AWRITE_DATA_REG	
+    dex
+    bne 			@looptube
+
+    pla                     	; write block command
+	writeportFAST	ALATCH_REG	; ammount to write
+	jsr				interwritedelay
+	SLOWCMDI 		CMD_WRITE_BYTES	; give command to write
+    jmp  			expect64orless
+
+
+	;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+;
+; write a block of data
+;
+; a = block length (0=256)
 ; (RWPTR) = source
 ;
 write_block:
@@ -252,6 +307,7 @@ write_block:
 	jsr				interwritedelay
 	SLOWCMDI 		CMD_WRITE_BYTES	; give command to write
     jmp  			expect64orless
+
 
 ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
 ;

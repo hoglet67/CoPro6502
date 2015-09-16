@@ -174,6 +174,7 @@ putcb:
 ; report a file system error
 ;
 reportDiskFailure:
+   PHA				; stack the error code
    and   #ERROR_MASK
    tax                     ; error code into x
    ldy   #$ff                ; string indexer
@@ -181,12 +182,14 @@ reportDiskFailure:
 @findstring:
    iny                     ; do this here because we need the z flag below
    lda   diskerrortab,y
-   cmp   #$0d
    bne   @findstring       ; zip along the string till we find a zero
 
    dex                     ; when this bottoms we've found our error
    bne   @findstring
 
+   PLA			   	; unstack the error number
+   TAX
+	
    iny                     ; store index for basic BRK-alike hander
    tya
    clc
@@ -199,6 +202,37 @@ reportDiskFailure:
    ; fall into ...
 
 
+;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+;
+; Error printer
+;
+; Enter with $d5,6 -> Error string.
+;
+
+reportFailure:
+   JMP	TubeError		; Pass error's back over the Tube
+
+diskerrortab:
+   .byte $00
+   .byte "DISK FAULT",$00
+   .byte "INTERNAL ERROR",$00
+   .byte "NOT READY",$00
+   .byte "NOT FOUND",$00
+   .byte "NO PATH",$00
+   .byte "INVALID NAME",$00
+   .byte "ACCESS DENIED",$00
+   .byte "EXISTS",$00
+   .byte "INVALID OBJECT",$00
+   .byte "WRITE PROTECTED",$00
+   .byte "INVALID DRIVE",$00
+   .byte "NOT ENABLED",$00
+   .byte "NO FILESYSTEM",$00
+   .byte $00                     ; mkfs error
+   .byte "TIMEOUT",$00
+   .byte "EEPROM ERROR",$00
+   .byte "FAILED",$00
+   .byte "TOO MANY",$00
+   .byte "SILLY",$00
 
 ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
 ;
@@ -428,26 +462,5 @@ tab_space16:
    ldx   #16
    jmp   tab_space
 
-diskerrortab:
-   .byte $0d
-   .byte "DISK FAULT",$0d
-   .byte "INTERNAL ERROR",$0d
-   .byte "NOT READY",$0d
-   .byte "NOT FOUND",$0d
-   .byte "NO PATH",$0d
-   .byte "INVALID NAME",$0d
-   .byte "ACCESS DENIED",$0d
-   .byte "EXISTS",$0d
-   .byte "INVALID OBJECT",$0d
-   .byte "WRITE PROTECTED",$0d
-   .byte "INVALID DRIVE",$0d
-   .byte "NOT ENABLED",$0d
-   .byte "NO FILESYSTEM",$0d
-   .byte $0d                     ; mkfs error
-   .byte "TIMEOUT",$0d
-   .byte "EEPROM ERROR",$0d
-   .byte "FAILED",$0d
-   .byte "TOO MANY",$0d
-   .byte "SILLY",$0d
 
 	
