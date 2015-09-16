@@ -9,7 +9,7 @@ entity LX9CoProPDP11 is
         fastclk   : in    std_logic;
         test      : out   std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(3 downto 0);
-        
+
         -- Tube signals
         h_phi2    : in    std_logic;
         h_addr    : in    std_logic_vector(2 downto 0);
@@ -43,11 +43,11 @@ architecture BEHAVIORAL of LX9CoProPDP11 is
     signal RST_sync      : std_logic;
     signal clken_counter : std_logic_vector (3 downto 0);
     signal reset_counter : std_logic_vector (8 downto 0);
-    
+
 -------------------------------------------------
 -- parasite signals
 -------------------------------------------------
-    
+
     signal p_cs_b        : std_logic;
     signal p_data_out    : std_logic_vector (7 downto 0);
 
@@ -66,24 +66,26 @@ architecture BEHAVIORAL of LX9CoProPDP11 is
 -- cpu signals
 -------------------------------------------------
 
-    signal cpu_rd     : std_logic;
-    signal cpu_wr     : std_logic;
-    signal cpu_dw8    : std_logic;
-    signal cpu_addr   : std_logic_vector (15 downto 0);
-    signal cpu_din    : std_logic_vector (15 downto 0);
-    signal cpu_dout   : std_logic_vector (15 downto 0);
-    signal cpu_IRQ_n  : std_logic;
-    signal cpu_NMI_n  : std_logic;
-    signal cpu_IRQ_n1  : std_logic;
-    signal cpu_NMI_n1  : std_logic;
-    signal cpu_IRQ_n2  : std_logic;
-    signal cpu_NMI_n2  : std_logic;
-    signal cpu_IRQ_req  : std_logic;
-    signal cpu_NMI_req  : std_logic;    
-    signal cpu_IRQ_ack  : std_logic;
-    signal cpu_NMI_ack  : std_logic;
-    signal ifetch  : std_logic;
-    signal bg6  : std_logic;
+    signal cpu_rd          : std_logic;
+    signal cpu_wr          : std_logic;
+    signal cpu_dw8         : std_logic;
+    signal cpu_addr        : std_logic_vector (15 downto 0);
+    signal cpu_addr2       : std_logic_vector (15 downto 0);
+    signal cpu_din         : std_logic_vector (15 downto 0);
+    signal cpu_dout        : std_logic_vector (15 downto 0);
+    signal cpu_IRQ_n       : std_logic;
+    signal cpu_NMI_n       : std_logic;
+    signal cpu_IRQ_n1      : std_logic;
+    signal cpu_NMI_n1      : std_logic;
+    signal cpu_IRQ_n2      : std_logic;
+    signal cpu_NMI_n2      : std_logic;
+    signal cpu_IRQ_req     : std_logic;
+    signal cpu_NMI_req     : std_logic;
+    signal cpu_IRQ_ack     : std_logic;
+    signal cpu_NMI_ack     : std_logic;
+    signal cpu_PSW         : std_logic_vector (15 downto 0);
+    signal ifetch          : std_logic;
+    signal bg6             : std_logic;
 
 begin
 
@@ -100,7 +102,7 @@ begin
         h_data  => h_data,
         h_phi2  => h_phi2,
         h_rdnw  => h_rdnw,
-        h_rst_b => h_rst_b 
+        h_rst_b => h_rst_b
     );
 
     inst_tuberom : entity work.tuberom_pdp11 port map (
@@ -156,7 +158,7 @@ begin
       psw_in          => x"0000",         -- psw input from the control register address @ 177776
       psw_in_we_even  => '0',             -- psw input from the control register address @ 177776, write enable for the even address part
       psw_in_we_odd   => '0',             -- psw input from the control register address @ 177776, write enable for the odd address part
-      psw_out         => open,            -- psw output, current psw that the cpu uses
+      psw_out         => cpu_PSW,         -- psw output, current psw that the cpu uses
       pir_in          => x"0000",         -- pirq value input from the control register
       modelcode       => 40,              -- cpu model code
       init_r7         => x"f800",         -- start address after reset = o'173000' = m9312 hi rom
@@ -186,7 +188,7 @@ begin
         clk     => clk_ram,
         we_uP   => ram_wr_lo,
         ce      => '1',
-        addr_uP => cpu_addr(15 downto 1),
+        addr_uP => cpu_addr2(15 downto 1),
         D_uP    => ram_data_in(7 downto 0),
         Q_uP    => ram_data_out(7 downto 0)
     );
@@ -195,22 +197,25 @@ begin
         clk     => clk_ram,
         we_uP   => ram_wr_hi,
         ce      => '1',
-        addr_uP => cpu_addr(15 downto 1),
+        addr_uP => cpu_addr2(15 downto 1),
         D_uP    => ram_data_in(15 downto 8),
         Q_uP    => ram_data_out(15 downto 8)
     );
-    
+
+    -- provide a seperare page 0 for Kernel mode ("00") vs user mode ("11")
+    cpu_addr2 <= cpu_addr when cpu_PSW(15 downto 14) = "00" or cpu_addr >= x"0100" else
+                 "11111" & cpu_addr(10 downto 0);
+
     p_cs_b   <= '0' when (cpu_rd = '1' or cpu_wr = '1') and cpu_addr(15 downto 4) = x"FFF" else '1';
     rom_cs_b <= '0' when (cpu_rd = '1' or cpu_wr = '1') and p_cs_b = '1' and cpu_addr(15 downto 11) = "11111" else '1';
     ram_cs_b <= '0' when (cpu_rd = '1' or cpu_wr = '1') and p_cs_b = '1' and rom_cs_b = '1' else '1';
-
 
     -- TODO implement fault for non-aligned word access
     ram_wr_lo <= '1' when ram_cs_b = '0' and cpu_wr = '1' and (cpu_dw8 = '0' or cpu_addr(0) = '0') else '0';
     ram_wr_hi <= '1' when ram_cs_b = '0' and cpu_wr = '1' and (cpu_dw8 = '0' or cpu_addr(0) = '1') else '0';
 
     cpu_din <=
-        x"ff" & p_data_out                when p_cs_b   = '0' else
+        x"ff" & p_data_out                when p_cs_b = '0' else
         rom_data_out                      when rom_cs_b = '0' and cpu_dw8 = '0' else
         x"ff" & rom_data_out(7 downto 0)  when rom_cs_b = '0' and cpu_dw8 = '1' and cpu_addr(0) = '0' else
         x"ff" & rom_data_out(15 downto 8) when rom_cs_b = '0' and cpu_dw8 = '1' and cpu_addr(0) = '1' else
@@ -218,19 +223,19 @@ begin
         x"ff" & ram_data_out(7 downto 0)  when ram_cs_b = '0' and cpu_dw8 = '1' and cpu_addr(0) = '0' else
         x"ff" & ram_data_out(15 downto 8) when ram_cs_b = '0' and cpu_dw8 = '1' and cpu_addr(0) = '1' else
         x"f1f1";
-        
+
     ram_data_in <= x"ff" & cpu_dout(7 downto 0) when cpu_dw8 = '1' and cpu_addr(0) = '0' else
                    cpu_dout(7 downto 0) & x"ff" when cpu_dw8 = '1' and cpu_addr(0) = '1' else
                    cpu_dout;
-                   
+
 --------------------------------------------------------
 -- external Ram unused
 --------------------------------------------------------
-    ram_ub_b <= '1';
-    ram_lb_b <= '1';
-    ram_cs <= '1';
-    ram_oe <= '1';
-    ram_wr <= '1';
+    ram_ub_b  <= '1';
+    ram_lb_b  <= '1';
+    ram_cs    <= '1';
+    ram_oe    <= '1';
+    ram_wr    <= '1';
     ram_addr  <= (others => '1');
     ram_data  <= (others => '1');
 
@@ -305,7 +310,7 @@ begin
             end if;
         end if;
     end process;
-    
+
 
 end BEHAVIORAL;
 
