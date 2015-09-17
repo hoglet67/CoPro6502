@@ -169,12 +169,13 @@ putcb:
    rts
 
 
+
+
 ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
 ;
 ; report a file system error
 ;
 reportDiskFailure:
-   PHA				; stack the error code
    and   #ERROR_MASK
    tax                     ; error code into x
    ldy   #$ff                ; string indexer
@@ -187,9 +188,19 @@ reportDiskFailure:
    dex                     ; when this bottoms we've found our error
    bne   @findstring
 
-   PLA			   	; unstack the error number
-   TAX
-	
+
+   lda   TubeFlag
+   cmp   #TubeEna
+   beq   @tubeError
+
+@printstring:
+   iny
+   lda   diskerrortab,y
+   jsr   OSWRCH
+   bne   @printstring
+   brk
+
+@tubeError:
    iny                     ; store index for basic BRK-alike hander
    tya
    clc
@@ -198,19 +209,7 @@ reportDiskFailure:
    lda   #>diskerrortab
    adc   #0
    sta   $d6
-
-   ; fall into ...
-
-
-;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
-;
-; Error printer
-;
-; Enter with $d5,6 -> Error string.
-;
-
-reportFailure:
-   JMP	TubeError		; Pass error's back over the Tube
+   jmp   L0409
 
 diskerrortab:
    .byte $00
@@ -232,8 +231,8 @@ diskerrortab:
    .byte "EEPROM ERROR",$00
    .byte "FAILED",$00
    .byte "TOO MANY",$00
-   .byte "SILLY",$00
-
+   .byte "SILLY",$0d
+	
 ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
 ;
 ; Display the filename at $140
@@ -461,6 +460,3 @@ tab_space10:
 tab_space16:
    ldx   #16
    jmp   tab_space
-
-
-	

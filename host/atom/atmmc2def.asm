@@ -3,6 +3,87 @@
 
 ; 2011-05-25, Phill Harvey-Smith.
 
+; OS overrides
+;
+TOP         =$0d
+PAGE        =$12
+ARITHWK     =$23
+
+; these need to be in ZP
+;
+RWPTR       =$ac         ; W - data target vector
+ZPTW        =$ae         ; [3] - general use temp vector, used by vechexs, RS, WS
+
+LFNPTR      =$c9         ; W -pointer to filename (usually $140)
+LLOAD       =$cb         ; W - load address
+LEXEC       =$cd         ; W - execution address
+LLENGTH     =$cf         ; W - byte length
+
+SFNPTR      =$c9         ; W -pointer to filename (usually $140)
+SLOAD       =$cb         ; W - reload address
+SEXEC       =$cd         ; W - execute
+SSTART      =$cf         ; W - data start
+SEND        =$d1         ; W - data end + 1
+
+CRC         =$c9         ; 3 bytes in ZP - should be ok as this addr only used for load/save??
+
+RDCCNT      =$c9         ; B - bytes in pool - ie ready to be read from file
+RDCLEN      =$ca         ; W - length of file supplying characters
+
+tmp_ptr3    =$D5
+tmp_ptr5    =$D6
+tmp_ptr6    =$D7
+
+MONFLAG     =$ea         ; 0 = messages on, ff = off
+
+NAME       =$140         ; sits astride the BASIC input buffer and string processing area.
+
+IRQVEC     =$204         ; we patch these (maybe more ;l)
+COMVEC     =$206
+RDCVEC     =$20a
+LODVEC     =$20c
+SAVVEC     =$20e
+
+; DOS scratch RAM 3CA-3FC. As the AtoMMC interface effectively precludes the use of DOS..
+;
+FKIDX      =$3ca         ; B - fake key index
+RWLEN      =$3cb         ; W - count of bytes to write
+FILTER     =$3cd         ; B - dir walk filter 
+
+
+; FN       ADDR
+;
+OSWRCH     =$fff4
+OSRDCH     =$ffe3
+OSCRLF     =$ffed
+COSSYN     =$fa7d
+COSPOST    =$fa76
+RDADDR     =$fa65
+CHKNAME    =$f84f
+SKIPSPC    =$f876
+RDOPTAD    =$f893
+BADNAME    =$f86c
+WSXFER2    =$f85C
+COPYNAME   =$f818
+HEXOUT     =$f802
+HEXOUTS    =$f7fa
+STROUT     =$f7d1
+	
+; I/O register base
+;
+
+.ifdef ALTADDR
+AREG_BASE			= $b408
+.else
+AREG_BASE			= $b400	
+.endif
+
+ACMD_REG			= AREG_BASE+CMD_REG
+ALATCH_REG                      = AREG_BASE+LATCH_REG             
+AREAD_DATA_REG                  = AREG_BASE+READ_DATA_REG             
+AWRITE_DATA_REG                 = AREG_BASE+WRITE_DATA_REG             
+ASTATUS_REG			= AREG_BASE+STATUS_REG	
+	
 ; // Register definitions, these are offsets from 0xB400 on the Atom side.
 
 CMD_REG                         =   $00
@@ -84,18 +165,16 @@ MMC_MCU_BUSY                    =   $01
 MMC_MCU_READ                    =   $02
 MMC_MCU_WROTE                   =   $04
 
-; I/O register base
-;
 
-.ifdef ALTADDR
-AREG_BASE                       = $b408
-.else
-AREG_BASE                       = $b400 
-.endif
 
-ACMD_REG                        = AREG_BASE+CMD_REG
-ALATCH_REG                      = AREG_BASE+LATCH_REG             
-AREAD_DATA_REG                  = AREG_BASE+READ_DATA_REG             
-AWRITE_DATA_REG                 = AREG_BASE+WRITE_DATA_REG             
-ASTATUS_REG                     = AREG_BASE+STATUS_REG  
+
+
+
+
+
+
+
+
+
+
 

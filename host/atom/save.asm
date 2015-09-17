@@ -1,5 +1,18 @@
 ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
 ;
+; STARSAVE
+;
+; Parses filename then resumes execution of the BIOS' save routine.
+;
+STARSAVE:
+   jsr  read_filename       ; copy filename into $140
+   jsr  $f844               ; set $c9\a = $140, set x = $c9
+   jmp  $fabe               ; scan parameters and jmp through SAVVEC
+
+
+
+;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+;
 ; SAVVEC
 ;
 ; 0,x = file parameter block
@@ -10,7 +23,7 @@
 ; 6,x = data start address
 ; 8,x = data end address + 1
 ;
-ossavetube:
+ossavecode:
    jsr  $f84f               ; copy data block at $00,x to COS workspace at $c9
 
    jsr	open_file_write     ; returns with any error in A
@@ -42,22 +55,11 @@ ossavetube:
 
 @continue:
 
-	;; Claim the Tube
-	LDA #$DD
-	JSR L0406
-
-	;; Setup Type 0 Tube Transfer
-	LDA SLOAD
-	STA TubeCtrl
-	LDA SLOAD + 1
-	STA TubeCtrl + 1
-	LDA #$00
-	STA TubeCtrl + 2
-	STA TubeCtrl + 3
-	LDA #$00
-	LDX #<TubeCtrl
-	LDY #>TubeCtrl
-	JSR L0406
+   ; @@TUBE@@ 
+   ; Test if the tube is enabled, then claim and initiate transfer
+   ldx #SLOAD            ; block containing transfer address
+   ldy #0                ; transfer type
+   jsr tube_claim_wrapper
 	
    lda   SLOAD           ; tag the file info onto the end of the filename data
    sta   $150
@@ -95,10 +97,10 @@ ossavetube:
 
    jsr   write_file         ; save the main body of data
 
-	;; Release the Tube
-	LDA #$9D
-	JMP L0406
-	
+   ; @@TUBE@@ 
+   ; Test if the tube is enabled, then release
+   jsr tube_release_wrapper
+
 ; Don't need to call CLOSE_FILE here as write_file calls it.
 ;   CLOSE_FILE
 

@@ -6,14 +6,24 @@
 
         atmhdr   = 1            ; Whether to include an ARM header (form AtoMMC2)
 
-	debug    = 0
-
-        debug_r1 = debug        ; Whether to include debugging of R1 commands
-        debug_r2 = debug        ; Whether to include debugging of R2 commands
-        debug_r4 = debug        ; Whether to include debugging of R4 commands
+	atommc   = 0            ; Whether to include a local copy of AtomMMC2 load/save
+	
+        debug_r1 = 0            ; Whether to include debugging of R1 commands
+        debug_r2 = 0            ; Whether to include debugging of R2 commands
+        debug_r4 = 0            ; Whether to include debugging of R4 commands
 
         LangStart = $4000       ; start of the language in host memory
         LangEnd   = $8000       ; end of the language in host memory
+
+
+.if (atommc = 1)
+.include "atmmc2def.asm"
+.else
+	;; These are already defined in atmmc2def.asm
+        OSRDCH   = $FFE3
+        OSWRCH   = $FFF4
+        HEXOUT   = $F802
+.endif
 
 ;;; MOS entry addresses
 ;;; -------------------
@@ -25,32 +35,15 @@
         OSRDAR   = $FFDA
         OSSAVE   = $FFDD
         OSLOAD   = $FFE0
-        OSRDCH   = $FFE3
         OSECHO   = $FFE6
         OSASCI   = $FFE9
-        OSCRLF   = $FFED
+        OSNEWL   = $FFED
         OSWRCR   = $FFF2
-        OSWRCH   = $FFF4
         OSCLI    = $FFF7
 
 ;;; Atom OS addresses
-	RWPTR     = $AC  
-	LLOAD	  = $CB
-	SLOAD	  = $CB
-	LEXEC     = $CD	
-	LLENGTH	  = $CF
-	SEXEC     = $CD	
-	SSTART    = $CF 
-	SEND      = $D1
 	ERRPTR    = $D5
-	MONFLAG   = $EA
-	NAME      = $140 
-	STROUT    = $F7D1
-	HEXOUTS   = $F7FA
-        HEXOUT    = $F802
-	CHKNAME   = $F84F
-	SKIPSPC   = $F876
-	COSSYN    = $FA7D
+
 
 ;;; Vectors
 ;;; -------
@@ -95,16 +88,19 @@
 ;;; Workspace in zero page
 ;;; ----------------------
 
-        TubeCtrl   = $80        ; Control block for MOS calls
-        TubeSrc    = $92        ; Pointer to Tube transfer block
-        TubeStatus = $94        ; Tube status
-        TubeOwner  = $95        ; Tube owner
-        R2Cmd      = $96        ; Computed address of R2 Command Handler
-        LangFlag   = $98
-	EscapeFlag = $99
+        TubeCtrl   = $60        ; Control block for MOS calls
+        TubeSrc    = $72        ; Pointer to Tube transfer block
+        TubeStatus = $74        ; Tube status
+        TubeOwner  = $75        ; Tube owner
+        R2Cmd      = $76        ; Computed address of R2 Command Handler
+        LangFlag   = $78
+	EscapeFlag = $79
 
-	AtomCmd   = $c9		; used by osfile; this could be anywhere
-	AtomStr   = $140	; used by osfile; atommc assumes 140
+	AtomCmd    = $c9	; used by osfile; this could be anywhere
+	AtomStr    = $140	; used by osfile; atommc assumes 140
+
+        TubeFlag   = $3CF	; tube enabled flag, set by atom tube host
+        TubeEna    = $5A	; tube enable magic value
 
 ;;; Optional 22-byte ATM Header
 ;;; --------------------------
@@ -119,14 +115,28 @@ AtmHeader:
 
 StartAddr:
 
-        ;;; Start up the Atom Tube system
-        ;;; ----------------------------
+;;; Main Entry Point Block
+;;; ----------------------
+
+L0400:
+        JMP TubeStartup         ; Copy Language and Start Tube system
+L0403:
+        JMP EscapeCopy          ; Copy Escape state across Tube
+L0406:
+	JMP TubeClaimTransferRelease
+L0409:
+	JMP TubeError
+	
+;;; Start up the Atom Tube system
+;;; ----------------------------
 
 TubeStartup:
-        LDA #$00
+        LDA #$00		; non zero means transfer language
         STA LangFlag
-	LDA #$00
+	LDA #$00		; B5 tracks escape key, B6 tracks escape state
 	STA EscapeFlag
+	LDA #TubeEna		; Enable tube transfers in AtoMMC
+	STA TubeFlag
         LDA #12
         JSR AtomWRCH            ; Clear screen, ready for startup banner
 	JSR ViaInit             ; Initialize 50Hz interrupts
@@ -151,16 +161,16 @@ Startup2:
         LDA #>TubeBRK
         STA BRKV+1
 
-	LDA #<osloadtube	; Claim OSLOAD
+.if (atommc = 1)
+	LDA #<osloadcode    	; Claim OSLOAD
 	STA LOADV
-	LDA #>osloadtube
+	LDA #>osloadcode
 	STA LOADV+1
-
-	LDA #<ossavetube	; Claim OSSAVE
+	LDA #<ossavecode	; Claim OSSAVE
 	STA SAVEV
-	LDA #>ossavetube
+	LDA #>ossavecode
 	STA SAVEV+1
-	
+.endif	
         LDA #$8E
         STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
         JSR TubeFree            ; Set Tube 'free' and no owner
@@ -177,20 +187,11 @@ Startup2:
 Startup3:
         JMP TubeSendAck         ; Send $7f ack and enter idle loop
 
-;;; Main Entry Point Block
-;;; ----------------------
-
-L0400:
-        JMP LanguageStartup     ; Copy Language and Start Tube system
-
-L0403:
-        JMP EscapeCopy          ; Copy Escape state across Tube
-
 
 ;;; Tube Transfer/Claim/Release
 ;;; ---------------------------
 
-L0406:
+TubeClaimTransferRelease:
         CMP #$80                ; Claim/Release/Action via Tube
         BCC TubeTransfer        ; If <$80, data transfer action
         CMP #$C0                ; Is it claim or release?
@@ -550,7 +551,7 @@ RdLineChar:
         INY
         BNE RdLineLp1           ; Echo character, loop for more
 RdLineCR:
-        JSR OSCRLF              ; Print <newline>
+        JSR OSNEWL              ; Print <newline>
         LDA #$7F
         JSR TubeSendR2          ; Send $7F via R2 to indicate no Escape
         LDY #0                  ; Point to start of string buffer
@@ -834,9 +835,8 @@ fileload:
 	LDA #$00		; use file's load address
 fileload1:
 	STA AtomCmd + 4
-	JSR DebugHexOut
 	LDX #AtomCmd
-	JSR osloadtube
+	JSR OSLOAD
 	JMP fileResponse
 
 	;; Map to OSSAVE
@@ -855,41 +855,30 @@ fileload1:
 filesave:
 	JSR fileinit
 	LDX #AtomCmd
-	JSR ossavetube
+	JSR OSSAVE
 	JMP fileResponse
-
+	
 fileinit:
-	JSR DebugNewline
 	LDA #<AtomStr
 	STA AtomCmd
-	JSR DebugHexOut
 	LDA #>AtomStr
 	STA AtomCmd + 1
-	JSR DebugHexOut
 	LDX #$00
 	LDY #$02
 fileinitlp:
 	LDA TubeCtrl, X		; Copy bits 0..7 of address
 	STA AtomCmd, Y
-	JSR DebugHexOut
 	INX
 	INY
 	LDA TubeCtrl, X		; Copy bits 8..15 of address
 	STA AtomCmd, Y
-	JSR DebugHexOut
 	INX
 	INY
 	INX			; Skip bits 16..23 of address
 	INX			; Skip bits 24..31 of address
 	CPX #$10
 	BNE fileinitlp
-	JSR DebugNewline
 	RTS
-	
-;;; Atom OSLOAD and OSSAVE can't be used, as will have to pass data across Tube
-;;; manually Not sure how to set load/exec addresses without doing a DELETEBGET.
-;;; Maybe do a zero-length DELETEBGET, then OPENOUT it
-
 
 ;;; TUBE COMMAND TRANSFERS
 ;;; **********************
@@ -1102,7 +1091,7 @@ ViaTime:
 DebugNewline:
 	PHP
         PHA
-        JSR OSCRLF
+        JSR OSNEWL
         PLA
 	PLP
         RTS
@@ -1115,11 +1104,14 @@ DebugHexOut:
 	PLP
         RTS
 
-.include "atmmc2def.asm"	
+
+.if (atommc = 1)
 .include "macros.asm"
+.include "tube.asm"
 .include "file.asm"
 .include "load.asm"	
 .include "save.asm"
 .include "util.asm"
-
+.endif
+	
 EndAddr:
