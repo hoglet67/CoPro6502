@@ -74,7 +74,7 @@
 
 ;;;I/O addresses
 ;;;-------------
-        TubeIO   = $BC00
+        TubeIO   = $BEE0
 
         TubeS1=TubeIO+0         ; VDU
         TubeR1=TubeIO+1
@@ -102,7 +102,10 @@
         R2Cmd      = $96        ; Computed address of R2 Command Handler
         LangFlag   = $98
 	EscapeFlag = $99
-	
+
+	AtomCmd   = $c9		; used by osfile; this could be anywhere
+	AtomStr   = $140	; used by osfile; atommc assumes 140
+
 ;;; Optional 22-byte ATM Header
 ;;; --------------------------
 
@@ -786,19 +789,102 @@ gbpb:
 ;;; OSFILE   R2 <== &14 block string &0D A
 ;;;          R2 ==> A block
 
+;;; Block
+;;; 	0..3 Load Address
+;;; 	4..7 Exec Address
+;;; 	8..B Start Address
+;;; 	C..F End Address
+	
 file:
 	LDX #$10		; Block length
         JSR TubeWaitBlock
-file1:	
+	LDX #$00
+fileString:	
         JSR TubeWaitR2          ; Get String
+	STA AtomStr, X
+	INX
 	CMP #$0D
-	BNE file1
+	BNE fileString
 	JSR TubeWaitR2          ; Get A
+	CMP #$00
+	BEQ filesave
+	CMP #$FF
+	BEQ fileload
+	
+fileResponse:
 	LDA #$01		; Send object type 01 "File Found"
 	JSR TubeSendR2
 	LDX #$10		; Block length
         JSR TubeSendBlock	; Send block
         JMP TubeIdle
+
+	;; Map to OSLOAD
+	;; 
+	;; Entry: 0,X = LSB File name string address
+	;;        1,X = MSB File name string address
+	;;        2,X = LSB Data dump start address
+	;;        3,X = MSB Data dump start address
+	;;        4,X : If bit 7 is clear, then the file's own start address is to be used
+	
+fileload:
+	JSR fileinit
+	LDA #$80		; use block's load address
+	LDX TubeCtrl + 4	; if zero, use block's load address
+	BEQ fileload1
+	LDA #$00		; use file's load address
+fileload1:
+	STA AtomCmd + 4
+	JSR DebugHexOut
+	LDX #AtomCmd
+	JSR osloadtube
+	JMP fileResponse
+
+	;; Map to OSSAVE
+	;; 
+	;; Entry: 0,X = LSB File name string address
+	;;        1,X = MSB File name string address
+	;;        2,X = LSB Data Reload address
+	;;        3,X = MSB Data Reload address
+	;;        4,X = LSB Data Execution address
+	;;        5,X = MSB Data Execution address
+	;;        6,X = LSB Data start address
+	;;        7,X = MSB Data start address
+	;;        8,X = LSB Data end address + 1
+	;;        9,X = MSB Data end address + 1
+	
+filesave:
+	JSR fileinit
+	LDX #AtomCmd
+	JSR ossavetube
+	JMP fileResponse
+
+fileinit:
+	JSR DebugNewline
+	LDA #<AtomStr
+	STA AtomCmd
+	JSR DebugHexOut
+	LDA #>AtomStr
+	STA AtomCmd + 1
+	JSR DebugHexOut
+	LDX #$00
+	LDY #$02
+fileinitlp:
+	LDA TubeCtrl, X		; Copy bits 0..7 of address
+	STA AtomCmd, Y
+	JSR DebugHexOut
+	INX
+	INY
+	LDA TubeCtrl, X		; Copy bits 8..15 of address
+	STA AtomCmd, Y
+	JSR DebugHexOut
+	INX
+	INY
+	INX			; Skip bits 16..23 of address
+	INX			; Skip bits 24..31 of address
+	CPX #$10
+	BNE fileinitlp
+	JSR DebugNewline
+	RTS
 	
 ;;; Atom OSLOAD and OSSAVE can't be used, as will have to pass data across Tube
 ;;; manually Not sure how to set load/exec addresses without doing a DELETEBGET.
