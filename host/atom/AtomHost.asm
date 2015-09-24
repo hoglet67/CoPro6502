@@ -1,24 +1,26 @@
 ;;;  AtomHost/src
 ;;; Source for Atom Tube Host
 ;;; J.G.Harston and D.M.Banks
-        
+
         load     = $3000        ; Load address of the host code
 
         atmhdr   = 1            ; Whether to include an ARM header (form AtoMMC2)
 
         atommc   = 0            ; Whether to include a local copy of AtomMMC2 load/save
-        
+
         debug_r1 = 0            ; Whether to include debugging of R1 commands
         debug_r2 = 0            ; Whether to include debugging of R2 commands
         debug_r4 = 0            ; Whether to include debugging of R4 commands
 
-	debug_osw_7f = 0	; Whether to include debugging of OSWORD 7F commands
-	debug_osw_ff = 0	; Whether to include debugging of OSWORD FF commands
-	
+        debug_osw_7f = 0        ; Whether to include debugging of OSWORD 7F commands
+        debug_osw_ff = 0        ; Whether to include debugging of OSWORD FF commands
+
+        buffered_kbd = 1        ; Whether to include a buffered keyboard routine
+
         LangStart = $4000       ; start of the language in host memory
         LangEnd   = $8000       ; end of the language in host memory
 
-.include "macros.asm"	
+.include "macros.asm"
 .include "atmmc2def.asm"
 
 
@@ -39,7 +41,7 @@
         OSCLI    = $FFF7
 
         ;; These are already defined in atmmc2def.asm
-	;; OSRDCH   = $FFE3
+        ;; OSRDCH   = $FFE3
         ;; OSWRCH   = $FFF4
         ;; HEXOUT   = $F802
 
@@ -86,7 +88,7 @@
         ViaT1CounterH = ViaBase + 5
         ViaACR        = ViaBase + 11
         ViaIER        = ViaBase + 14
-        
+
 ;;; Workspace in zero page
 ;;; ----------------------
 
@@ -97,7 +99,10 @@
         R2Cmd      = $76        ; Computed address of R2 Command Handler
         LangFlag   = $78
         EscapeFlag = $79
-
+.if (buffered_kbd = 1)
+        KeyBuf     = $7A        ; one character keyboard buffer
+        KeyFlag    = $7B        ; flag to indicate a the key is still being pressed
+.endif
         AtomCmd    = $c9        ; used by osfile; this could be anywhere
         AtomStr    = $140       ; used by osfile; atommc assumes 140
 
@@ -128,15 +133,19 @@ L0406:
         JMP TubeClaimTransferRelease
 L0409:
         JMP TubeError
-        
+
 ;;; Start up the Atom Tube system
 ;;; ----------------------------
 
 TubeStartup:
-        LDA #$00                ; non zero means transfer language
-        STA LangFlag
-        LDA #$00                ; B5 tracks escape key, B6 tracks escape state
-        STA EscapeFlag
+        LDA #$00
+        STA LangFlag            ; non zero means transfer language
+        STA EscapeFlag          ; B5 tracks escape key, B6 tracks escape state
+.if (buffered_kbd = 1)
+        STA KeyBuf              ; non zero means a key press is waiting
+        LDA #$ff
+        STA KeyFlag             ; non zero means a key needs to be released
+.endif	
         LDA #TubeEna            ; Enable tube transfers in AtoMMC
         STA TubeFlag
         LDA #12
@@ -172,7 +181,7 @@ Startup2:
         STA SAVEV
         LDA #>ossavecode
         STA SAVEV+1
-.endif  
+.endif
         LDA #$8E
         STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
         JSR TubeFree            ; Set Tube 'free' and no owner
@@ -443,7 +452,7 @@ TubeBRK:
         LDA #>TubeHostError
         STA ERRPTR+1
         LDX #$FF                ; Error number 255
-        
+
 TubeError:
         LDA #$FF
         JSR TubeSendR4
@@ -472,14 +481,14 @@ TubeIdleStartup:
         TXS
         CLI
         BNE TubeIdleLoop
-        
+
 ;;;  Tube idle loop
 ;;;  --------------
 
 TubeIdle:
 .if (debug_r2 = 1)
         JSR DebugNewline
-.endif          
+.endif
 TubeIdleLoop:
         JSR EscapeCheck
         BIT TubeS1
@@ -497,7 +506,7 @@ TubeIdle2:
         JSR DebugNewline
         TXA
         JSR DebugHexOut
-.endif  
+.endif
         LDA R2CmdHandlers, X    ; Read command handler
         STA R2Cmd
         LDA R2CmdHandlers + 1, X
@@ -576,41 +585,48 @@ bytelo:
 
         CMP #$7E
         BEQ osbyte7e
-        
+
         LDA #0
         JMP TubeSendIdle
 
 osbyte7e:                       ; OSBYTE 7e = Ack detection of escape condition
         JSR EscapeClear
-        LDA #$ff                
+        LDA #$ff
         JMP TubeSendIdle        ; ff = escape condition cleared
 
 bytehi:
-        JSR TubeWaitR2		; Fetch 3-byte control block X Y A
+        JSR TubeWaitR2          ; Fetch 3-byte control block X Y A
         TAX
         JSR TubeWaitR2
         TAY
         JSR TubeWaitR2
 
-	CMP #$98
-	BEQ osbyte98
-	
-        LDA #0			; Return Cy Y X
+        CMP #$98
+        BEQ osbyte98
+
+        LDA #0                  ; Return Cy Y X
         JSR TubeSendR2
         JSR TubeSendR2
         JMP TubeSendIdle
 
 osbyte98:
-	LDA #$ff		; Cy = 1 (empty)
-	JSR TubeSendR2
-	TYA			; Y preserved
-	JSR TubeSendR2
-	TXA			; X preserved
-	JMP TubeSendIdle
-	
+        LDA #$ff                ; Cy=1 (Empty)
+.if (buffered_kbd = 1)
+        BIT KeyBuf
+        BEQ osbyte98_empty
+        LDA #$00                ; Cy=0 (Not empty)
+osbyte98_empty:
+
+.endif
+        JSR TubeSendR2
+        TYA                     ; Y preserved
+        JSR TubeSendR2
+        TXA                     ; X preserved
+        JMP TubeSendIdle
+
 word:
         JSR TubeWaitR2          ; Get A
-        PHA                     ; Stack the osword number       
+        PHA                     ; Stack the osword number
         JSR TubeWaitR2          ; Get in-length
         TAX
         JSR TubeWaitBlock
@@ -625,7 +641,7 @@ word:
         BEQ word7Fdisk          ; 8271 command level disk access
         CMP #$FF
         BEQ wordFFtransfer      ; host/parasite data transfer
-        
+
 ;;; Default OSWORD HANDLER
 wordSendBlock:
         JSR TubeSendBlock       ; length of block in X
@@ -635,36 +651,36 @@ wordSendBlock:
 word01ReadSys:
         LDY #4                  ; Copy the 5 byte time value
 word01ReadSysLoop:              ; to the Tube Control block
-        LDA ViaTime, Y  
+        LDA ViaTime, Y
         STA TubeCtrl, Y
         DEY
         BPL word01ReadSysLoop
         BMI wordSendBlock
-        
+
 ;;; OSWORD A=2 Write System Clock
 word02WriteSys:
         LDY #4                  ; Copy the 5 byte time value
 word02WriteSysLoop:             ; to the Via Time
         LDA TubeCtrl, Y
-        STA ViaTime, Y  
+        STA ViaTime, Y
         DEY
         BPL word02WriteSysLoop
         BMI wordSendBlock
-        
+
 ;;; OSWORD A=7F 8271 Command based disk access
 word7Fdisk:
-	JSR osword7f
-	LDX #$10
+        JSR osword7f
+        LDX #$10
         BNE wordSendBlock
-	
+
 ;;; OSWORD A=FF Host/Parasite data transfer
 wordFFtransfer:
-	LDX #<TubeCtrl
-	LDY #>TubeCtrl
+        LDX #<TubeCtrl
+        LDY #>TubeCtrl
         JSR oswordff
-	LDX #$01
+        LDX #$01
         BNE wordSendBlock
-	
+
 ;;; OSCLI
 ;;; =====
 clii:
@@ -819,7 +835,7 @@ gbpb:
         JSR TubeSendR2          ; Send A
         JMP TubeIdle
 
-        
+
 ;;; OSFILE
 ;;; ------
 ;;; OSFILE   R2 <== &14 block string &0D A
@@ -830,12 +846,12 @@ gbpb:
 ;;;     4..7 Exec Address
 ;;;     8..B Start Address
 ;;;     C..F End Address
-        
+
 file:
         LDX #$10                ; Block length
         JSR TubeWaitBlock
         LDX #$00
-fileString:     
+fileString:
         JSR TubeWaitR2          ; Get String
         STA AtomStr, X
         INX
@@ -846,7 +862,7 @@ fileString:
         BEQ filesave
         CMP #$FF
         BEQ fileload
-        
+
 fileResponse:
         LDA #$01                ; Send object type 01 "File Found"
         JSR TubeSendR2
@@ -855,13 +871,13 @@ fileResponse:
         JMP TubeIdle
 
         ;; Map to OSLOAD
-        ;; 
+        ;;
         ;; Entry: 0,X = LSB File name string address
         ;;        1,X = MSB File name string address
         ;;        2,X = LSB Data dump start address
         ;;        3,X = MSB Data dump start address
         ;;        4,X : If bit 7 is clear, then the file's own start address is to be used
-        
+
 fileload:
         JSR fileinit
         LDA #$80                ; use block's load address
@@ -875,7 +891,7 @@ fileload1:
         JMP fileResponse
 
         ;; Map to OSSAVE
-        ;; 
+        ;;
         ;; Entry: 0,X = LSB File name string address
         ;;        1,X = MSB File name string address
         ;;        2,X = LSB Data Reload address
@@ -886,13 +902,13 @@ fileload1:
         ;;        7,X = MSB Data start address
         ;;        8,X = LSB Data end address + 1
         ;;        9,X = MSB Data end address + 1
-        
+
 filesave:
         JSR fileinit
         LDX #AtomCmd
         JSR OSSAVE
         JMP fileResponse
-        
+
 fileinit:
         LDA #<AtomStr
         STA AtomCmd
@@ -939,7 +955,7 @@ ReadStrFull:
 TubeWaitBlock:
         DEX
         BMI TubeWaitBlockExit
-        JSR TubeWaitR2 
+        JSR TubeWaitR2
         STA TubeCtrl, X
         JMP TubeWaitBlock
 TubeWaitBlockExit:
@@ -1015,11 +1031,11 @@ EscapeSet:
         LDA EscapeFlag
         ORA #$40
         BNE EscapeUpdate
-        
+
 EscapeClear:
         LDA EscapeFlag
         AND #$BF
-        
+
 EscapeUpdate:
         STA EscapeFlag
 
@@ -1043,16 +1059,16 @@ EscapeCheck:
         SEC
         AND #$20                ; Is the change the key being pressed?
         BNE EscapeSet           ; If so, set the escape condition
-        
+
 EscapeReturn:
         CLC
         RTS
-        
+
 
 TubeHostError:
         .byte "HOST ERROR"
         BRK
-        
+
 ;;; ***************************
 ;;; INTERFACE TO ATOM MOS CALLS
 ;;; ***************************
@@ -1063,8 +1079,17 @@ AtomRDCH:
         LDA EscapeFlag
         AND #$DF
         STA EscapeFlag
-	JSR OSRDCH
+.if (buffered_kbd = 1)
+AtomRDCH1:
+        LDA KeyBuf              ; wait for the ISR to deposit a key press
+        BEQ AtomRDCH1
         PHA
+        LDA #0                  ; swallow the key press
+        STA KeyBuf
+.else
+        JSR OSRDCH
+        PHA
+.endif
         JSR EscapeCheck
         PLA
         RTS
@@ -1103,23 +1128,64 @@ ViaInit:
         RTS
 
 ViaISR:
+.if (buffered_kbd = 1)
+        TXA
+        PHA
+        TYA
+        PHA
+.endif
         LDA ViaT1CounterL       ; Clear the interrupts flag
         INC ViaTime
-        BNE ViaExit
+        BNE ViaPollKeyboard
         INC ViaTime + 1
-        BNE ViaExit
+        BNE ViaPollKeyboard
         INC ViaTime + 2
-        BNE ViaExit
+        BNE ViaPollKeyboard
         INC ViaTime + 3
-        BNE ViaExit
+        BNE ViaPollKeyboard
         INC ViaTime + 4
+
+ViaPollKeyboard:
+
+.if (buffered_kbd = 1)
+
+        JSR $FE71               ; scan the keyboard
+
+        LDA KeyFlag             ; test is a key is already pressed
+        BEQ AddToKeyBuf
+
+        BCC ViaExit             ; key still pressed
+        LDA #$00
+        STA KeyFlag             ; update flag to indicate key released
+
+AddToKeyBuf:
+        BCS ViaExit             ; no key pressed
+
+        LDA KeyBuf              ; is the keyboard buffer already full
+        BNE ViaExit
+
+        JSR ConvertKey          ; Convert to ASCII
+        STA KeyBuf              ; store in the one character keyboard buffer
+        STA KeyFlag             ; also update flag to indicate key pressed
+
 ViaExit:
+        PLA
+        TAY
+        PLA
+        TAX
+.endif
         PLA                     ; the Atom stacks A for us
         RTI
 
 ViaTime:
         .byte 0,0,0,0,0
-        
+
+.if (buffered_kbd = 1)
+ConvertKey:
+        PHP
+        JMP $FEB1
+.endif
+
 ;;; Debugging output, avoid trashing A
 ;;;
 
@@ -1143,12 +1209,12 @@ DebugHexOut:
 .if (atommc = 1)
 .include "tube.asm"
 .include "file.asm"
-.include "load.asm"     
+.include "load.asm"
 .include "save.asm"
 .endif
 
 .include "util.asm"
 .include "osword7f.asm"
 .include "oswordff.asm"
-	
+
 EndAddr:

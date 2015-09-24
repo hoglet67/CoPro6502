@@ -137,6 +137,9 @@ word7F_skiprelease:
 sd_sector_r:
         JSR read_start            ; Set SDDOS drive + sector 
 
+.if (buffered_kbd = 1)
+	SEI
+.endif
         LDY #0                    ; Copy globalbuffer to Atom memory
 
 	LDA IOFlag
@@ -149,6 +152,9 @@ rx1:
         STA $BEE5
         INY
         BNE rx1
+.if (buffered_kbd = 1)
+	CLI
+.endif
         RTS
 
 
@@ -160,6 +166,9 @@ rx2:
         INY
         BNE rx2
 	INC IOAddr + 1
+.if (buffered_kbd = 1)
+	CLI
+.endif
         RTS
 	
 read_start:
