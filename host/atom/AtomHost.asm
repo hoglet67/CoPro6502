@@ -101,7 +101,6 @@
         EscapeFlag = $79
 .if (buffered_kbd = 1)
         KeyBuf     = $7A        ; one character keyboard buffer
-        KeyFlag    = $7B        ; flag to indicate a the key is still being pressed
 .endif
         AtomCmd    = $c9        ; used by osfile; this could be anywhere
         AtomStr    = $140       ; used by osfile; atommc assumes 140
@@ -138,13 +137,13 @@ L0409:
 ;;; ----------------------------
 
 TubeStartup:
-        LDA #$00
-        STA LangFlag            ; non zero means transfer language
-        STA EscapeFlag          ; B5 tracks escape key, B6 tracks escape state
+        LDA #$00                ; non zero means transfer language
+        STA LangFlag
+        LDA #$00                ; B5 tracks escape key, B6 tracks escape state
+        STA EscapeFlag
 .if (buffered_kbd = 1)
-        STA KeyBuf              ; non zero means a key press is waiting
-        LDA #$ff
-        STA KeyFlag             ; non zero means a key needs to be released
+	LDA #$80	        ; bit 7 is the KeyFlag, 
+        STA KeyBuf              ; bits 6-0 are the ASCII value, or zero if a key wasn't pressed
 .endif	
         LDA #TubeEna            ; Enable tube transfers in AtoMMC
         STA TubeFlag
@@ -610,13 +609,19 @@ bytehi:
         JMP TubeSendIdle
 
 osbyte98:
-        LDA #$ff                ; Cy=1 (Empty)
 .if (buffered_kbd = 1)
-        BIT KeyBuf
-        BEQ osbyte98_empty
-        LDA #$00                ; Cy=0 (Not empty)
+        JSR PollKeyboard
+	LDA KeyBuf
+	AND #$7F
+	BNE osbyte98_full
 osbyte98_empty:
-
+	LDA #$ff                ; Cy=1 (Empty)
+	BNE osbyte98_send
+osbyte98_full:
+	LDA #$00                ; Cy=0 (Not empty)
+osbyte98_send:
+.else
+        LDA #$ff                ; Cy=1 (Empty)
 .endif
         JSR TubeSendR2
         TYA                     ; Y preserved
@@ -1081,10 +1086,13 @@ AtomRDCH:
         STA EscapeFlag
 .if (buffered_kbd = 1)
 AtomRDCH1:
+	JSR PollKeyboard
         LDA KeyBuf              ; wait for the ISR to deposit a key press
+	AND #$7F
         BEQ AtomRDCH1
         PHA
-        LDA #0                  ; swallow the key press
+	LDA KeyBuf
+        AND #$80                ; swallow the key press
         STA KeyBuf
 .else
         JSR OSRDCH
@@ -1094,6 +1102,51 @@ AtomRDCH1:
         PLA
         RTS
 
+
+
+.if (buffered_kbd = 1)
+;;; Polls the keyboard in a non-blocking fashion
+;;; On return KeyBuf will return the key pressed, or zero if no key pressed
+;;; If the caller consumes the key press, then they should zero KeyBuf
+;;; 
+	
+PollKeyboard:
+	PHA
+	TXA
+	PHA
+	TYA
+	PHA
+        JSR $FE71               ; scan the keyboard
+
+	LDA KeyBuf
+	BPL PollFlagClear
+
+        BCC PollExit            ; key still pressed
+	
+        AND #$7F
+        STA KeyBuf             ; update flag to indicate key released
+
+PollFlagClear:
+        BCS PollExit            ; no key pressed
+
+        LDA KeyBuf              ; is the keyboard buffer already full
+        BNE PollExit
+
+        JSR ConvertKey          ; Convert to ASCII
+	ORA #$80		; Set the KeyFlag
+        STA KeyBuf              ; store in the one character keyboard buffer
+
+PollExit:
+	PLA
+	TAY
+	PLA
+	TAX
+	PLA
+	RTS
+.endif
+
+	
+	
 ;;; Interface to Atom OSWRCH
 ;;; ------------------------
 AtomWRCH:
@@ -1128,53 +1181,19 @@ ViaInit:
         RTS
 
 ViaISR:
-.if (buffered_kbd = 1)
-        TXA
-        PHA
-        TYA
-        PHA
-.endif
         LDA ViaT1CounterL       ; Clear the interrupts flag
         INC ViaTime
-        BNE ViaPollKeyboard
+        BNE ViaExit
         INC ViaTime + 1
-        BNE ViaPollKeyboard
+        BNE ViaExit
         INC ViaTime + 2
-        BNE ViaPollKeyboard
+        BNE ViaExit
         INC ViaTime + 3
-        BNE ViaPollKeyboard
+        BNE ViaExit
         INC ViaTime + 4
 
-ViaPollKeyboard:
-
-.if (buffered_kbd = 1)
-
-        JSR $FE71               ; scan the keyboard
-
-        LDA KeyFlag             ; test is a key is already pressed
-        BEQ AddToKeyBuf
-
-        BCC ViaExit             ; key still pressed
-        LDA #$00
-        STA KeyFlag             ; update flag to indicate key released
-
-AddToKeyBuf:
-        BCS ViaExit             ; no key pressed
-
-        LDA KeyBuf              ; is the keyboard buffer already full
-        BNE ViaExit
-
-        JSR ConvertKey          ; Convert to ASCII
-        STA KeyBuf              ; store in the one character keyboard buffer
-        STA KeyFlag             ; also update flag to indicate key pressed
-
 ViaExit:
-        PLA
-        TAY
-        PLA
-        TAX
-.endif
-        PLA                     ; the Atom stacks A for us
+	PLA                     ; the Atom stacks A for us
         RTI
 
 ViaTime:
