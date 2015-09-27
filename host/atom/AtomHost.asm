@@ -15,6 +15,10 @@
         debug_osw_7f = 0        ; Whether to include debugging of OSWORD 7F commands
         debug_osw_ff = 0        ; Whether to include debugging of OSWORD FF commands
 
+        debug_sddos = 0         ; Whether to include debugging of SDDOS data blocks
+
+        debug_unsupp = 0        ; Whether to include debugging of unsupported osbyte/osword commands
+
         buffered_kbd = 1        ; Whether to include a buffered keyboard routine
 
         LangStart = $4000       ; start of the language in host memory
@@ -44,6 +48,7 @@
         ;; OSRDCH   = $FFE3
         ;; OSWRCH   = $FFF4
         ;; HEXOUT   = $F802
+        ;; STROUT   = $F7D1
 
 ;;; Atom OS addresses
         ERRPTR    = $D5
@@ -71,6 +76,12 @@
 
 ;;;I/O addresses
 ;;;-------------
+
+        GODIL    = $BDE0
+        GodilModeExtension = GODIL + 0
+        GodilVersion = GODIL + 15
+
+
         TubeIO   = $BEE0
 
         TubeS1=TubeIO+0         ; VDU
@@ -99,8 +110,9 @@
         R2Cmd      = $76        ; Computed address of R2 Command Handler
         LangFlag   = $78
         EscapeFlag = $79
+        GodilFlag  = $7A
 .if (buffered_kbd = 1)
-        KeyBuf     = $7A        ; one character keyboard buffer
+        KeyBuf     = $7B        ; one character keyboard buffer
 .endif
         AtomCmd    = $c9        ; used by osfile; this could be anywhere
         AtomStr    = $140       ; used by osfile; atommc assumes 140
@@ -142,11 +154,24 @@ TubeStartup:
         LDA #$00                ; B5 tracks escape key, B6 tracks escape state
         STA EscapeFlag
 .if (buffered_kbd = 1)
-	LDA #$80	        ; bit 7 is the KeyFlag, 
+        LDA #$80                ; bit 7 is the KeyFlag,
         STA KeyBuf              ; bits 6-0 are the ASCII value, or zero if a key wasn't pressed
-.endif	
+.endif
         LDA #TubeEna            ; Enable tube transfers in AtoMMC
         STA TubeFlag
+        LDA GodilVersion        ; Test GODIL version is 1x
+        AND #$F0
+        CMP #$10
+        BNE NoGodil
+        LDA GodilModeExtension  ; Test GODIL 80x40 mode
+        BPL NoGodil
+	LDA #$87
+	STA GodilModeExtension  ; Enable lower case
+        BNE UpdateGodilFlag
+NoGodil:
+        LDA #$00
+UpdateGodilFlag:
+        STA GodilFlag
         LDA #12
         JSR AtomWRCH            ; Clear screen, ready for startup banner
         JSR ViaInit             ; Initialize 50Hz interrupts
@@ -217,6 +242,9 @@ TubeRelease:
         JSR TubeSendR4
         LDA TubeOwner           ; Send Tube ID to notify a Tube release
         JSR TubeSendR4
+.if (debug_r4 = 1)
+        JSR DebugNewline
+.endif
         PLP                     ; Get IRQ state back
 
         ;; Clear Tube status and owner
@@ -550,14 +578,14 @@ RdLineLp1:
         BNE RdLineChar
         CPY #0
         BEQ RdLineLp1           ; Nothing to delete
-        JSR OSWRCH
+        JSR AtomWRCH
         DEY
         JMP RdLineLp1           ; Delete one character
 RdLineChar:
         STA $100,Y              ; Store in string buffer
         CMP #13
         BEQ RdLineCR            ; Repeat until <cr>
-        JSR OSWRCH
+        JSR AtomWRCH
         INY
         BNE RdLineLp1           ; Echo character, loop for more
 RdLineCR:
@@ -585,6 +613,24 @@ bytelo:
         CMP #$7E
         BEQ osbyte7e
 
+;;; Log an unsupported OSBYTE
+.if (debug_unsupp = 1)
+        PHA
+        TXA
+        PHA
+        JSR STROUT
+        .byte "UNSUPPORTED OSBYTE X="
+        NOP
+        PLA
+        JSR HEXOUT
+        JSR STROUT
+        .byte "; A="
+        NOP
+        PLA
+        JSR HEXOUT
+        JSR OSNEWL
+.endif
+
         LDA #0
         JMP TubeSendIdle
 
@@ -602,6 +648,38 @@ bytehi:
 
         CMP #$98
         BEQ osbyte98
+        CMP #$B1
+        BEQ osbyteB1
+        CMP #$D8
+        BEQ osbyteD8
+
+;;; Log an unsupported OSBYTE
+.if (debug_unsupp = 1)
+        PHA
+        TXA
+        PHA
+        TYA
+        PHA
+        JSR STROUT
+        .byte "UNSUPPORTED OSBYTE Y="
+        NOP
+        PLA
+        JSR HEXOUT
+        JSR STROUT
+        .byte "; X="
+        NOP
+        PLA
+        JSR HEXOUT
+        JSR STROUT
+        .byte "; A="
+        NOP
+        PLA
+        JSR HEXOUT
+        JSR OSNEWL
+.endif
+
+osbyteB1:
+osbyteD8:
 
         LDA #0                  ; Return Cy Y X
         JSR TubeSendR2
@@ -611,14 +689,14 @@ bytehi:
 osbyte98:
 .if (buffered_kbd = 1)
         JSR PollKeyboard
-	LDA KeyBuf
-	AND #$7F
-	BNE osbyte98_full
+        LDA KeyBuf
+        AND #$7F
+        BNE osbyte98_full
 osbyte98_empty:
-	LDA #$ff                ; Cy=1 (Empty)
-	BNE osbyte98_send
+        LDA #$ff                ; Cy=1 (Empty)
+        BNE osbyte98_send
 osbyte98_full:
-	LDA #$00                ; Cy=0 (Not empty)
+        LDA #$00                ; Cy=0 (Not empty)
 osbyte98_send:
 .else
         LDA #$ff                ; Cy=1 (Empty)
@@ -642,10 +720,25 @@ word:
         BEQ word01ReadSys
         CMP #$02                ; Write System Clock
         BEQ word02WriteSys
+        CMP #$05
+        BEQ word05ReadMem       ; Read host memory
+        CMP #$06
+        BEQ word06WriteMem      ; Write host memory
         CMP #$7F
         BEQ word7Fdisk          ; 8271 command level disk access
         CMP #$FF
         BEQ wordFFtransfer      ; host/parasite data transfer
+
+;;; Log an unsupported OSWORD
+.if (debug_unsupp = 1)
+        PHA
+        JSR STROUT
+        .byte "UNSUPPORTED OSWORD A="
+        NOP
+        PLA
+        JSR HEXOUT
+        JSR OSNEWL
+.endif
 
 ;;; Default OSWORD HANDLER
 wordSendBlock:
@@ -671,6 +764,22 @@ word02WriteSysLoop:             ; to the Via Time
         DEY
         BPL word02WriteSysLoop
         BMI wordSendBlock
+
+;;; OSWORD A=5 Read Host Memory
+word05ReadMem:
+        LDY #0
+        LDA (TubeCtrl), Y       ; Address in bytes 0,1 of control block
+        LDY #4
+        STA TubeCtrl, Y         ; Store result in byte 4 of control block
+        JMP wordSendBlock
+
+;;; OSWORD A=6 Write Host Memory
+word06WriteMem:
+        LDY #4
+        LDA TubeCtrl, Y
+        LDY #0
+        STA (TubeCtrl), Y
+        JMP wordSendBlock
 
 ;;; OSWORD A=7F 8271 Command based disk access
 word7Fdisk:
@@ -1086,12 +1195,12 @@ AtomRDCH:
         STA EscapeFlag
 .if (buffered_kbd = 1)
 AtomRDCH1:
-	JSR PollKeyboard
+        JSR PollKeyboard
         LDA KeyBuf              ; wait for the ISR to deposit a key press
-	AND #$7F
+        AND #$7F
         BEQ AtomRDCH1
         PHA
-	LDA KeyBuf
+        LDA KeyBuf
         AND #$80                ; swallow the key press
         STA KeyBuf
 .else
@@ -1108,21 +1217,21 @@ AtomRDCH1:
 ;;; Polls the keyboard in a non-blocking fashion
 ;;; On return KeyBuf will return the key pressed, or zero if no key pressed
 ;;; If the caller consumes the key press, then they should zero KeyBuf
-;;; 
-	
+;;;
+
 PollKeyboard:
-	PHA
-	TXA
-	PHA
-	TYA
-	PHA
+        PHA
+        TXA
+        PHA
+        TYA
+        PHA
         JSR $FE71               ; scan the keyboard
 
-	LDA KeyBuf
-	BPL PollFlagClear
+        LDA KeyBuf
+        BPL PollFlagClear
 
         BCC PollExit            ; key still pressed
-	
+
         AND #$7F
         STA KeyBuf             ; update flag to indicate key released
 
@@ -1133,29 +1242,30 @@ PollFlagClear:
         BNE PollExit
 
         JSR ConvertKey          ; Convert to ASCII
-	ORA #$80		; Set the KeyFlag
+        ORA #$80                ; Set the KeyFlag
         STA KeyBuf              ; store in the one character keyboard buffer
 
 PollExit:
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
-	RTS
+        PLA
+        TAY
+        PLA
+        TAX
+        PLA
+        RTS
 .endif
 
-	
-	
+
+
 ;;; Interface to Atom OSWRCH
 ;;; ------------------------
 AtomWRCH:
-        CMP #$60
+        BIT GodilFlag           ; Check if running in 80x40 mode
+        BMI AtomWRCH1
+        CMP #$60                ; Mask lower case
         BCC AtomWRCH1
         AND #$DF
 AtomWRCH1:
         JMP OSWRCH
-
 
 ViaInit:
         LDA #<ViaISR            ; Setup the interrupt handler
@@ -1193,7 +1303,7 @@ ViaISR:
         INC ViaTime + 4
 
 ViaExit:
-	PLA                     ; the Atom stacks A for us
+        PLA                     ; the Atom stacks A for us
         RTI
 
 ViaTime:
@@ -1223,7 +1333,6 @@ DebugHexOut:
         PLA
         PLP
         RTS
-
 
 .if (atommc = 1)
 .include "tube.asm"
