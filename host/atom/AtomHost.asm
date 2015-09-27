@@ -165,8 +165,7 @@ TubeStartup:
         BNE NoGodil
         LDA GodilModeExtension  ; Test GODIL 80x40 mode
         BPL NoGodil
-	LDA #$87
-	STA GodilModeExtension  ; Enable lower case
+        LDA #$80		; Allow lower case characters to be output
         BNE UpdateGodilFlag
 NoGodil:
         LDA #$00
@@ -1252,6 +1251,33 @@ PollExit:
         TAX
         PLA
         RTS
+
+ConvertKey:
+        CPY #$05                ; Lock key
+        BEQ ConvertLock
+        CPY #$06                ; LR Cursor
+        BEQ ConvertCursor
+        CPY #$07                ; UD Cursor
+        BEQ ConvertCursor
+        PHP                     ; To maintain a balances stack
+        JMP $FEB1               ; Allow the AtomOS to handle the conversion
+
+ConvertLock:
+        LDA $E7                 ; Get the lock flag
+        EOR #$60                ; ..toggle it
+        STA $E7                 ; ..and restore it
+        LDA #$00                ; don't return an actual keypress
+        RTS
+
+ConvertCursor:
+        TYA
+        AND #$05                ; LR=4 DU=5
+        ROL $B001               ; C=0 if shift pressed
+        ROL A                   ; L=8 R=9 D=10 U=11
+        JSR AtomWRCH
+        LDA #$00                ; don't return an actual keypress
+        RTS
+
 .endif
 
 
@@ -1309,11 +1335,6 @@ ViaExit:
 ViaTime:
         .byte 0,0,0,0,0
 
-.if (buffered_kbd = 1)
-ConvertKey:
-        PHP
-        JMP $FEB1
-.endif
 
 ;;; Debugging output, avoid trashing A
 ;;;
