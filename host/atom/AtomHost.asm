@@ -113,6 +113,7 @@
         GodilFlag  = $7A
 .if (buffered_kbd = 1)
         KeyBuf     = $7B        ; one character keyboard buffer
+        KeyFlag    = $7C        ; non-zero indicates key still held down
 .endif
         AtomCmd    = $c9        ; used by osfile; this could be anywhere
         AtomStr    = $140       ; used by osfile; atommc assumes 140
@@ -154,8 +155,9 @@ TubeStartup:
         LDA #$00                ; B5 tracks escape key, B6 tracks escape state
         STA EscapeFlag
 .if (buffered_kbd = 1)
-        LDA #$80                ; bit 7 is the KeyFlag,
-        STA KeyBuf              ; bits 6-0 are the ASCII value, or zero if a key wasn't pressed
+        STA KeyBuf              ; the ASCII value, or zero if a key wasn't pressed
+        LDA #$80
+	STA KeyFlag             ; non zero if the key is still held down, decremented at 100Hz for REPT
 .endif
         LDA #TubeEna            ; Enable tube transfers in AtoMMC
         STA TubeFlag
@@ -689,7 +691,6 @@ osbyte98:
 .if (buffered_kbd = 1)
         JSR PollKeyboard
         LDA KeyBuf
-        AND #$7F
         BNE osbyte98_full
 osbyte98_empty:
         LDA #$ff                ; Cy=1 (Empty)
@@ -1196,11 +1197,9 @@ AtomRDCH:
 AtomRDCH1:
         JSR PollKeyboard
         LDA KeyBuf              ; wait for the ISR to deposit a key press
-        AND #$7F
         BEQ AtomRDCH1
         PHA
-        LDA KeyBuf
-        AND #$80                ; swallow the key press
+        LDA #$00                ; swallow the key press
         STA KeyBuf
 .else
         JSR OSRDCH
@@ -1226,13 +1225,13 @@ PollKeyboard:
         PHA
         JSR $FE71               ; scan the keyboard
 
-        LDA KeyBuf
-        BPL PollFlagClear
+        LDA KeyFlag
+        BEQ PollFlagClear
 
         BCC PollExit            ; key still pressed
 
-        AND #$7F
-        STA KeyBuf             ; update flag to indicate key released
+        LDA #$00
+        STA KeyFlag             ; update flag to indicate key released
 
 PollFlagClear:
         BCS PollExit            ; no key pressed
@@ -1241,8 +1240,9 @@ PollFlagClear:
         BNE PollExit
 
         JSR ConvertKey          ; Convert to ASCII
-        ORA #$80                ; Set the KeyFlag
         STA KeyBuf              ; store in the one character keyboard buffer
+	LDA #10
+	STA KeyFlag             ; Set the KeyFlag
 
 PollExit:
         PLA
@@ -1319,15 +1319,22 @@ ViaInit:
 ViaISR:
         LDA ViaT1CounterL       ; Clear the interrupts flag
         INC ViaTime
-        BNE ViaExit
+        BNE ViaRept
         INC ViaTime + 1
-        BNE ViaExit
+        BNE ViaRept
         INC ViaTime + 2
-        BNE ViaExit
+        BNE ViaRept
         INC ViaTime + 3
-        BNE ViaExit
+        BNE ViaRept
         INC ViaTime + 4
 
+ViaRept:
+	BIT $B002		; test the repeat key
+	BVS ViaExit
+	LDA KeyFlag		; decrement the key flag if non-zero
+	BEQ ViaExit
+	DEC KeyFlag
+	
 ViaExit:
         PLA                     ; the Atom stacks A for us
         RTI
