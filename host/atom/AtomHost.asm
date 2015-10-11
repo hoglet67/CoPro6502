@@ -124,14 +124,19 @@
 ;;; Optional 22-byte ATM Header
 ;;; --------------------------
 
-AtmHeader:
 
+.if (atmhdr = 1)	
+AtmHeader:
+	.SEGMENT "HEADER"
         .byte    "TUBE"
         .word    0,0,0,0,0,0
         .word    StartAddr
         .word    StartAddr
         .word    EndAddr - StartAddr
+.endif
 
+	.SEGMENT "CODE"
+	
 StartAddr:
 
 ;;; Main Entry Point Block

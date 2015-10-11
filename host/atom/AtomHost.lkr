@@ -1,9 +1,11 @@
 MEMORY
 {
-   RAM1:  start = $2fea, size = $1016, fill = no;
+   RAM1:  start = $2fea, size = $16, fill = no;
+   RAM2:  start = $3000, size = $1000, fill = no;
 }
 
 SEGMENTS
 {
-   CODE:    load = RAM1, type = ro;
+   HEADER:  load = RAM1, type = ro;
+   CODE:    load = RAM2, type = ro;
 }
