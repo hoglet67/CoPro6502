@@ -535,7 +535,7 @@ begin
       '1' when state_src6 | state_src6a,
       '1' when state_src7 | state_src7a | state_src7b,
       '1' when state_mfpa,
-      '1' when state_mtp,
+      '1' when state_mtpa,
       '1' when state_fpir1 | state_fpir2,
       '1' when state_fpr1 | state_fpr2 | state_fpr3 | state_fpr4,
       '1' when state_trapa | state_trapf,
@@ -614,7 +614,7 @@ begin
       addr_indirect when state_src7a,
       addr_indirect when state_src7b,
       rbus_data_m2 when state_mfpa,
-      rbus_data when state_mtp,
+      rbus_data when state_mtpa,
       addr_indirect when state_fpir1,
       addr_indirect when state_fpir2,
       addr_indirect when state_fpr1,
@@ -690,7 +690,7 @@ begin
       '1' when state_fpw2 | state_fpw3 | state_fpw4,
       '1' when state_stststore,        -- always in d-space, this is the second store - first is handled by store_alu_w
       '1' when state_mfpa,             -- move from previous, stack push is to current d-space
-      '1' when state_mtp,              -- move to previous, stack pop is from current d-space
+      '1' when state_mtpa,              -- move to previous, stack pop is from current d-space
       '1' when state_trapa,            -- d-mapping for loading the trap psw from kernel d-space
       '1' when state_trapb,            -- to enable debugging output via addr - d-mapping should be 1 to 1, i-mapping likely is not
       '1' when state_trapc,            -- stack is in d-space

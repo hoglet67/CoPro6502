@@ -84,6 +84,7 @@ architecture BEHAVIORAL of LX9CoProPDP11 is
     signal cpu_IRQ_ack     : std_logic;
     signal cpu_NMI_ack     : std_logic;
     signal cpu_PSW         : std_logic_vector (15 downto 0);
+    signal cpu_cp          : std_logic;
     signal ifetch          : std_logic;
     signal bg6             : std_logic;
 
@@ -120,7 +121,7 @@ begin
       wr              => cpu_wr,          -- if '1', the cpu is doing a write to the bus and drives addr_v and dataout
       rd              => cpu_rd,          -- if '1', the cpu is doing a read from the bus, drives addr_v and reads datain
       dw8             => cpu_dw8,         -- if '1', the read or write initiated by the cpu is 8 bits wide
-      cp              => open,            -- if '1', the read or write should use the previous cpu mode
+      cp              => cpu_cp,          -- if '1', the read or write should use the previous cpu mode
       ifetch          => ifetch,          -- if '1', this read is for an instruction fetch
       id              => open,            -- if '1', the read or write should use data space
       init            => open,            -- if '1', the devices on the bus should reset
@@ -203,7 +204,9 @@ begin
     );
 
     -- provide a seperare page 0 for Kernel mode ("00") vs user mode ("11")
-    cpu_addr2 <= cpu_addr when cpu_PSW(15 downto 14) = "00" or cpu_addr >= x"0100" else
+    cpu_addr2 <= cpu_addr when cpu_addr >= x"0100" else
+                 cpu_addr when cpu_PSW(15 downto 14) = "00" and cpu_cp = '0' else
+                 cpu_addr when cpu_PSW(13 downto 12) = "00" and cpu_cp = '1' else
                  "11111" & cpu_addr(10 downto 0);
 
     p_cs_b   <= '0' when (cpu_rd = '1' or cpu_wr = '1') and cpu_addr(15 downto 4) = x"FFF" else '1';
