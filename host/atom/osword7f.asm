@@ -29,6 +29,8 @@ word7Fdebug:
         BEQ word7F_4B
         CMP #$53                ; read sector multi
         BEQ word7F_53
+        CMP #$57                ; read sector multi (and deleted data)
+        BEQ word7F_53
 
         PHA
         JSR STROUT

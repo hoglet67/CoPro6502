@@ -6,7 +6,7 @@
 
         atmhdr   = 1            ; Whether to include an ARM header (form AtoMMC2)
 
-        atommc   = 0            ; Whether to include a local copy of AtomMMC2 load/save
+        atommc   = 1            ; Whether to include a local copy of AtomMMC2 load/save
 
         debug_r1 = 0            ; Whether to include debugging of R1 commands
         debug_r2 = 0            ; Whether to include debugging of R2 commands
