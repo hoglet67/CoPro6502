@@ -38,7 +38,7 @@ begin
             when x"008" => DATA <= x"3436";
             when x"009" => DATA <= x"204b";
             when x"00a" => DATA <= x"2e30";
-            when x"00b" => DATA <= x"3332";
+            when x"00b" => DATA <= x"3035";
             when x"00c" => DATA <= x"0d20";
             when x"00d" => DATA <= x"000d";
             when x"00e" => DATA <= x"15c6";
@@ -765,7 +765,7 @@ begin
             when x"2df" => DATA <= x"02fd";
             when x"2e0" => DATA <= x"0087";
             when x"2e1" => DATA <= x"f83e";
-            when x"2e2" => DATA <= x"0000";
+            when x"2e2" => DATA <= x"0050";
             when x"2e3" => DATA <= x"f890";
             when x"2e4" => DATA <= x"f5ff";
             when x"2e5" => DATA <= x"f87a";
