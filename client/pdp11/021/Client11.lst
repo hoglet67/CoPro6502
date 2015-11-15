@@ -1,0 +1,1496 @@
+000000                             ; PDP11 Tube Client Code
+000000                             ; ======================
+000000                             ; Copyright (C)1989,2008,2014,2015 J.G.Harston
+000000                             ;
+000000                             ; v0.10        1989 JGH: Initial version, untested proof of concept.
+000000                             ; v0.11        2005 JGH: Altered some labels to assemble from BASIC
+000000                             ; v0.12        2008 JGH: Interupt handler data transfers.
+000000                             ; v0.13        2008 JGH: Added EMT handler.
+000000                             ; v0.14        2008 JGH: Checks executed code for ROM and Unix headers.
+000000                             ; v0.15        2008 JGH: Rearranged MOS interface code around, changed some labels.
+000000                             ; v0.16        2014 JGH: Optimised some common calls to SEND_BYTE.
+000000                             ; v0.17 01-Jan-2015 JGH: Addresses in control blocks allowed to be unaligned.
+000000                             VERSION: EQU &0018
+000000                             ; v0.18 09-Aug-2015 DMB: Bugfix: CLICOM calling OSCLI with wrong register, RDLINE has
+000000                             ;                        (R1),R1 wrong way around, IRQHandler needs to have IRQs disabled.
+000000                             ;                   JGH: GBPB from channel 0 and EXECUTE uses FETCHBYTE. EXECUTE checks
+000000                             ;                        RESET/OSCLI flag on error, saves/restores PROG. IRQ_DATA stores
+000000                             ;                        ADDR with MOVBs.
+000000                             ;                   DMB: EMTVEC corrected. Indirect JMP/JSRs may be wrong, testing with @vec instead
+000000                             ;                        of @#vec and JSR PC,@(SP)+ in EMT dispatcher.
+000000                             ;                   JGH: Uses OSASCI for SEND_TXT, OSBYTE returns 16-bit results, MEMBOT and MEMTOP
+000000                             ;                        are variables.
+000000                             ;                   DMB: GetADDR in IRQ_DATA needs to use @#ADDR+n instead of @ADDR+n. MOVB used to
+000000                             ;                        read errors.
+000000                             VERSION: EQU &0019
+000000                             ; v0.19 10-Aug-2015 DMB: Bugfix: EMT dispatcher index into vectors, unbalanced stack in Release.
+000000                             ;                        BIT #n,R in EXECUTE should be BIT #n,R. A few ADD/SUB #n wrong way around.
+000000                             ;                   JGH: Code with a Unix header copied to MEMBOT instead of &0000 as no MMU in
+000000                             ;                        this implementation.
+000000                             ;                        Bugs: EXECUTE doesn't prepare valid stack frame for code with Unix header.
+000000                             ;       11-Aug-2015 DMB: Bugfix, OSWORD <>0 wasn't fetching block lengths correctly. EMT 14 wrote
+000000                             ;                        wrong 'address' if not passed 'handler'. ESCHAND should use @ESCADDR.
+000000                             ;                        HANDLERS equate had wrong arithmetic.
+000000                             ;                   JGH: INIT_ENV correctly initialises EMTs 0-15 and nulls 16-255 instead of
+000000                             ;                        setting 16-31 to garbage and missing 240-255 completely. EQUs used to allow
+000000                             ;                        more handlers to be added easily.
+000000                             ; v0.19a 11-Aug-2015 JGH: Crunched some blocks of common code.
+000000                             ; v0.19b 11-Aug-2015 JGH: Crunched NMI data transfer code.
+000000                             ; v0.19c 12-Aug-2015 JGH: STARTUP uses internal stack. MEMBOT and MEMTOP fetched from variables. All
+000000                             ;                         unused hardware vectors set to NULLIRQ.
+000000                             ; v0.19d 13-Aug-2015 JGH: Tidied up and optimised EXECUTE, OSCLI saves all registers, uses internal
+000000                             ;                         stack. EMT14 optimised.
+000000                             ; v0.19e 16-Aug-2015 JGH: TRAP jumps to error, EMT 15 used instead of MKERR.
+000000                             ; v0.19f 16-Aug-2015 DMB: Bugfix: INIT_ENV was looping forever, wrong number of WORKSPACE words initialised
+000000                             ;                         starting from wrong workspace offset, TRAP vector was wrong. Wrong address
+000000                             ;                         mode in MOV @#COM_BLK,R0 in CLICOM.
+000000                             ; v0.19g 16-Aug-2015 BMB: All NMIs were failing to update ADDR by returning via wrong exit.
+000000                             VERSION: EQU &0020
+000000                             ; v0.20  17-Aug-2015 JGH: EXECUTE possibly not working when entering BASIC.
+000000                             ; v0.20a 18-Aug-2015 DMB: Bugfix: EMT handler lost R0, EMT14 restored ERRV even after attempts to change it.
+000000                             ;                         Optimised EMT15 to free up space to fit EMT14 bugfix.
+000000                             ; v0.20b 18-Aug-2015 DMB: Bugfix: EMT15 optimisation used EMTHANDLER ERRV instead of mainline ERRV.
+000000                             VERSION: EQU &0021
+000000                             ; v0.21 19-Aug-2015 JGH: Incremented to version 0.21. Added conditional switch to remove BPUT/BGET/GBPB to
+000000                             ;                        channel 0, saves about 100 bytes if removed.
+000000                             ;
+000000                             ;
+000000                             ; This code may be freely reused.
+000000                             ;
+000000                             ; This code assumes a single memory space and assumes that code can access I/O devices, low memory
+000000                             ; vectors and user memory with ordinary MOV instructions. This will work with no seperate
+000000                             ; Kernal/User space, or with code never running in User mode.
+000000                             
+000000                             ; Some naming conventions
+000000                             ; xxxxVEC         - hardware vectors, eg EMTVEC, NMIVEC, etc
+000000                             ; xxxxV           - software vectors, eg ESCV, ERRV, etc.
+000000                             ; xxxx or xxxHAND - handler for xxxx, eg ESCHAND, ERRHAND, etc.
+000000                             ; OSxxx or _xxx   - routines handled by xxx, eg OSFILE handled by _FILE
+000000                             
+000000                             ; Memory map:
+000000                             ;          +-----------------------+ 0000
+000000                             ;          | Hardware vectors, etc |
+000000                             ;   MEMBOT +-----------------------+ 0100
+000000                             ;          |                       |
+000000                             ;          |                       |
+000000                             ;   MEMTOP |   ^^^User Stack^^^    |
+000000                             ;   WORKSP +-----------------------+ F500
+000000                             ;          | ERRBLK-->   <--CLISTK |
+000000                             ;          +-----------------------+ F530
+000000                             ;          | CLIBUF-->   <--ERRSTK |
+000000                             ; HANDLERS +-----------------------+
+000000                             ;          | EXITV    EXITADDR     | F5D8
+000000                             ;          | ESCV     ESCADDR      | F5DC
+000000                             ;          | ERRV     ERRADDR      | F5E0
+000000                             ;          | EVENTV   EVENTADDR    | F5E4
+000000                             ;          | USERIRQV USERIRQADDR  | F5E8
+000000                             ;          | EMTV     EMTADDR      | F5EC
+000000                             ;          | SPARE    LPTR         | F5F0
+000000                             ;          | MEMBOT   MEMTOP       | F5F4
+000000                             ;     ADDR | Transfer address      | F5F8
+000000                             ;     PROG | Current program       | F5FC
+000000                             ;   PROG+2 | unused byte           | F5FE
+000000                             ;   ESCFLG | Escape flag           | F5FF
+000000                             ; EMTTABLE +-----------------------+
+000000                             ;          | EMT 0 code address    | F600
+000000                             ;          | EMT 1 code address    | F602
+000000                             ;          | EMT 2 code address    | F604
+000000                             ;          | EMT 3 code address    | F606
+000000                             ;          | EMT 4 code address    | F608
+000000                             ;          | ...                   |
+000000                             ;          | EMT 255 code address  | F7FE
+000000                             ;    START +-----------------------+ F800
+000000                             ;          | Tube client code      |
+000000                             ;          +-----------------------+ FFF0
+000000                             ;          | Tube I/O registers    |
+000000                             ;          +-----------------------+ FFFF
+000000                             
+000000                             
+000000                             ; PDP-11 hardware addresses
+000000                             ; =========================
+000000                             STACKVEC:       EQU  &04  ; Stack too low
+000000                             EMTVEC:         EQU  &18     ; Vector called by EMT call
+000000                             TRAPVEC:        EQU  &1C     ; Vector called by TRAP call DMB
+000000                             
+000000                             
+000000                             ; Tube client system configuration tweekables
+000000                             ; ===========================================
+000000                             START:          EQU  &F800   ; Start of code
+000000                             TUBEIO:         EQU  &FFF0   ; Base of Tube I/O registers
+000000                             NMIVEC:         EQU  &80     ; Vector called by Tube NMIs with priority 7
+000000                             IRQVEC:         EQU  &84     ; Vector called by Tube IRQs with priority 6
+000000                             
+000000                             EMTMAX:         EQU  256     ; Number of EMTs
+000000                             EMTTABLE:       EQU  START-EMTMAX*2 ; EMT dispatch table
+000000                             WORKSP:         EQU  EMTTABLE-256   ; 256 bytes for buffers, etc
+000000                             RAMSTART:       EQU  &0100   ; Lowest available user memory address
+000000                             RAMEND:         EQU  WORKSP  ; Highest available user memory address
+000000                             
+000000                             ;NOCHNZERO:	EQU  1			; Remove bput/bget#0 -> wrch/rdch, saves about 100 bytes
+000000                             
+000000                             
+000000                             ; Internal buffers, etc
+000000                             ; =====================
+000000                             ERRBLK:         EQU  WORKSP      ; Buffer to store host error block
+000000                             CLIBUF:         EQU  WORKSP+&30  ; Space to enter command line from CLI prompt
+000000                             CLISTK:         EQU  CLIBUF  ; Internal stack for CLI commands
+000000                                                     ; as main memory may be overwritten
+000000                             CLIEND:         EQU  HANDLERS
+000000                             ERRSTK:         EQU  CLIEND  ; Internal stack for host errors
+000000                             
+000000                             WORKSPMAX:      EQU  16     ; 16 bytes of general workspace
+000000                             HANDLEMAX:      EQU  6     ; 6 environment handlers
+000000                             HANDLERS:       EQU  WORKSP+256-WORKSPMAX-4*HANDLEMAX ; Address of environment handlers
+000000                             EXITV:          EQU  HANDLERS+&00 ; Address of exit handler
+000000                             EXITADDR:       EQU  HANDLERS+&02 ; unused
+000000                             ESCV:           EQU  HANDLERS+&04 ; Address of escape handler
+000000                             ESCADDR:        EQU  HANDLERS+&06 ; Address of escape flag
+000000                             ERRV:           EQU  HANDLERS+&08 ; Address of error handler
+000000                             ERRADDR:        EQU  HANDLERS+&0A ; Address of error buffer
+000000                             EVENTV:         EQU  HANDLERS+&0C ; Address of event handler
+000000                             EVENTADDR:      EQU  HANDLERS+&0E ; unused
+000000                             USERIRQV:       EQU  HANDLERS+&10 ; Address of unknown IRQ handler
+000000                             USERIRQADDR:    EQU  HANDLERS+&12 ; unused
+000000                             EMTV:           EQU  HANDLERS+&14 ; Old SP within EMT handler
+000000                             EMTADDR:        EQU  HANDLERS+&16 ; Address of EMT dispatch table
+000000                             
+000000                             SPARE:          EQU  WORKSP+&F0  ; unused
+000000                             LPTR:           EQU  WORKSP+&F2  ; Point to command line (unused)
+000000                             MEMBOT:         EQU  WORKSP+&F4  ; Lowest user memory address
+000000                             MEMTOP:         EQU  WORKSP+&F6  ; Highest user memory address
+000000                             ADDR:           EQU  WORKSP+&F8  ; Transfer address
+000000                             PROG:           EQU  WORKSP+&FC  ; Current program
+000000                             PROG2:          EQU  WORKSP+&FE  ; unused
+000000                             ESCFLG:         EQU  WORKSP+&FF  ; Escape flag
+000000                             
+000000                             
+000000                             ; Tube I/O devices
+000000                             ; ================
+000000                             TUBE1S:         EQU  TUBEIO+0   ; Tube Status 1
+000000                             TUBE1:          EQU  TUBEIO+2   ; Tube Data 1 - VDU
+000000                             TUBE2S:         EQU  TUBEIO+4   ; Tube Status 2
+000000                             TUBE2:          EQU  TUBEIO+6   ; Tube Data 2 - Command
+000000                             TUBE3S:         EQU  TUBEIO+8   ; Tube Status 3
+000000                             TUBE3:          EQU  TUBEIO+10  ; Tube Data 3 - Data
+000000                             TUBE4S:         EQU  TUBEIO+12  ; Tube Status 4
+000000                             TUBE4:          EQU  TUBEIO+14  ; Tube Data 4 - Interrupt
+000000                             
+000000                             
+000000                             ; Code Entry
+000000                             ; ==========
+000000                             ; Set up vectors, hardware, memory, etc.
+000000                             ; Must be entered in Kernel mode.
+174000                              ORG  START
+174000 000167 000030                JMP  STARTUP           ; Jump to start up Tube code
+174004                             
+174004                             
+174004                             ; STARTUP
+174004                             ; =======
+174004                             ; Tube data: via R1: string &00  --  via R2: &7F or &80
+174004                             ;
+174004                             BANNER:
+174004 015                          EQUB 13
+174005 120 104 120 061 061 040 124 125
+       102 105 040 066 064 113 040  EQUS "PDP11 TUBE 64K "
+174024 060                          EQUB ((VERSION >> 8) AND 15)+48
+174025 056                          EQUS "."
+174026 062                          EQUB ((VERSION >> 4) AND 15)+48
+174027 061                          EQUB (VERSION AND 15)+48
+174030                             #ifdef TESTBUILD
+174030                              EQUB 96+TESTBUILD
+174030                             #endif
+174030 015                          EQUB 13
+174031 015                          EQUB 13
+174032 000                          EQUB 0
+174033 000                          ALIGN
+174034                             STARTUP:
+174034 012706 172460                MOV  #CLISTK,SP        ; Use internal stack
+174040 004767 002610                JSR  PC,INIT_ENV       ; Set up default handlers, preserving PROG
+174044 013737 172774 172770         MOV  @#PROG,@#ADDR     ; Set current program as default entry address
+174052 012701 174004                MOV  #BANNER,R1        ; Point to startup banner
+174056 004767 000206                JSR  PC,SEND_TXT       ; Print it via Tube WRCH protocol
+174062                                                     ;CLR  R0			; SEND_TXT returns R0=0
+174062 004767 002230                JSR  PC,_WRCH          ; Send terminating zero byte
+174066 000241                       CLC                    ; Clear Carry Flag to indicate Reset
+174070 004767 000306                JSR  PC,CLI_WAIT       ; Wait for and check result byte
+174074                                                     ; Fall through to CLICOM if nothing executed
+174074                             
+174074                             ; Supervisor Command line prompt
+174074                             ; ==============================
+174074                             ; Allow user to enter *commands.
+174074                             ; We deliberately call _WORD and _CLI so if EMTs vectors are trashed we can still access MOS and so
+174074                             ; that errors go via ERRV instead of us having to check returned V flag.
+174074                             ; We will normally be running in Kernal mode so we can see the system vectors and high memory.
+174074                             ;
+174074                             CLICOM:
+174074                             EXITHAND:
+174074 013706 172766                MOV  @#MEMTOP,SP       ; Put stack at top of user memory
+174100 012700 000003                MOV  #3,R0
+174104 004767 002576                JSR  PC,INIT_IRQ       ; Initialise IRQ/NMI and environment handlers
+174110                             CLILOOP:
+174110 012701 174140                MOV  #PROMPT,R1
+174114 004767 000150                JSR  PC,SEND_TXT       ; Display prompt
+174120                                                     ;CLR  R0			; SEND_TXT returns R0=0
+174120                                                     ;MOV  #COM_BLK,R1		; Point to control block, SENT_TXT returns R1=COM_BLK
+174120 004767 001040                JSR  PC,_WORD          ; Read a line of text
+174124 103414                       BCS  COM_ESC           ; Escape pressed
+174126 013700 174150                MOV  @#COM_BLK,R0      ; Get address of input buffer DMB
+174132 004767 000140                JSR  PC,_CLI           ; Execute command
+174136 000764                       BR   CLILOOP           ; Loop back for another line
+174140                             PROMPT:
+174140 120 104 120 061 061 076 052  EQUS "PDP11>*"         ; Command prompt
+174147 000                          EQUB 0
+174150                              ALIGN
+174150                             ;
+174150                             COM_BLK:
+174150 172460                       EQUW CLIBUF            ; Input buffer
+174152 250                          EQUB CLIEND-CLIBUF     ; Buffer length
+174153 040                          EQUB 32                ; Lowest acceptable char
+174154 377                          EQUB 255               ; Highest acceptable char
+174155 377                          ALIGN
+174156                             ;
+174156                             COM_ESC:
+174156 012700 000176                MOV  #126,R0
+174162 004767 000572                JSR  PC,_BYTE          ; Acknowledge Escape
+174166                             ;	JSR  PC,MKERR
+174166 104017                       EMT  15
+174170 021 105 163 143 141 160 145 000
+                                    EQUB 17,"Escape",0
+174200                              ALIGN
+174200                             
+174200                             ; Default error handler
+174200                             ; ---------------------
+174200                             ; On entry, R0=>error block
+174200                             ERRHAND:
+174200 013706 172766                MOV  @#MEMTOP,SP       ; Reset stack to top of user memory
+174204 010001                       MOV  R0,R1             ; Point R1=>error block
+174206 005201                       INC  R1                ; Step past error number
+174210 004767 002066                JSR  PC,_NEWL          ; Print a newline
+174214 004767 000050                JSR  PC,SEND_TXT       ; Print error message
+174220 004767 002056                JSR  PC,_NEWL          ; Print another newline
+174224 000723                       BR   CLICOM
+174226                             
+174226                             ; Default escape handler
+174226                             ; ----------------------
+174226                             ESCHAND:
+174226 060000                       ADD  R0,R0             ; Move b6 into b7
+174230 110077 176502                MOVB R0,@ESCADDR       ; Store Escape flag
+174234 000207                       RTS  PC
+174236                             
+174236                             
+174236                             ; Fetch word from unaligned R1 to R1
+174236                             ; ==================================
+174236                             ; Unaligned version of MOV (R1),R1, corrupts R0
+174236                             ; FETCHWORD2 - R1=>word+2
+174236                             ; FETCHWORD  - R1=>word
+174236                             ;
+174236                             FETCHWORD2:
+174236 162701 000002                SUB  #2,R1             ; Step back to point to word
+174242                             FETCHWORD:
+174242 112100                       MOVB (R1)+,R0          ; Fetch low byte
+174244 042700 177400                BIC  #&FF00,R0         ; Ensure 8-bit value
+174250 111101                       MOVB (R1),R1           ; Fetch high byte
+174252 042701 177400                BIC  #&FF00,R1         ; Ensure 8-bit word
+174256 000301                       SWAB R1                ; Swap high byte to top of register
+174260 050001                       BIS  R0,R1             ; Merge together
+174262 000207                       RTS  PC
+174264                             
+174264                             
+174264                             ; Print zero-terminated text string at R1
+174264                             ; =======================================
+174264                             SEND_TXTLP:
+174264 004767 002004                JSR  PC,_ASCII         ; Send to WRCH via Tube R1
+174270                             SEND_TXT:
+174270 112100                       MOVB (R1)+,R0          ; Get byte from R1, increment R1
+174272 001374                       BNE  SEND_TXTLP        ; Loop until &00 byte
+174274 000207                       RTS  PC
+174276                             
+174276                             
+174276                             ; *************
+174276                             ; MOS INTERFACE
+174276                             ; *************
+174276                             
+174276                             ; OSCLI - Send command line to host
+174276                             ; =================================
+174276                             ; On entry: R0=>command string
+174276                             ; On exit:  R0=return value
+174276                             ;
+174276                             ; Tube data: &02 string &0D  --  &7F or &80
+174276                             ;
+174276                             _CLI:
+174276 010146                       MOV  R1,-(SP)          ; Save registers
+174300 010246                       MOV  R2,-(SP)
+174302 010346                       MOV  R3,-(SP)
+174304 010446                       MOV  R4,-(SP)
+174306 010546                       MOV  R5,-(SP)
+174310                             
+174310                             ; As a *command may result in data transfer, that data may end up overwriting stack in user memory,
+174310                             ; so use a temporary stack to do OSCLI. If OSCLI ends up jumping to a new process, a new stack will
+174310                             ; be set up by that new process. If we are already using the internal stack we continue using it
+174310                             ; so that transient OSCLIs can call more OSCLIs.
+174310                             
+174310 010605                       MOV  SP,R5             ; Copy stack pointer so we can stack it
+174312 020527 172400                CMP  R5,#WORKSP        ; Check where the stack is
+174316 103002                       BCC  CLI_SYSSTK        ; We're already using internal stack
+174320 012706 172460                MOV  #CLISTK,SP        ; Use internal stack
+174324                             CLI_SYSSTK:
+174324 010546                       MOV  R5,-(SP)          ; Save caller's stack pointer
+174326 013746 172774                MOV  @#PROG,-(SP)      ; Save current program as top item on stack
+174332 004767 000024                JSR  PC,CLI_GO         ; Do the OSCLI call
+174336 012637 172774                MOV  (SP)+,@#PROG      ; Restore current program
+174342 011606                       MOV  (SP),SP           ; Restore caller's stack pointer
+174344 012605                       MOV  (SP)+,R5          ; Restore registers
+174346 012604                       MOV  (SP)+,R4
+174350 012603                       MOV  (SP)+,R3
+174352 012602                       MOV  (SP)+,R2
+174354 012601                       MOV  (SP)+,R1
+174356 005000                       CLR  R0                ; Return R0=0 from OSCLI
+174360                             CLI_DONE:
+174360 000207                       RTS  PC
+174362                             
+174362                             CLI_GO:
+174362 010001                       MOV  R0,R1             ; R1=pointer to command string
+174364 012700 000002                MOV  #2,R0
+174370 004767 002602                JSR  PC,SEND_CMD       ; Send command &02 - OSCLI
+174374 004767 002516                JSR  PC,SEND_STR       ; Send command string at R1
+174400                             CLI_WAIT1:
+174400 000261                       SEC                    ; Set Carry to indicate OSCLI
+174402                             CLI_WAIT:
+174402 004767 001616                JSR  PC,WAIT_BYTE      ; Wait for result via Tube R2 (preserves Cy)
+174406                                                     ; WAIT_BYTE returns flags set from R0
+174406 100364                       BPL  CLI_DONE          ; No code to be executed
+174410                                                     ; Fall through into EXECUTE
+174410                             
+174410                             
+174410                             ; EXECUTE - Enter code at ADDR
+174410                             ; ============================
+174410                             ; Checks for possible code header, makes code current PROGRAM.
+174410                             ; On entry, ADDRESS=code entry address
+174410                             ;           CC=entering from RESET
+174410                             ;           CS=entering from OSCLI/OSBYTE
+174410                             ;
+174410                             ; Caller should preserve registers before calling here.
+174410                             ;
+174410                             EXECUTE:
+174410 012700 000000                MOV  #0,R0             ; R0=0 - prepare for raw code
+174414 006100                       ROL  R0                ; Save RESET/OSCLI flag in Carry in R0
+174416 013701 172770                MOV  @#ADDR,R1         ; Get transfer address
+174422 010146                       MOV  R1,-(SP)          ; Save entry address
+174424 116102 000007                MOVB 7(R1),R2          ; Get copyright offset
+174430 042702 177400                BIC  #&FF00,R2         ; Ensure 8-bit value
+174434 060201                       ADD  R2,R1             ; R1=>copyright string
+174436 105721                       TSTB (R1)+             ; Check for copyright string
+174440 001051                       BNE  EXEC_NOTROM
+174442 122127 000050                CMPB (R1)+,#ASC"("
+174446 001046                       BNE  EXEC_NOTROM
+174450 122127 000103                CMPB (R1)+,#ASC"C"
+174454 001043                       BNE  EXEC_NOTROM
+174456 122127 000051                CMPB (R1)+,#ASC")"
+174462 001040                       BNE  EXEC_NOTROM
+174464 011601                       MOV  (SP),R1           ; Get entry address back
+174466 116102 000006                MOVB 6(R1),R2          ; Get ROM type
+174472 032702 000100                BIT  #&40,R2           ; DMB: BIT, not TST
+174476 001506                       BEQ  EXEC_NOTLANG
+174500 042702 177760                BIC  #&FFF0,R2         ; Mask out non-CPU bits
+174504 020227 000007                CMP  R2,#&07
+174510 001101                       BNE  EXEC_NOTPDP
+174512 116102 000006                MOVB 6(R1),R2          ; Get ROM type again
+174516 032702 000040                BIT  #&20,R2           ; Does Tube transfer address exist? DMB: BIT, not TST
+174522 001416                       BEQ  EXEC_ROM          ; No, use stacked entry address
+174524 116102 000007                MOVB 7(R1),R2          ; Get copyright offset
+174530 042702 177400                BIC  #&FF00,R2         ; Ensure 8-bit value
+174534 060201                       ADD  R2,R1             ; Point to copyright message
+174536 005201                       INC  R1                ; Step past first zero byte
+174540                             EXEC_SKIP:
+174540 105721                       TSTB (R1)+             ; Find terminating zero byte
+174542 001376                       BNE  EXEC_SKIP
+174544 062701 000004                ADD  #4,R1             ; Step past transfer address
+174550 004767 177466                JSR  PC,FETCHWORD      ; R1=offset from start address
+174554 062601                       ADD  (SP)+,R1          ; Add start entry to offset, R1 is now entry address
+174556 010146                       MOV  R1,-(SP)          ; Push it back
+174560                             EXEC_ROM:
+174560 052700 000002                BIS  #2,R0             ; R0.1=1 to indicate code with header (will become R1=1)
+174564                                                     ; See if a Unix header also exists
+174564                             ;
+174564                             EXEC_NOTROM:
+174564 012601                       MOV  (SP)+,R1          ; Get entry address back
+174566 042701 000001                BIC  #1,R1             ; Ensure word aligned
+174572 011102                       MOV  (R1),R2           ; Get magic number
+174574 020227 000405                CMP  R2,#&105          ; &o0405 - overlay
+174600 103434                       BCS  EXEC_CODE         ; &o0407 - normal
+174602 020227 000411                CMP  R2,#&109          ; &o0410 - read-only text
+174606 103031                       BCC  EXEC_CODE         ; &o0411 - seperated I&D
+174610 005721                       TST  (R1)+             ; Step to next entry
+174612 012103                       MOV  (R1)+,R3          ; Size of text
+174614 012104                       MOV  (R1)+,R4          ; Size of initialised data
+174616 060403                       ADD  R4,R3             ; Size of program
+174620 012104                       MOV  (R1)+,R4          ; Size of uninitialised data
+174622 013702 172764                MOV  @#MEMBOT,R2       ; Destination address
+174626 062701 000010                ADD  #8,R1             ; Set past other fields to start of code
+174632                             
+174632                             ; R1=source
+174632                             ; R2=dest
+174632                             ; R3=size of code+data
+174632                             ; R4=size to be zeroed
+174632                             
+174632 006203                       ASR  R3                ; Divide by two to get size in words
+174634                             EXEC_COPY:
+174634 012122                       MOV  (R1)+,(R2)+       ; Copy program to MEMBOT
+174636 005303                       DEC  R3                ; Decrement number of words to copy
+174640 001375                       BNE  EXEC_COPY
+174642 006204                       ASR  R4                ; Divide by two to get size in words
+174644 001403                       BEQ  EXEC_ENTER        ; No uninitialised data to clear
+174646                             EXEC_ZERO:
+174646 005022                       CLR  (R2)+             ; Zero uninitialised data
+174650 005304                       DEC  R4                ; Decrement number of words to clear
+174652 001375                       BNE  EXEC_ZERO
+174654                             EXEC_ENTER:
+174654 042700 177776                BIC  #&FFFE,R0         ; Prepare R0=0 for code without a ROM header
+174660 013701 172764                MOV  @#MEMBOT,R1       ; Entry address
+174664                                                     ; Build an empty stack frame
+174664 005046                       CLR  -(SP)             ; argv[1]=0
+174666 005046                       CLR  -(SP)             ; argv[0]=0
+174670 005046                       CLR  -(SP)             ; argn=0
+174672                             
+174672                             EXEC_CODE:
+174672 012705 005674                MOV  #&0BBC,R5         ; R5=&0BBC to indicate BBC EMTs available
+174676 006200                       ASR  R0                ; R0=0/1 for raw/header, Cy=RESET/OSCLI
+174700 010137 172774                MOV  R1,@#PROG         ; Set as current program
+174704 010146                       MOV  R1,-(SP)          ; Stack destination address
+174706 012701 174004                MOV  #BANNER,R1        ; R1=><cr> for no command line
+174712 000207                       RTS  PC                ; Jump to code via RTS
+174714                             
+174714                             EXEC_NOTLANG:
+174714                             ;	ASR  R0
+174714                             ;	BCC  EXEC_CLICOM		; Entered from RESET, drop into CLICOM
+174714                             ;;	JSR  PC,MKERR
+174714                             ;	EMT  15
+174714                             ;	EQUB 249,"This is not a language",0
+174714                             ;	ALIGN
+174714                             ;
+174714                             EXEC_NOTPDP:
+174714 006200                       ASR  R0
+174716 103015                       BCC  EXEC_CLICOM       ; Entered from RESET, drop into CLICOM
+174720 012700 000003                MOV  #3,R0
+174724 004767 002006                JSR  PC,INIT_HANDLES   ; Connect to default error handler
+174730                             ;	JSR  PC,MKERR
+174730 104017                       EMT  15
+174732 371 116 157 164 040 120 104 120
+       061 061 040 143 157 144 145 000
+                                    EQUB 249,"Not PDP11 code",0
+174752                              ALIGN
+174752                             
+174752                             EXEC_CLICOM:
+174752 000167 177116                JMP  CLICOM            ; Drop into Supervisor command prompt
+174756                             
+174756                             
+174756                             ; OSBYTE
+174756                             ; ======
+174756                             ; On entry: R0,R1,R2=OSBYTE parameters
+174756                             ; On exit:  R0 preserved
+174756                             ;           If R0<&80, R1=returned value
+174756                             ;           If R0>&7F, R1, R2, Carry=returned values
+174756                             ;
+174756                             ; Tube data: &04 X A    --  X
+174756                             ;            &06 X Y A  --  Cy Y X
+174756                             ;
+174756                             BYTE_WAIT:
+174756 000610                       BR   CLI_WAIT1         ; Jump to wait for ack. from OSCLI/OSBYTE
+174760                             _BYTE:
+174760 010046                       MOV  R0,-(SP)          ; Save R0
+174762 105700                       TSTB R0
+174764 100413                       BMI  BYTE_HI           ; Jump with high OSBYTEs
+174766 012700 000004                MOV  #4,R0
+174772 004767 002172                JSR  PC,SEND_CMD_R1    ; Send command and second parameter
+174776 011600                       MOV  (SP),R0           ; Get first parameter from top of stack
+175000 004767 002172                JSR  PC,SEND_BYTE      ; Send first parameter
+175004 004767 001214                JSR  PC,WAIT_BYTE      ; Wait for response
+175010 010001                       MOV  R0,R1             ; Pass to R1
+175012 000462                       BR   BYTE_DONE
+175014                             ;	MOV  (SP)+,R0			; Restore R0
+175014                             ;	RTS  PC
+175014                             
+175014                             ; OSBYTE >&7F
+175014                             ; -----------
+175014                             BYTE_HI:
+175014                             ;	CMP  R0,#&82
+175014                             ;	BEQ  MEM82			; Fetch address high word
+175014                             ;	CMP  R0,#&83
+175014                             ;	BEQ  MEM83			; Fetch low memory limit
+175014                             ;	CMP  R0,#&84
+175014                             ;	BEQ  MEM84			; Fetch high memory limit
+175014                             ;
+175014 020027 000202                CMP  R0,#&82
+175020 103404                       BCS  BYTE_HI1          ; Not a memory OSBYTE
+175022 001445                       BEQ  MEM82             ; Fetch address high word
+175024 020027 000205                CMP  R0,#&85
+175030 103444                       BCS  MEM83             ; Fetch low/high memory limit
+175032                             BYTE_HI1:
+175032 012700 000006                MOV  #6,R0
+175036 004767 002126                JSR  PC,SEND_CMD_R1    ; Send command and second parameter
+175042 010200                       MOV  R2,R0
+175044 004767 002126                JSR  PC,SEND_BYTE      ; Send third parameter
+175050 012600                       MOV  (SP)+,R0          ; Get first parameter from stack
+175052 004767 002120                JSR  PC,SEND_BYTE      ; Send first parameter
+175056 020027 000235                CMP  R0,#&9D           ; Was it Fast BPut?
+175062 001437                       BEQ  BYTE_DONE1        ; Don't wait for response
+175064 020027 000216                CMP  R0,#&8E           ; Was it language startup?
+175070 001732                       BEQ  BYTE_WAIT         ; Wait for program startup
+175072 010046                       MOV  R0,-(SP)          ; Save R0 again
+175074 004767 001124                JSR  PC,WAIT_BYTE      ; Wait for response
+175100 062700 177600                ADD  #&FF80,R0         ; Copy b7 into Carry
+175104 004767 001114                JSR  PC,WAIT_BYTE      ; Wait for response
+175110 042700 177400                BIC  #&FF00,R0         ; Ensure 8-bit value
+175114 010002                       MOV  R0,R2             ; Pass to R2
+175116 000300                       SWAB R0
+175120 010001                       MOV  R0,R1             ; Pass to R1 as b8-b15 of result
+175122 004767 001076                JSR  PC,WAIT_BYTE      ; Wait for response
+175126 042700 177400                BIC  #&FF00,R0         ; Ensure 8-bit value
+175132 050001                       BIS  R0,R1             ; Merge with b8-b15 set from R2
+175134 000411                       BR   BYTE_DONE
+175136                             ;BYTE_DONE:
+175136                             ;	MOV  (SP)+,R0			; Restore R0
+175136                             ;	RTS  PC
+175136                             
+175136                             ; Read memory locations
+175136                             ; ---------------------
+175136                             MEM82:
+175136 012700 000206                MOV  #&86,R0           ; Point to ADDR+2
+175142                             MEM83:
+175142                             MEM84:
+175142 006300                       ASL  R0                ; A=&0106,&0108,&010C
+175144 016001 172356                MOV  MEMBOT-&106(R0),R1  ; Fetch address value
+175150 010102                       MOV  R1,R2             ; R2=R1 DIV 256
+175152 000302                       SWAB R2
+175154 042702 177400                BIC  #&FF00,R2
+175160                             BYTE_DONE:
+175160 012600                       MOV  (SP)+,R0          ; Restore R0
+175162                             BYTE_DONE1:
+175162 000207                       RTS  PC
+175164                             
+175164                             
+175164                             ; OSWORD
+175164                             ; ======
+175164                             ; On entry: R0=OSWORD number
+175164                             ;           R1=>control block
+175164                             ;
+175164                             _WORD:
+175164 005700                       TST  R0
+175166 001515                       BEQ  RDLINE            ; OSWORD 0, jump to read line
+175170                             ;
+175170                             ; OSWORD <>&00
+175170                             ; ------------
+175170                             ; Tube data: &08 function in_length block out_length  --  block
+175170                             ;
+175170 010346                       MOV  R3,-(SP)          ; Save R3
+175172 010246                       MOV  R2,-(SP)          ; Save R2
+175174 010046                       MOV  R0,-(SP)          ; Save R0
+175176 012700 000010                MOV  #8,R0
+175202 004767 001770                JSR  PC,SEND_CMD       ; Send command &08 - OSWORD
+175206 011600                       MOV  (SP),R0           ; Get R0 back
+175210 004767 001762                JSR  PC,SEND_BYTE      ; Send OSWORD number
+175214 105700                       TSTB R0                ; Check OSWORD number
+175216 100003                       BPL  WORDLO            ; <&80, calculate control block sizes
+175220 112102                       MOVB (R1)+,R2          ; Get transmit size from control block DMB: should be R1
+175222 111103                       MOVB (R1),R3           ; Get receive size from control block DMB: should be R1
+175224 000414                       BR   WORDGO            ; Jump to send OSWORD command
+175226                             WORDLO:
+175226 012702 000020                MOV  #&10,R2           ; OSWORD &15-&7F uses 16 bytes both ways
+175232 012703 000020                MOV  #&10,R3
+175236 020027 000025                CMP  R0,#&15           ; OSWORD &01-&7F use fixed control block sizes
+175242 103005                       BCC  WORDGO            ; OSWORD &15-&7F, jump to send OSWORD command
+175244 060000                       ADD  R0,R0             ; Double R0 to index into table
+175246 062700 175350                ADD  #WORD_TABLE-2,R0  ; Point to table entry DMB: #WORD_TABLE
+175252 112002                       MOVB (R0)+,R2          ; Fetch send length
+175254 111003                       MOVB (R0),R3           ; Fetch receive length
+175256                             WORDGO:
+175256 010200                       MOV  R2,R0             ; Get transmit block length
+175260 004767 001712                JSR  PC,SEND_BYTE      ; Send transmit block length
+175264 060201                       ADD  R2,R1             ; Point to past end of control block
+175266 005302                       DEC  R2                ; Convert 0 to -1
+175270 020227 000200                CMP  R2,#&80           ; Check length of transmit block
+175274 103005                       BCC  WORD_NOTX         ; Transmit block=0 or >&80, send nothing
+175276                             WORD_TX:
+175276 114100                       MOVB -(R1),R0          ; Get byte from control block
+175300 004767 001672                JSR  PC,SEND_BYTE      ; Send byte to Tube R2
+175304 005302                       DEC  R2
+175306 100373                       BPL  WORD_TX           ; Loop to send control block
+175310                             WORD_NOTX:
+175310 010300                       MOV  R3,R0             ; Get recive block length
+175312 004767 001660                JSR  PC,SEND_BYTE      ; Send receive block length
+175316 060301                       ADD  R3,R1             ; Point past end of control block
+175320 005303                       DEC  R3                ; Convert 0 to -1
+175322 020327 000200                CMP  R3,#&80           ; Check length of received block
+175326 103005                       BCC  WORD_NORX         ; Receive block=0 or >&80, receive nothing
+175330                             WORD_RX:
+175330 004767 000670                JSR  PC,WAIT_BYTE      ; Get byte from Tube R2
+175334 110041                       MOVB R0,-(R1)          ; Store byte in control block
+175336 005303                       DEC  R3
+175340 100373                       BPL  WORD_RX           ; Loop to receive control block
+175342                             WORD_NORX:
+175342 012600                       MOV  (SP)+,R0          ; Restore registers
+175344 012602                       MOV  (SP)+,R2
+175346 012603                       MOV  (SP)+,R3
+175350 000207                       RTS  PC
+175352                             ;
+175352                             ; Table of OSWORD control block lengths for &01-&14
+175352                             ; -------------------------------------------------
+175352                             ; low byte=send length, high byte=recive length
+175352                             WORD_TABLE:
+175352 002400                       EQUW &0500             ; &01 =TIME
+175354 000005                       EQUW &0005             ; &02 TIME=
+175356 002400                       EQUW &0500             ; &03 =TIMER
+175360 000005                       EQUW &0005             ; &04 TIMER=
+175362 002404                       EQUW &0504             ; &05 =MEM
+175364 000005                       EQUW &0005             ; &06 MEM=
+175366 000010                       EQUW &0008             ; &07 SOUND
+175370 000016                       EQUW &000E             ; &08 ENVELOPE
+175372 002404                       EQUW &0504             ; &09 =POINT
+175374 004401                       EQUW &0901             ; &0A Read bitmap
+175376 002401                       EQUW &0501             ; &0B Read palette
+175400 000005                       EQUW &0005             ; &0C Write palette
+175402 004000                       EQUW &0800             ; &0D Read graphics coords
+175404 014420                       EQUW &1910             ; &0E =TIME$
+175406 000040                       EQUW &0020             ; &0F TIME$=
+175410 000420                       EQUW &0110             ; &10 Net_Tx
+175412 006415                       EQUW &0D0D             ; &11 Net_Rx
+175414 100000                       EQUW &8000             ; &12 Net_Params
+175416 004010                       EQUW &0808             ; &13 Net_Info
+175420 100200                       EQUW &8080             ; &14 NetFS_Op
+175422                             
+175422                             
+175422                             ; Read a line of text
+175422                             ; -------------------
+175422                             ; Tube data: &0A block  --  &FF or &7F string &0D
+175422                             ;
+175422                             RDLINE:
+175422 012700 000012                MOV  #10,R0
+175426 004767 001544                JSR  PC,SEND_CMD       ; Send command &0A - RDLINE
+175432 062701 000002                ADD  #2,R1
+175436 012702 000003                MOV  #3,R2
+175442 004767 001466                JSR  PC,SEND_BLK       ; Send 3-byte control block
+175446 012700 000007                MOV  #7,R0
+175452 004767 001520                JSR  PC,SEND_BYTE      ; Send &0700
+175456 005000                       CLR  R0
+175460 004767 001512                JSR  PC,SEND_BYTE
+175464 004767 000534                JSR  PC,WAIT_BYTE      ; Wait for response
+175470 062700 177600                ADD  #&FF80,R0         ; Copy b7 into Carry
+175474 103413                       BCS  RD_DONE
+175476 004767 176534                JSR  PC,FETCHWORD2     ; Get address to store text, allowing for nonalignment
+175502 005002                       CLR  R2                ; Clear count of received bytes
+175504                             RD_STR:
+175504 004767 000514                JSR  PC,WAIT_BYTE      ; Wait for byte from Tube R2
+175510 110021                       MOVB R0,(R1)+          ; Store it
+175512 005202                       INC  R2                ; Increment number of bytes
+175514 020027 000015                CMP  R0,#13            ; Check current byte
+175520 001371                       BNE  RD_STR            ; Loop until <cr> and Clear Carry
+175522 005302                       DEC  R2                ; R2 is length of string
+175524                             RD_DONE:
+175524 000207                       RTS  PC
+175526                             
+175526                             
+175526                             ; OSARGS - Read info on open file or filing system
+175526                             ; ================================================
+175526                             ; On entry: R0=function
+175526                             ;           R1=handle
+175526                             ;           R2=>control block
+175526                             ; On exit:  R0=returned value
+175526                             ;           R1 preserved
+175526                             ;           R2 preserved
+175526                             ;
+175526                             ; Tube Data: &0C handle block function  --  result block
+175526                             ;
+175526                             _ARGS:
+175526 010246                       MOV  R2,-(SP)          ; Save control block pointer
+175530 010146                       MOV  R1,-(SP)          ; Save handle
+175532 010046                       MOV  R0,-(SP)          ; Save function
+175534 012700 000014                MOV  #&0C,R0
+175540 004767 001424                JSR  PC,SEND_CMD_R1    ; Send command and handle
+175544 010201                       MOV  R2,R1
+175546 012702 000004                MOV  #4,R2
+175552 004767 001356                JSR  PC,SEND_BLK       ; Send four-byte control block
+175556 012600                       MOV  (SP)+,R0
+175560 004767 001412                JSR  PC,SEND_BYTE      ; Send function
+175564 004767 000434                JSR  PC,WAIT_BYTE      ; Wait for returned result
+175570 010046                       MOV  R0,-(SP)          ; Save result
+175572 012702 000004                MOV  #4,R2             ; Prepare to wait for 4-byte control block
+175576                             ;	JSR  PC,WAIT_BLK		; Wait for four-byte control block
+175576                             ;	MOV  (SP)+,R0			; Get result back
+175576                             ;	MOV  (SP)+,R1			; Get handle back
+175576                             ;	MOV  (SP)+,R2			; Get control block pointer back
+175576                             ;	RTS  PC
+175576 000463                       BR   FILE_DONE         ; Wait for control block, restore and return
+175600                             
+175600                             
+175600                             ; OSFIND - Open or Close a file
+175600                             ; =============================
+175600                             ; On entry: R0=function
+175600                             ;           R1=handle or =>filename
+175600                             ; On exit:  R0=zero or handle
+175600                             ;
+175600                             ; Tube data: &12 function string &0D  --  handle
+175600                             ;            &12 &00 handle  --  &7F
+175600                             ;
+175600                             _FIND:
+175600 010046                       MOV  R0,-(SP)          ; Save R0
+175602 012700 000022                MOV  #&12,R0
+175606 004767 001364                JSR  PC,SEND_CMD       ; Send command &12 - OSFIND
+175612 012600                       MOV  (SP)+,R0          ; Get R0 back
+175614 004767 001356                JSR  PC,SEND_BYTE      ; Send function
+175620 005700                       TST  R0                ; Check function
+175622 001006                       BNE  OPEN              ; Jump to deal with OPEN
+175624                             ; CLOSE
+175624 004767 001344                JSR  PC,SEND_BYTE_R1   ; Send handle to Tube
+175630 004767 000370                JSR  PC,WAIT_BYTE      ; Wait for acknowledgement
+175634 005000                       CLR  R0                ; Zero R0
+175636 000207                       RTS  PC
+175640                             OPEN:
+175640 010146                       MOV  R1,-(SP)          ; Save R1
+175642 004767 001250                JSR  PC,SEND_STR       ; Send string at R1
+175646 004767 000352                JSR  PC,WAIT_BYTE      ; Wait for returned handle
+175652 012601                       MOV  (SP)+,R1          ; Restore R1
+175654 000207                       RTS  PC
+175656                             
+175656                             
+175656                             ; OSFILE - Operate on whole files
+175656                             ; ===============================
+175656                             ; On entry: R0=function
+175656                             ;           R1=>control block
+175656                             ; On exit:  R0=result
+175656                             ;           R1 preserved
+175656                             ;           control block updated
+175656                             ;
+175656                             ; Tube data: &14 block string <cr> function  --  result block
+175656                             ;
+175656                             _FILE:
+175656 010246                       MOV  R2,-(SP)          ; Save R2
+175660 010146                       MOV  R1,-(SP)          ; Save R1
+175662 010046                       MOV  R0,-(SP)          ; Save function
+175664 012700 000024                MOV  #&14,R0
+175670 004767 001302                JSR  PC,SEND_CMD       ; Send command &14 - OSFILE
+175674 062701 000002                ADD  #2,R1             ; Point to control block contents
+175700 012702 000020                MOV  #16,R2
+175704 004767 001224                JSR  PC,SEND_BLK       ; Send 16-byte control block
+175710 004767 176322                JSR  PC,FETCHWORD2     ; Get address of filename, allowing for nonalignment
+175714 004767 001176                JSR  PC,SEND_STR       ; Send filename string
+175720 012600                       MOV  (SP)+,R0
+175722 004767 001250                JSR  PC,SEND_BYTE      ; Send function
+175726 004767 000272                JSR  PC,WAIT_BYTE      ; Wait for returned result
+175732 011601                       MOV  (SP),R1           ; Get control block pointer back
+175734 010046                       MOV  R0,-(SP)          ; Save result
+175736 062701 000002                ADD  #2,R1             ; Point to control block contents
+175742 012702 000020                MOV  #16,R2            ; Prepate to wait for 16-byte control block
+175746                             FILE_DONE:
+175746 004767 001200                JSR  PC,WAIT_BLK       ; Wait for control block
+175752 012600                       MOV  (SP)+,R0          ; Get result back
+175754 012601                       MOV  (SP)+,R1          ; Get control block pointer back
+175756 012602                       MOV  (SP)+,R2          ; Get R2 back
+175760 000207                       RTS  PC
+175762                             
+175762                             
+175762                             ; OS_GBPB - Multiple byte read and write
+175762                             ; =====================================
+175762                             ; On entry: R0=function
+175762                             ;           R1=>control block
+175762                             ; On exit:  R0=returned value
+175762                             ;              control block updated
+175762                             ;
+175762                             ; Tube data: &16 block function  --   block Carry result
+175762                             ;
+175762                             _GBPB:
+175762                             #ifndef NOCHNZERO
+175762 105711                       TSTB (R1)              ; Check handle
+175764 001005                       BNE  GBPB1             ; Non-zero handle
+175766 005700                       TST  R0                ; Check function
+175770 001403                       BEQ  GBPB1             ; Pass OSGBPB 0 to Tube
+175772 020027 000005                CMP  R0,#5
+175776 103423                       BCS  GBPB_RDWR         ; Channel 0 via OSRDCH/OSWRCH
+176000                             #endif
+176000                             GBPB1:
+176000 010246                       MOV  R2,-(SP)          ; Save R2
+176002 010046                       MOV  R0,-(SP)          ; Save function
+176004 012700 000026                MOV  #&16,R0
+176010 004767 001162                JSR  PC,SEND_CMD       ; Send command &16 - OSGBPB
+176014 012702 000015                MOV  #13,R2
+176020 004767 001110                JSR  PC,SEND_BLK       ; Send 13-byte control block
+176024 012600                       MOV  (SP)+,R0
+176026 004767 001144                JSR  PC,SEND_BYTE      ; Send function
+176032 012702 000015                MOV  #13,R2
+176036 004767 001110                JSR  PC,WAIT_BLK       ; Wait for 13-byte control block
+176042 012602                       MOV  (SP)+,R2          ; Get R2 back
+176044 000463                       BR   WAIT_CHAR         ; Get Carry and result byte
+176046                             ;
+176046                             ; Read or write block of memory to/from OSWRCH/OSRDCH
+176046                             ; ---------------------------------------------------
+176046                             ; NB, only uses 16-bit address and count, b16-b31 ignored and not updated
+176046                             ;
+176046                             #ifndef NOCHNZERO
+176046                             GBPB_RDWR:
+176046 010246                       MOV  R2,-(SP)          ; Save R2
+176050 010046                       MOV  R0,-(SP)          ; Save function
+176052 010146                       MOV R1,-(SP)           ; Save pointer to control block
+176054 005201                       INC R1                 ; Point to Address
+176056 004767 176160                JSR PC,FETCHWORD       ; R1=Address, allowing for nonalignment
+176062 010102                       MOV R1,R2              ; R2=Address
+176064 012601                       MOV (SP)+,R1           ; Restore pointer to control block
+176066                             
+176066                             GBPB_LP:
+176066 021627 000003                CMP  (SP),#3
+176072 103004                       BCC  GBPB_RD           ; Function 3/4, read characters
+176074                                                     ; Function 1/2, write characters
+176074 112200                       MOVB (R2)+,R0          ; Get character from memory
+176076 004767 000214                JSR  PC,_WRCH          ; Write it
+176102 000404                       BR   GBPB_NEXT         ; Jump to update and loop
+176104                             GBPB_RD:
+176104 004767 000076                JSR  PC,_RDCH          ; Read character
+176110 103415                       BCS  GBPB_EXIT         ; Carry set, exit
+176112 110022                       MOVB R0,(R2)+          ; Store character
+176114                             GBPB_NEXT:
+176114 105761 000005                TSTB 5(R1)             ; Test byte low byte
+176120 001002                       BNE  GBPB_LO           ; Count<>&xx00
+176122 105361 000006                DECB 6(R1)             ; Decrement count high byte
+176126                             GBPB_LO:
+176126 105361 000005                DECB 5(R1)             ; Decrement count low byte
+176132 001355                       BNE  GBPB_LP           ; Loop until all done
+176134 105761 000006                TSTB 6(R1)             ; Test count high byte
+176140 001352                       BNE  GBPB_LP           ; Loop until all done
+176142 000241                       CLC                    ; Clear carry for OK
+176144                             GBPB_EXIT:
+176144 110261 000001                MOVB R2,1(R1)
+176150 000302                       SWAB R2
+176152 110261 000002                MOVB R2,2(R1)          ; Update address
+176156 005726                       TST  (SP)+             ; Drop function
+176160 012602                       MOV  (SP)+,R2          ; Restore R2
+176162 012700 000000                MOV  #0,R0             ; R0=0, function supported, don't affect Carry
+176166 000207                       RTS  PC
+176170                             #endif
+176170                             
+176170                             
+176170                             ; OSBGET - Get a byte from open file
+176170                             ; ==================================
+176170                             ; On entry: R1=handle
+176170                             ; On exit:  R0=byte Read
+176170                             ;           R1=preserved
+176170                             ;           Cy set if EOF
+176170                             ;
+176170                             ; Tube data: &0E handle --  Carry byte
+176170                             ;
+176170                             _BGET:
+176170                             #ifndef NOCHNZERO
+176170 005701                       TST  R1                ; Check handle
+176172 001405                       BEQ  _RDCH             ; BGET#0 calls OSRDCH
+176174                             #endif
+176174 012700 000016                MOV  #&0E,R0
+176200 004767 000764                JSR  PC,SEND_CMD_R1    ; Send command and handle
+176204 000403                       BR   WAIT_CHAR         ; Wait for Carry, Byte
+176206                             
+176206                             
+176206                             ; OSRDCH - Wait for character from input stream
+176206                             ; =============================================
+176206                             ; On exit: R0=char, Cy=carry
+176206                             ;
+176206                             ; Tube data: &00  --  Carry Char
+176206                             ;
+176206                             _RDCH:
+176206 005000                       CLR  R0
+176210 004767 000762                JSR  PC,SEND_CMD       ; Send command &00 - OSRDCH
+176214                             WAIT_CHAR:
+176214 004767 000004                JSR  PC,WAIT_BYTE      ; Get returned byte
+176220 062700 177600                ADD  #&FF80,R0         ; Copy b7 into carry
+176224                                                     ; Continue to fetch byte from Tube R2
+176224                             
+176224                             
+176224                             ; Wait for byte in Tube Register 1 to return in R0, preserving Carry
+176224                             ; ==================================================================
+176224                             WAIT_BYTE:
+176224 113700 177764                MOVB @#TUBE2S,R0       ; Read Tube R2 status
+176230 100375                       BPL  WAIT_BYTE         ; Loop until b7 set
+176232 113700 177766                MOVB @#TUBE2,R0        ; Get byte from Tube R2
+176236 000207                       RTS  PC
+176240                             
+176240                             
+176240                             ; OSBPUT - Put a byte to an open file
+176240                             ; ===================================
+176240                             ; On entry: R0=byte to write
+176240                             ;           R1=handle
+176240                             ; On exit:  R0=preserved
+176240                             ;           R1=preserved
+176240                             ;
+176240                             ; Tube data: &10 handle byte  --  &7F
+176240                             ;
+176240                             _BPUT:
+176240                             #ifndef NOCHNZERO
+176240 005701                       TST  R1                ; Check handle
+176242 001425                       BEQ  _WRCH             ; BPUT#0 calls OSWRCH
+176244                             #endif
+176244 010046                       MOV  R0,-(SP)          ; Save R0
+176246 012700 000020                MOV  #&10,R0
+176252 004767 000712                JSR  PC,SEND_CMD_R1    ; Send command and handle
+176256 011600                       MOV  (SP),R0           ; Get R0 back
+176260 004767 000712                JSR  PC,SEND_BYTE      ; Send byte to Tube
+176264 004767 177734                JSR  PC,WAIT_BYTE      ; Wait for acknowledgement
+176270 012600                       MOV  (SP)+,R0          ; Restore R0
+176272 000207                       RTS  PC
+176274                             
+176274                             
+176274                             ; OSASCI - Send ASCII character
+176274                             ; =============================
+176274                             _ASCII:
+176274 022700 000015                CMP  #13,R0            ; If not <cr>, send raw character
+176300 001006                       BNE  _WRCH             ; If <cr>, fall through to send NEWL
+176302                             
+176302                             
+176302                             ; OSNEWL - Send LF/CR sequence
+176302                             ; ============================
+176302                             _NEWL:
+176302 012700 000012                MOV  #10,R0
+176306 004767 000004                JSR  PC,_WRCH          ; Output LF
+176312 012700 000015                MOV  #13,R0            ; Fall through into WRCH
+176316                             
+176316                             
+176316                             ; OSWRCH - Send character in R0 to Tube Register 1
+176316                             ; ================================================
+176316                             _WRCH:
+176316 010046                       MOV  R0,-(SP)          ; Save R0
+176320                             SEND_R1LP:
+176320 113700 177760                MOVB @#TUBE1S,R0       ; Read Tube R1 status
+176324 042700 000277                BIC  #&BF,R0           ; Check b6 of status
+176330 001773                       BEQ  SEND_R1LP         ; Loop until b6 set
+176332 012600                       MOV  (SP)+,R0          ; Get R0 back
+176334 110037 177762                MOVB R0,@#TUBE1        ; Send byte to Tube R1
+176340 000207                       RTS  PC
+176342                             
+176342                             
+176342                             ; TRAP handler
+176342                             ; ============
+176342                             ; TRAP is used for Unix calls and is followed by a variable number of inline parameters,
+176342                             ; so it is impossible to simply do a null return. So, the safest option is to give the
+176342                             ; standard CoPro client 'unsupported' error.
+176342                             TRAP_HANDLER:
+176342 104017                       EMT  15
+176344 377                          EQUB 255
+176345 102 141 144                  EQUS "Bad"
+176350 000                          EQUB 0
+176351 000                          ALIGN
+176352                             
+176352                             
+176352                             ; EMT handler
+176352                             ; ===========
+176352                             ; On extry, R0-R5 contain any parameters
+176352                             ;           PSW ignored
+176352                             ; On exit,  R0-R5 contain any returned values
+176352                             ;           C returns any returned value
+176352                             ;           V set if error, R0=>error block
+176352                             ;
+176352                             EMT_HANDLER:
+176352 042766 177760 000002         BIC  #&FFF0,2(SP)      ; Clear stacked flags
+176360 013746 172740                MOV  @#ERRV,-(SP)      ; Save old ERR handler
+176364 013746 172754                MOV  @#EMTV,-(SP)      ; Save old EMT SP
+176370 010637 172754                MOV  SP,@#EMTV         ; Save current EMT SP
+176374 012737 176440 172740         MOV  #EMT_ERROR,@#ERRV  ; Catch EMT errors
+176402 005746                       TST  -(SP)             ; Make space on stack
+176404 010046                       MOV  R0,-(SP)          ; Save R0
+176406 016600 000010                MOV  8(SP),R0          ; Get return address
+176412                             ;	MOV  -2(R0),R0			; Get EMT instruction
+176412 014000                       MOV  -(R0),R0          ; Get EMT instruction v0.20a
+176414 042700 177400                BIC  #&FF00,R0         ; Get EMT number
+176420                                                     ;CMP  R0,#EMTMAX
+176420                                                     ;BCC  EMT_IGNORE		; Out of range
+176420 060000                       ADD  R0,R0             ; Index into dispatch table
+176422 063700 172756                ADD  @#EMTADDR,R0      ; Index into dispatch table
+176426 011066 000002                MOV  (R0),2(SP)        ; Copy address to stack
+176432 012600                       MOV  (SP)+,R0          ; Restore R0
+176434 004736                       JSR  PC,@(SP)+         ; Jump to routine
+176436                             ;	BVS  EMT_ERROR			; V set, set stacked V flag
+176436 102005                       BVC  EMT_NOERROR       ; V clear, jump to check Carry
+176440                             EMT_ERROR:
+176440 013706 172754                MOV  @#EMTV,SP         ; Get saved EMT SP
+176444 052766 000002 000006         BIS  #2,6(SP)          ; Set stacked V flag
+176452                             EMT_NOERROR:
+176452 103003                       BCC  EMT_EXIT          ; C clear, jump to exit
+176454 052766 000001 000006         BIS  #1,6(SP)          ; Set stacked C flag
+176462                             EMT_EXIT:
+176462 012637 172754                MOV  (SP)+,@#EMTV      ; Restore old EMT SP
+176466 012637 172740                MOV  (SP)+,@#ERRV      ; Restore old error handler
+176472 000002                       RTI                    ; Return from EMT
+176474                             ;EMT_IGNORE:
+176474                                                     ;MOV  (SP)+,R0			; Restore R0
+176474                                                     ;TST  (SP)+			; Balance stack
+176474                                                     ;BR   EMT_EXIT
+176474                             
+176474                             
+176474                             ; EMT 15 - Generate an error
+176474                             ; --------------------------
+176474                             EMT15:
+176474                             ;	TST  (SP)+			; Drop return to EMT handler
+176474                             ;	MOV  (SP)+,@#EMTV		; Restore old EMT SP
+176474                             ;	MOV  (SP)+,@#ERRV		; Restore mainline error handler
+176474                             ;	MOV  (SP),R0			; Get return address pointing to inline error block
+176474                             ;	MOV  @#ERRV,(SP)		; Replace with address of error handler
+176474                             ;	RTI				; Jump to handler, restoring PSW
+176474                             ; v0.20a optimisation
+176474 016600 000006                MOV  6(SP),R0          ; Get return address pointing to inline error block
+176500 016666 000004 000006         MOV  4(SP),6(SP)       ; Replace return address with mainline error handler
+176506 000207                       RTS  PC                ; Return to EMT handler, thence to error handler
+176510                             
+176510                             
+176510                             ; EMT 14 - Read/Write handlers, etc.
+176510                             ; ----------------------------------
+176510                             ; On entry: R0=0..255 to claim EMTs 0..255
+176510                             ;           R1=new routine address or 0 to read
+176510                             ;           R0=&FFxx to set environment handlers
+176510                             ;           R1=new handler address or 0 to read
+176510                             ;           R2=new handler data address or 0 to read
+176510                             ; On exit:  R0=preserved
+176510                             ;           R1=old address
+176510                             ;           R2=old handler address or preserved
+176510                             ;
+176510                             EMT14:
+176510                             ; So that EMT14 can change the ERRV we have to rewind out of the EMT handler and restore ERRV so that
+176510                             ; it can be changed. Otherwise, the EMT handler will just restore ERRV to whatever it was before.
+176510 005726                       TST  (SP)+             ; Drop return to EMT handler
+176512 012637 172754                MOV  (SP)+,@#EMTV      ; Restore old EMT SP
+176516 012637 172740                MOV  (SP)+,@#ERRV      ; Restore mainline error handler
+176522 010046                       MOV  R0,-(SP)          ; Save R0
+176524 100413                       BMI  EMT14_HANDLER     ; Negative, set up handler
+176526 020027 000400                CMP  R0,#EMTMAX
+176532 103033                       BCC  EMT14_QUIT        ; Out of range
+176534 060000                       ADD  R0,R0             ; Double R0 to offset into table
+176536 063700 172756                ADD  @#EMTADDR,R0      ; Index into EMT dispatch table
+176542 011046                       MOV  (R0),-(SP)        ; Get old address
+176544 005701                       TST  R1
+176546 001424                       BEQ  EMT14_READ        ; Zero, just read
+176550 010110                       MOV  R1,(R0)           ; Store new address if non-zero
+176552 000422                       BR   EMT14_READ
+176554                             
+176554                             EMT14_HANDLER:
+176554 005100                       COM  R0
+176556 020027 000006                CMP  R0,#HANDLEMAX
+176562 103017                       BCC  EMT14_QUIT        ; Out of range
+176564 060000                       ADD  R0,R0
+176566 060000                       ADD  R0,R0             ; Times four to offset into table
+176570 062700 172730                ADD  #HANDLERS,R0      ; Index into handlers
+176574 011046                       MOV  (R0),-(SP)        ; Save old handler address
+176576 005701                       TST  R1
+176600 001401                       BEQ  EMT14_HAND2       ; Just read old handler address
+176602 010110                       MOV  R1,(R0)           ; Store new handler address
+176604                             EMT14_HAND2:
+176604 005720                       TST  (R0)+             ; DMB: Step to data address
+176606 011046                       MOV  (R0),-(SP)        ; Save old data address
+176610 005702                       TST  R2
+176612 001401                       BEQ  EMT14_HAND3       ; Just read old data address
+176614 010210                       MOV  R2,(R0)           ; Store new data address
+176616                             EMT14_HAND3:
+176616 012602                       MOV  (SP)+,R2          ; Get old data
+176620                             EMT14_READ:
+176620 012601                       MOV  (SP)+,R1          ; Get old address
+176622                             EMT14_QUIT:
+176622 012600                       MOV  (SP)+,R0          ; Restore R0
+176624                             ;	RTS  PC
+176624 000002                       RTI
+176626                             
+176626                             ; EMT 13 - Misc control functions
+176626                             ; -------------------------------
+176626                             ; On entry: R0=0 - Load BBC BASIC
+176626                             ;              1 - Set up default environment: IRQ/NMI, EMTs, handlers
+176626                             ;              2 - Set up default EMTs and handlers
+176626                             ;              3 - Set up default handlers only
+176626                             EMT13:
+176626 005700                       TST  R0
+176630 001406                       BEQ  EMTXX             ; R0=0 - unsupported
+176632 020027 000001                CMP  R0,#1
+176636 001406                       BEQ  INIT_ENV          ; R0=1 - Set up hardware and software handlers and EMTs
+176640                             ;	CMP  R0,#2
+176640                             ;	BEQ  INIT_HANDLES		; Set up software handlers and EMTs
+176640                             ;	CMP  R0,#3
+176640                             ;	BEQ  INIT_HANDLES		; Set up software handlers
+176640 020027 000004                CMP  R0,#4
+176644 103434                       BCS  INIT_HANDLES      ; R0=2, R0=3 - Set up software handlers
+176646                                                     ; Fall through with others, returning R0 preserved
+176646                             
+176646                             EMTXX:                  ; EMTs 16-255
+176646                             EVENT:                  ; Null event handler
+176646 000207                       RTS  PC
+176650                             
+176650                             ; EMT 0 - Exit current program
+176650                             ; ----------------------------
+176650                             EMT0:
+176650                             ;	JMP  @#EXITV			; Jump via exit handler
+176650 000177 174054                JMP  @EXITV            ; DMB Jump via exit handler
+176654                             
+176654                             
+176654                             ; Set up default system environment
+176654                             ; =================================
+176654                             INIT_ENV:
+176654 005000                       CLR  R0
+176656                             INIT_LP1:
+176656 012720 177732                MOV  #NULLIRQ,(R0)+    ; Set all hardware vectors to NULLIRQ
+176662 005020                       CLR  (R0)+             ; Allow all interupts
+176664 020027 000400                CMP  R0,#&100          ; Hardware vectors at at &0000-&00FF
+176670 001372                       BNE  INIT_LP1
+176672                             ;
+176672                             ;	MOV  #CLICOM,@#STACKVEC		; Could also catch Bad Stack vector
+176672                             ;					; There's no easy way to recover from a Bad Stack, so would have
+176672                             ;					; bomb out to somewhere safe.
+176672 012737 176342 000034         MOV  #TRAP_HANDLER,@#TRAPVEC ; Set up TRAP vector to give an error
+176700 012737 176352 000030         MOV  #EMT_HANDLER,@#EMTVEC ; Set up EMT vector
+176706                             ;	CLR  @#EMTVEC+2			; EMT processor status - allow all interupts
+176706                             INIT_IRQ:
+176706 012737 177726 000200         MOV  #NMI_ACK,@#NMIVEC+0 ; Set up NMI vector
+176714 012737 000340 000202         MOV  #&00E0,@#NMIVEC+2  ; NMI processor status - bar all interupts
+176722 012737 177252 000204         MOV  #IRQ,@#IRQVEC+0   ; Set up IRQ vector
+176730 012737 000300 000206         MOV  #&00C0,@#IRQVEC+2  ; IRQ processor status - bar all except NMIs
+176736                             ;
+176736                             INIT_HANDLES:
+176736                                                     ; Should check R0, if R0=3 set handlers only
+176736 012702 172730                MOV  #HANDLERS,R2      ; R2=> Start of handlers DMB
+176742 012701 177004                MOV  #HANDDEFAULT,R1   ; R1=> Default handlers and EMTs
+176746 012700 000044                MOV  #HANDLEMAX*2+WORKSPMAX/2+16,R0 ; R0=word count of handlers (2 per handle) + workspace (counted in bytes) + core EMTs DMB
+176752 013746 172774                MOV  @#PROG,-(SP)      ; Save PROG
+176756                             INIT_LP2:
+176756 012122                       MOV  (R1)+,(R2)+       ; Set up initial settings
+176760 005300                       DEC  R0                ; and EMT dispatch table
+176762 001375                       BNE  INIT_LP2
+176764 012637 172774                MOV  (SP)+,@#PROG      ; Restore PROG
+176770                             ;
+176770 012700 000360                MOV  #EMTMAX-16,R0     ; Number of unused EMTs
+176774                             INIT_CLR:
+176774 011122                       MOV  (R1),(R2)+        ; EMTs 16-255 do nothing
+176776 005300                       DEC  R0
+177000 001375                       BNE  INIT_CLR
+177002                             INIT_DONE:
+177002 000207                       RTS  PC                ; Return with R0=0, R1,R2 corrupted
+177004                             
+177004                             ; Default settings and EMT table
+177004                             ; ==============================
+177004                             HANDDEFAULT:
+177004 174074                       EQUW EXITHAND          ; &D8 - Default exit handler
+177006 000000                       EQUW 0                 ; &DA - Default exit address
+177010 174226                       EQUW ESCHAND           ; &DC - Default escape handler
+177012 172777                       EQUW ESCFLG            ; &DE - Default escape flag
+177014 174200                       EQUW ERRHAND           ; &E0 - Default error handler
+177016 172400                       EQUW ERRBLK            ; &E2 - Default error buffer
+177020 176646                       EQUW EVENT             ; &E4 - Default event handler
+177022 000000                       EQUW 0                 ; &E6 - Unused
+177024 177732                       EQUW USERIRQ           ; &E8 - Default unknown IRQ handler
+177026 000000                       EQUW 0                 ; &EA - Unused
+177030 000000                       EQUW 0                 ; &EC - Holds old SP within EMT handler
+177032 173000                       EQUW EMTTABLE          ; &EE - Default EMT dispatch table
+177034                             
+177034 000000                       EQUW 0                 ; &F0 - unused
+177036 174004                       EQUW BANNER            ; &F2 - Line pointer
+177040 000400                       EQUW RAMSTART          ; &F4 - Lowest user memory
+177042 172400                       EQUW RAMEND            ; &F6 - Highest user memory
+177044 000000 000000                EQUD 0                 ; &F8 - Transfer address
+177050 174034                       EQUW STARTUP           ; &FC - Default current program
+177052 000                          EQUB 0                 ; &FE - Spare byte
+177053 000                          EQUB 0                 ; &FF - Escape flag
+177054                             EMTDEFAULT:
+177054 176650                       EQUW EMT0              ; EMT  0 - QUIT
+177056 174276                       EQUW _CLI              ; EMT  1 - OSCLI
+177060 174760                       EQUW _BYTE             ; EMT  2 - OSBYTE
+177062 175164                       EQUW _WORD             ; EMT  3 - OSWORD
+177064 176316                       EQUW _WRCH             ; EMT  4 - OSWRCH
+177066 176302                       EQUW _NEWL             ; EMT  5 - OSNEWL
+177070 176206                       EQUW _RDCH             ; EMT  6 - OSRDCH
+177072 175656                       EQUW _FILE             ; EMT  7 - OSFILE
+177074 175526                       EQUW _ARGS             ; EMT  8 - OSARGS
+177076 176170                       EQUW _BGET             ; EMT  9 - OSBGET
+177100 176240                       EQUW _BPUT             ; EMT 10 - OSBPUT
+177102 175762                       EQUW _GBPB             ; EMT 11 - OSGBPB
+177104 175600                       EQUW _FIND             ; EMT 12 - OSFIND
+177106 176626                       EQUW EMT13             ; EMT 13 - System control
+177110 176510                       EQUW EMT14             ; EMT 14 - Set handlers
+177112 176474                       EQUW EMT15             ; EMT 15 - ERROR
+177114 176646                       EQUW EMTXX             ; EMTs 16-255 - unused
+177116                             
+177116                             
+177116                             ; *****************
+177116                             ; TUBE I/O ROUTINES
+177116                             ; *****************
+177116                             
+177116                             ; Send <cr>-string at R1 to Tube Register 2
+177116                             ; =========================================
+177116                             SEND_STR:
+177116 112100                       MOVB (R1)+,R0          ; Get byte from R1, increment R1
+177120 004767 000052                JSR  PC,SEND_BYTE      ; Send byte via Tube R2
+177124 020027 000015                CMP  R0,#13            ; Test current character
+177130 001372                       BNE  SEND_STR          ; Loop until <cr> sent
+177132 000207                       RTS  PC
+177134                             
+177134                             
+177134                             ; Send block at R1 to Tube Register 2
+177134                             ; ===================================
+177134                             SEND_BLK:
+177134 060201                       ADD  R2,R1             ; Add length of control block to R1
+177136                             SEND_BLKLP:
+177136 114100                       MOVB -(R1),R0          ; Decrement R1, Get byte from R1
+177140 004767 000032                JSR  PC,SEND_BYTE      ; Send byte via Tube R2
+177144 005302                       DEC  R2                ; Decrement count
+177146 001373                       BNE  SEND_BLKLP        ; Loop until all sent
+177150 000207                       RTS  PC
+177152                             
+177152                             
+177152                             ; Wait for block at R1 from Tube Register 2
+177152                             ; =========================================
+177152                             WAIT_BLK:
+177152 060201                       ADD  R2,R1             ; Add length of control block to R1
+177154                             WAIT_BLKLP:
+177154 004767 177044                JSR  PC,WAIT_BYTE      ; Wait for byte via Tube R2
+177160 110041                       MOVB R0,-(R1)          ; Decrement R1, store byte to R1
+177162 005302                       DEC  R2                ; Decrement count
+177164 001373                       BNE  WAIT_BLKLP        ; Loop until all received
+177166 000207                       RTS  PC
+177170                             
+177170                             
+177170                             ; Send command in R0 followed by byte in R1
+177170                             ; =========================================
+177170                             SEND_CMD_R1:
+177170 004767 000002                JSR  PC,SEND_CMD       ; Send command
+177174                             
+177174                             
+177174                             ; Send byte in R1 to Tube Register 2
+177174                             ; ==================================
+177174                             SEND_BYTE_R1:
+177174 010100                       MOV  R1,R0             ; Pass byte to R0 and fall through
+177176                             
+177176                             
+177176                             ; Send byte in R0 to Tube Register 2
+177176                             ; ==================================
+177176                             SEND_CMD:
+177176                             SEND_BYTE:
+177176 010046                       MOV  R0,-(SP)          ; Save R0
+177200                             SEND_BYTELP:
+177200 113700 177764                MOVB @#TUBE2S,R0       ; Read Tube R2 status
+177204 042700 000277                BIC  #&BF,R0           ; Check b6 of status
+177210 001773                       BEQ  SEND_BYTELP       ; Loop until b6 set
+177212 012600                       MOV  (SP)+,R0          ; Get R0 back
+177214 110037 177766                MOVB R0,@#TUBE2        ; Send byte to Tube R2
+177220 000207                       RTS  PC
+177222                             
+177222                             
+177222                             ; Host->Client communication via interupts
+177222                             ; ========================================
+177222                             Get_R1:
+177222 113700 177760                MOVB @#TUBE1S,R0       ; Read Tube R1 status
+177226 100375                       BPL  Get_R1            ; Loop until b7 set
+177230 113700 177762                MOVB @#TUBE1,R0        ; Get byte from Tube R1
+177234 000207                       RTS  PC
+177236                             
+177236                             Get_R4:
+177236 113700 177774                MOVB @#TUBE4S,R0       ; Read Tube R4 status
+177242 100375                       BPL  Get_R4            ; Loop until b7 set
+177244 113700 177776                MOVB @#TUBE4,R0        ; Get byte from Tube R4
+177250 000207                       RTS  PC
+177252                             
+177252                             
+177252                             ; Interrupt handler
+177252                             ; ================
+177252                             ; When Host sends a byte to R1 or R4 it generates a Client IRQ.
+177252                             ; Within the interupt handler PSW has been saved on the stack
+177252                             ;  and further interrupts are disabled.
+177252                             ;
+177252                             IRQ:
+177252 010046                       MOV  R0,-(SP)          ; Save R0
+177254 113700 177774                MOVB @#TUBE4S,R0       ; Read Tube R4 status
+177260 100434                       BMI  IRQ_R4            ; If b7 set, R4 generated the interrupt
+177262 113700 177760                MOVB @#TUBE1S,R0       ; Read Tube R1 status
+177266 100403                       BMI  IRQ_R1            ; If b7 set, R1 generated the interrupt
+177270 012600                       MOV  (SP)+,R0          ; Get R0 back
+177272                             ;	JMP  @#USERIRQV			; Something else generated the interrupt
+177272 000177 173452                JMP  @USERIRQV         ; DMB Something else generated the interrupt
+177276                             
+177276                             ; Data present in Tube R1 generated an interrupt
+177276                             ;
+177276                             IRQ_R1:
+177276 113700 177762                MOVB @#TUBE1,R0        ; Get byte from Tube R1
+177302 100420                       BMI  IRQ_ESCAPE        ; b7 set, change Escape state
+177304                             ;
+177304                             ; R1<&80 - Host event being passed to client
+177304                             ; Tube data: via R1: &00 Y X A
+177304                             ;
+177304 010146                       MOV  R1,-(SP)          ; Save R1
+177306 010246                       MOV  R2,-(SP)          ; Save R2
+177310 004767 177706                JSR  PC,Get_R1         ; Wait for byte via Tube R1
+177314 010002                       MOV  R0,R2             ; Pass to R2
+177316 004767 177700                JSR  PC,Get_R1         ; Wait for byte via Tube R1
+177322 010001                       MOV  R0,R1             ; Pass to R1
+177324 004767 177672                JSR  PC,Get_R1         ; Wait for byte via Tube R1
+177330                             ;	JSR  PC,@#EVENTV		; Call event vector
+177330 004777 173410                JSR  PC,@EVENTV        ; DMB Call event vector
+177334 012602                       MOV  (SP)+,R2          ; Restore R2
+177336                             ;	BR   NMI_DONE2			; Restore registers and return from interrupt
+177336                             NMI_DONE2:
+177336 012601                       MOV  (SP)+,R1
+177340 012600                       MOV  (SP)+,R0
+177342 000002                       RTI                    ; Return from interupt
+177344                             
+177344                             ; R1>&7F - Host changing Escape state
+177344                             ; Tube data: via R1: flag, b7=1, b6=state
+177344                             ;
+177344                             IRQ_ESCAPE:
+177344                             ;	JSR  PC,@#ESCV			; Call Escape handler
+177344 004777 173364                JSR  PC,@ESCV          ; DMB Call Escape handler
+177350 000526                       BR   NMI_DONE1         ; Restore and return from interrupt
+177352                             ;	MOV  (SP)+,R0			; Restore R0
+177352                             ;	RTI				; Return from interupt
+177352                             
+177352                             ; Data present in Tube R4 generated an interupt
+177352                             ;
+177352                             IRQ_R4:
+177352 113700 177776                MOVB @#TUBE4,R0        ; Get byte from Tube R4
+177356 100023                       BPL  IRQ_DATA          ; b7=0, jump to do data transfer
+177360                             
+177360                             ; R4>&7F - Error occured
+177360                             ; Tube data: via R4: &FF, via R2: &00 err string &00
+177360                             ;
+177360 010146                       MOV  R1,-(SP)          ; Remove this when errjmp done
+177362 004767 176636                JSR  PC,WAIT_BYTE      ; Wait for an initial byte from R2
+177366 013701 172742                MOV  @#ERRADDR,R1      ; Point to error buffer
+177372 004767 176626                JSR  PC,WAIT_BYTE
+177376 110021                       MOVB R0,(R1)+          ; Store error number
+177400                             IRQ_R4LP:
+177400 004767 176620                JSR  PC,WAIT_BYTE      ; Wait for byte of error string
+177404 110021                       MOVB R0,(R1)+          ; Store in error buffer
+177406 001374                       BNE  IRQ_R4LP          ; Loop until terminating &00 received
+177410 012601                       MOV  (SP)+,R1          ; Restore R1
+177412 012600                       MOV  (SP)+,R0          ; Balance stack
+177414 013700 172742                MOV  @#ERRADDR,R0      ; Point to error block
+177420 013716 172740                MOV  @#ERRV,(SP)       ; Replace return address with error handler
+177424 000002                       RTI                    ; Restore PSW and jump to error handler
+177426                             
+177426                             ;; Generate an error without using EMT call
+177426                             ;; ----------------------------------------
+177426                             ;MKERR:
+177426                             ;	MOV  (SP)+,R0			; Point to inline error block
+177426                             ;;	JMP  @#ERRV			; Jump to error handler
+177426                             ;	JMP  @ERRV			; DMB Jump to error handler
+177426                             
+177426                             ; R4<&80 - Data transfer
+177426                             ; Tube data: via R4: action ID address sync, via R3: data
+177426                             ;
+177426                             IRQ_DATA:
+177426                             ; R0=transfer type, (sp)=mainline R0
+177426                             ;
+177426 010146                       MOV  R1,-(SP)          ; Save R1
+177430 010001                       MOV  R0,R1             ; Save transfer type in R2
+177432 004767 177600                JSR  PC,Get_R4         ; Wait for caller ID
+177436 020127 000005                CMP  R1,#5             ; Is transfer 'release'?
+177442 001735                       BEQ  NMI_DONE2         ; Exit if 'release'
+177444 004767 177566                JSR  PC,Get_R4         ; Get data address byte 4
+177450 110037 172773                MOVB R0,@#ADDR+3
+177454 004767 177556                JSR  PC,Get_R4         ; Get data address byte 3
+177460 110037 172772                MOVB R0,@#ADDR+2
+177464 004767 177546                JSR  PC,Get_R4         ; Get data address byte 2
+177470 110037 172771                MOVB R0,@#ADDR+1
+177474 004767 177536                JSR  PC,Get_R4         ; Get data address byte 1
+177500 110037 172770                MOVB R0,@#ADDR+0
+177504 113700 177772                MOVB @#TUBE3,R0        ; Clear Tube3 FIFO
+177510 113700 177772                MOVB @#TUBE3,R0
+177514 004767 177516                JSR  PC,Get_R4         ; Get sync byte
+177520 060101                       ADD  R1,R1             ; Index into NMI dispatch table
+177522 016137 177734 000200         MOV  NMIADDRS(R1),@#NMIVEC ; Set up NMI vector
+177530 013700 172770                MOV  @#ADDR,R0         ; Get transfer address
+177534 020127 000014                CMP  R1,#12            ; check transfer type
+177540 103676                       BCS  NMI_DONE2         ; Jump to exit if not 256-byte transfers
+177542 001412                       BEQ  NMI6              ; Jump with 256-byte write
+177544                             
+177544                             ; Transfer 7 - Read 256 bytes from Host via R3
+177544                             ; --------------------------------------------
+177544                             NMI7:
+177544 012701 000400                MOV  #256,R1           ; Prepare to transfer 256 bytes
+177550                             NMI7_LOOP:
+177550 105737 177770                TSTB @#TUBE3S
+177554 100375                       BPL  NMI7_LOOP         ; Wait for Tube R3 ready
+177556 113720 177772                MOVB @#TUBE3,(R0)+     ; Fetch byte from Tube R3 and store
+177562 005301                       DEC  R1                ; Decrement count
+177564 001371                       BNE  NMI7_LOOP         ; Loop for 256 bytes
+177566 000416                       BR   NMI_DONE
+177570                             
+177570                             ; Transfer 6 - Send 256 bytes to Host via R3
+177570                             ; ------------------------------------------
+177570                             NMI6:
+177570 012701 000400                MOV  #256,R1           ; Prepare to transfer 256 bytes
+177574                             NMI6_LOOP:
+177574 105737 177770                TSTB @#TUBE3S
+177600 100375                       BPL  NMI6_LOOP         ; Wait for Tube R3 ready
+177602 112037 177772                MOVB (R0)+,@#TUBE3     ; Fetch byte and send to Tube R3
+177606 005301                       DEC  R1                ; Decrement count
+177610 001371                       BNE  NMI6_LOOP         ; Loop for 256 bytes
+177612                             NMI6_DONE:
+177612 105737 177770                TSTB @#TUBE3S
+177616 100375                       BPL  NMI6_DONE         ; Wait for Tube R3 ready again
+177620 105037 177772                CLRB @#TUBE3           ; Send final sync byte
+177624                             NMI_DONE:
+177624 012601                       MOV  (SP)+,R1          ; Restore and return
+177626                             NMI_DONE1:
+177626 010037 172770                MOV  R0,@#ADDR         ; Save updated transfer address
+177632 012600                       MOV  (SP)+,R0
+177634 000002                       RTI
+177636                             
+177636                             
+177636                             ; Transfer 3 - Read double bytes from host
+177636                             ; ----------------------------------------
+177636                             NMI3:
+177636 010046                       MOV  R0,-(SP)
+177640 013700 172770                MOV  @#ADDR,R0         ; Get transfer address
+177644 113720 177772                MOVB @#TUBE3,(R0)+     ; Read two bytes
+177650 113720 177772                MOVB @#TUBE3,(R0)+
+177654 000764                       BR   NMI_DONE1
+177656                             
+177656                             ; Transfer 2 - Send double bytes to host
+177656                             ; --------------------------------------
+177656                             NMI2:
+177656 010046                       MOV  R0,-(SP)
+177660 013700 172770                MOV  @#ADDR,R0         ; Get transfer address
+177664 112037 177772                MOVB (R0)+,@#TUBE3     ; Send two bytes
+177670 112037 177772                MOVB (R0)+,@#TUBE3
+177674 000754                       BR   NMI_DONE1
+177676                             
+177676                             ; Transfer 1 - Read single byte from host
+177676                             ; ---------------------------------------
+177676                             NMI1:
+177676 010046                       MOV  R0,-(SP)
+177700 013700 172770                MOV  @#ADDR,R0         ; Get transfer address
+177704 113720 177772                MOVB @#TUBE3,(R0)+     ; Transfer byte from Tube
+177710 000746                       BR   NMI_DONE1
+177712                             
+177712                             ; Transfer 0 - Send single byte to Host
+177712                             ; -------------------------------------
+177712                             NMI0:
+177712 010046                       MOV  R0,-(SP)
+177714 013700 172770                MOV  @#ADDR,R0         ; Get transfer address
+177720 112037 177772                MOVB (R0)+,@#TUBE3     ; Transfer byte to Tube
+177724 000740                       BR   NMI_DONE1
+177726                             ;NMI_DONE1:
+177726                             ;	MOV  (SP)+,R0
+177726                             ;	RTI
+177726                             
+177726                             ; Transfers 4,5,6,7 - Just acknowledge NMI
+177726                             ; ----------------------------------------
+177726                             NMI_ACK:
+177726 105037 177772                CLRB @#TUBE3           ; Store to Tube R3 to acknowledge NMI
+177732                             USERIRQ:                ; Default unknown IRQ handler
+177732                             NULLIRQ:                ; Default unused hardware vector handler
+177732 000002                       RTI
+177734                             
+177734                             ; NMI transfer dispatch table
+177734                             ; ---------------------------
+177734                             NMIADDRS:
+177734 177712                       EQUW NMI0              ; Single byte to host
+177736 177676                       EQUW NMI1              ; Single byte from host
+177740 177656                       EQUW NMI2              ; Double byte to host
+177742 177636                       EQUW NMI3              ; Double byte from host
+177744 177726                       EQUW NMI_ACK           ; Execute
+177746 177726                       EQUW NMI_ACK           ; Release
+177750 177726                       EQUW NMI_ACK           ; 256 bytes to host
+177752 177726                       EQUW NMI_ACK           ; 256 bytes from host
+177754                             
+177754 000 000 000 000              EQUM TUBEIO-$          ; Spare space
+177760                             
+177760                             ; Tube I/O registers
+177760                             ; ------------------
+177760 000000 000000 000000 000000
+       000000 000000 000000 000000  EQUW 0,0,0,0,0,0,0,0   ; Tube registers
+200000                             
+Errors: 0

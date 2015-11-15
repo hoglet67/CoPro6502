@@ -23,7 +23,7 @@ module LX9CoPro80186 (
         
         // GOP Signals
         output [8:1] test,
-        input [4:1] sw,
+        input [3:0] sw,
         
         // Tube signals (use 16 out of 22 DIL pins)
         input h_phi2,
@@ -148,18 +148,40 @@ module LX9CoPro80186 (
   
   wire [19:0] pc;
   wire trigger;
+  reg [8:0] reset_counter;
+
+  wire [3:0] sw_out;
+   
+  ICAP_config inst_ICAP_config (
+    .fastclk(fastclk),
+    .sw_in  (sw),
+    .sw_out (sw_out),
+    .h_addr (h_addr),
+    .h_cs_b (h_cs_b),
+    .h_data (h_data),
+    .h_phi2 (h_phi2),
+    .h_rdnw (h_rdnw),
+    .h_rst_b(h_rst_b)
+  );
+   
   
-// Instantiate the module
-dcm_32_16 instance_name (
+  dcm_32_16 inst_dcm (
     .CLKIN_IN(fastclk), 
     .CLK0_OUT(clk), 
     .CLK0_OUT1(), 
     .CLK2X_OUT()
-    );
-    
+  );
 
+  // Ensure reset is held active for 256 clock cycles on power up
+  // Needed as Beeb's reset is missed when using multiboot loader as initialization takes too long
+  always @(posedge clk)
+  begin
+      if (reset_counter[8] == 0)
+          reset_counter <= reset_counter + 1;
+  end
+    
   wire rst;
-  assign rst = !p_rst_b;
+  assign rst = !p_rst_b | !reset_counter[8];
 
 
   bootrom bootrom (
@@ -515,10 +537,10 @@ tube tube_inst(
   // 06bb:0a55                      
   assign trigger = (pc[15:0] == 16'h7605) ? 1 : 0; 
                         
-  assign test = sw[1] ? pc[15:8] : 
-              ( sw[2] ? {p_cs_b, pc[6:0]} :
-              ( sw[3] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, nmi, nmia, intr, inta } :
-              ( sw[4] ? {trigger, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
+  assign test = sw_out[0] ? pc[15:8] : 
+              ( sw_out[1] ? {p_cs_b, pc[6:0]} :
+              ( sw_out[2] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, nmi, nmia, intr, inta } :
+              ( sw_out[3] ? {trigger, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
               ( { trigger, pc[6:0] }
               ))));
   
@@ -528,6 +550,8 @@ tube tube_inst(
   assign ram_addr = ram_addr_int;
   
   assign h_irq_b = 1;
+  
+
 
 
 endmodule

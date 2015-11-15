@@ -7,13 +7,8 @@ module ph_fifo (
                 input h_phi2,
                 input [7:0] p_data,                  
                 input p_selectData,
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
                 input p_rdnw,
-`else                
-                input p_clk,
-                input p_westb_b,
-`endif
                 output [7:0] h_data,                  
                 output h_data_available,
                 output p_full
@@ -50,13 +45,8 @@ assign fifo_rst = ~h_rst_b;
 // Parasite
 assign fifo_din = p_data;
 assign p_full = fifo_full;
-
-`ifdef PARASITE_RNWCLK_INTERFACE_D
-    assign fifo_wr_clk = ~p_phi2;
-    assign fifo_wr_en = p_selectData & ~p_rdnw;
-`else   
-   // TODO: Not Ipplemented
-`endif
+assign fifo_wr_clk = p_phi2;
+assign fifo_wr_en = p_selectData & ~p_rdnw;
 
 // Host
 assign fifo_rd_clk = ~h_phi2;
@@ -64,6 +54,6 @@ assign fifo_rd_en = h_selectData & h_rd;
 assign h_data = fifo_empty ? 8'hAA : fifo_dout;
 assign h_data_available = ~fifo_empty;
 
-endmodule // ph_byte
+endmodule // ph_fifo
 
    

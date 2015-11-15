@@ -10,4 +10,11 @@ java/*/*.jar
 tmp/
 _xmsgs/
 coregen.cgp
-
+java/cpmutils/images/
+java/cpmutils/build/
+client/pdp11/
+client/68000/
+client/z80/
+multiboot/
+src/Tube/ph_fifo_core_spartan3*
+src/Tube/ph_fifo_core_spartan3/

@@ -29,13 +29,8 @@ module hp_reg3 (
                 input [7:0] h_data,
                 
                 input       p_selectData,
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                 input p_phi2,
                 input p_rdnw,
-`else                
-                input       p_rdstb_b,
-`endif 
-                
                 input       one_byte_mode,
                 
                 output [7:0] p_data,
@@ -52,8 +47,8 @@ module hp_reg3 (
    wire [7:0]    byte1_d_w ;   
 
    // assign primary IOs
-   // assign p_data = ( p_data_available_w[0] ) ? byte0_q_r: byte1_q_r;
-   assign p_data = byte0_q_r;
+   assign p_data = ( p_data_available_w[0] ) ? byte0_q_r: byte1_q_r;
+   // assign p_data = byte0_q_r;
    assign p_two_bytes_available = !(one_byte_mode) & ( &p_data_available_w );   
 
    // Compute D and resets for state bits
@@ -75,44 +70,26 @@ module hp_reg3 (
    // Instance the appropriate flag logic
 
    
-   gen_flag_m flag_0 (
+   hp_flag_m flag_0 (
                        .rst_b(h_rst_b),
-                       //.reset_state(1'b0),
                        .p1_rdnw( h_we_b),
                        .p1_select(h_selectData & (!h_full_w[0] | one_byte_mode)),
                        .p1_clk(h_phi2),
-                       .p1_phase(h_phi2),
                        .p2_select(p_selectData & (p_data_available_w[0] | one_byte_mode)),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p2_rdnw(p_rdnw),
-                       .p2_phase(p_phi2),
                        .p2_clk(p_phi2),                      
-`else                      
-                       .p2_rdnw(!p_rdstb_b),
-                       .p2_phase(1'b1),
-                       .p2_clk( ! p_rdstb_b  ),
-`endif                      
                        .p2_data_available(p_data_available_w[0]),
                        .p1_full(h_full_w[0])
                        );
 
-   gen_flag_m flag_1 (
+   hp_flag_m flag_1 (
                        .rst_b(h_rst_b),
-                       //.reset_state(1'b0),
                        .p1_rdnw( h_we_b),
                        .p1_select(h_selectData & (h_full_w[0] & !one_byte_mode)),
                        .p1_clk(h_phi2),
-                       .p1_phase(h_phi2),
                        .p2_select(p_selectData & (!p_data_available_w[0] & !one_byte_mode)),
-`ifdef PARASITE_RNWCLK_INTERFACE_D
                        .p2_rdnw(p_rdnw),
-                       .p2_phase(p_phi2),
                        .p2_clk(p_phi2),                      
-`else                                            
-                       .p2_rdnw(!p_rdstb_b),
-                       .p2_phase(1'b1),
-                       .p2_clk( ! p_rdstb_b  ),
-`endif                      
                        .p2_data_available(p_data_available_w[1]),
                        .p1_full(h_full_w[1])
                        );
@@ -132,6 +109,6 @@ module hp_reg3 (
         
      end
    
-endmodule // hp_byte
+endmodule // hp_reg3
 
    

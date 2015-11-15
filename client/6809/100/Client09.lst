@@ -1,0 +1,1503 @@
+AS09 Assembler for M6809 [1.40].  Copyright 1994-2005, Frank A. Kingswood                                                Page    1
+---------------------------------------------------------- CLIENT09.SRC ----------------------------------------------------------
+
+1494 lines read, no errors in pass 1.
+                        ; 6809 Tube Client Code
+                        ; =====================
+                        ; Copyright (C)1989, 2008, 2012, 2014 J.G.Harston
+                        ; This can be assembled with:
+                        ; DOS as9:         as9 Client09.src -l now bin > errors.txt
+                        ; Kingswood as09:  as09-dos -i -lTube09.lst -oTube09.bin Client09.src
+                        ;
+                        ; v0.10        1989 JGH: Initial unfinished version.
+                        ; v0.20 11-Mar-2008 JGH: Inspired by Johan Heuseveldt to complete
+                        ;	12-Mar-2008 JGH: Fixed where A/B was wrong way around in D
+                        ;			 OSBYTE &8E no longer ends with unbalanced stack
+                        ;			 BYTE_HI sends X,Y correct way around
+                        ;			 Internal variables at same address as Z80
+                        ; v0.21 07-Jan-2012 JGH: Added client error handler
+                        ; v0.22 20-Nov-2014 DMB: Bugfix in FIRQ code from David Banks
+                        ;		    JGH: Added PRHEX and HR2HEX, execute enters at PROGRAM
+                        ;	25-Nov-2014 JGH: Added OSWORD <>0 handler, preparing to merge source
+                        ;			 with 6809 Serial Tube client. Crunched some JSRs to BSRs.
+                        ;			 Shorter FIRQ dispatch code. Moved text buffers to $FF00.
+                        ;	28-Nov-2014 JGH: Replaced LDA #0 with CLRA, use returned flags from WAIT_BYTE.
+                        ;			 STARTUP and OSCLI use internal stack.
+                        ;			 MEMTOP moved below code if code is in high memory.
+                        ; v0.23 30-Nov-2014 DMB: JSR [,X] should be JSR ,X in EXEC_ENTER.
+                        ;		    JGH: Fixed off-by-one in PR_HEX and preserves A, added PR_STRING.
+                        ;			 PULS reg followed by RTS merged into PULS reg,PC
+                        ;	02-Dec-2014 JGH: Implemented KBDTST for 6809 BIOS calls. Execute checks code
+                        ;			 header. WARM resets MEMBOT & MEMTOP.
+                        ; v0.24 07-Dec-2014 JGH: EXECUTE enters code with A=1 or A=0, PROG saved and restored,
+                        ;			 soft Break will re-enter at PROG. OSCLI saves all registers.
+                        ;			 Bugfix: data transfer FIRQs corrupted foreground X and B.
+                        ;		    DMB: Bugfix: EXECUTE should use ADDRESS+2 big-endian address.
+                        ;		    JGH: Raw 6809 code is not made the current program. Supervisor
+                        ;			 prompt makes itself current program. Full header (C) check.
+                        ;			 RESET avoids overwriting PROG so Soft Reset will re-enter
+                        ;			 current program.
+                        ;	14-Dec-2014 JGH: When EXECUTE called on RESET, does not report 'Not 6809 code'
+                        ;			 error, but jumps directly to CLICOM. Gives a cleaner startup
+                        ;			 display, and this is hook for future check for booting disk
+                        ;			 operating system.
+                        ;		    DMB: Bug: Hangs on Ctrl-Break, but not on Soft-Break
+                        ; v0.25 20-Dec-2014 JGH: Bugfix: Fixed hang on Ctrl-Break, FIRQ6/7 was wrong way around.
+                        ;			 Added local *GO and *HELP commands, LPTR set to command line,
+                        ;			 OSBYTE 142 sets null LPTR. OSBYTE $82-$84 return address/256 in Y.
+                        ;			 Testing TxRDY uses ASLA instead of AND #$40. Squashed some JSRs
+                        ;			 into BSRs.
+0100 =                  VERSION:  EQU  $0100
+                        ; v1.00 01-Nov-2015 JGH: Rolled over to version 1.00.
+                        ;
+                        ;
+                        ; This code may be freely reused.
+                        ;
+                        ; Acknowledgements to:
+                        ;  Johan Heuseveldt: mentioning 6809 CoPros on the BBC Mailing List inspired me to
+                        ;			complete the code.
+                        ;  David Banks:      plenty of testing on the Matchbox CoPro "real" hardware.
+                        ;
+                        
+                        ; Notes:
+                        ; 07-Jan-2012: When I initially wrote this I didn't have any 6809 hardware, so don't know
+                        ;		 if this executed.
+                        ; 20-Nov-2014: DMB has tested this on Matchbox emulated hardware and shown it to work.
+                        ;
+                        ; Bugs, limitations:
+                        ;  CTRL not set to control block
+                        ;
+                        
+                        
+                        ; Memory layout:
+                        ; +-------------+--------------------------------------------------------+
+                        ; | 0000-       | vvv User memory vvv                                    |
+                        ; |             |                                                        |
+                        ; |       -F7FF | ^^^ System stack ^^^                                   |
+                        ; +-------------+--------------------------------------------------------+
+                        ; | F800-FFFF   | Client ROM, copied to RAM on startup                   |
+                        ; |   F800-F814 | Monitor ROM entry vectors                              |
+                        ; |             |                                                        |
+                        ; |   FEE0-FEEF | Tube registers                                         |
+                        ; |   FEF0-FEFF | Hardware vectors, remapped from &FFF0-&FFFF with BA/BS |
+                        ; |   FF00-FF7F | Text buffers and internal stack                        |
+                        ; |   FF80-     | Internal variables                                     |
+                        ; |       -FFCD | Tube Client entry block                                |
+                        ; |   FFCE-FFE7 | Standard BBC MOS entry block                           |
+                        ; +-------------+--------------------------------------------------------+
+                        ;
+                        ; BA/BS Signals are used to remap hardware vectors from &FFFx to &FEFx
+                        ; ROM copied to RAM at startup, then ROM paged out by accessing any I/O.
+                        ; Client error implemented with SWI (equivalent of 6502 BRK, Z80 RST &38, etc.)
+                        ; SWI2 and SWI3 reserved for applications (eg FLEX, OS-9, etc)
+                        
+                        
+                        ; START OF ROM CODE
+                        ; =================
+f800 =                  	ORG  $F800
+f800 :                  ROMSTART:
+0000 =                  RAMSTART:  EQU   $0000
+f800 =                  RAMEND:    EQU   ROMSTART
+                        
+                        
+                        ; 6809 BIOS entry block always at F800
+                        ; ====================================
+f800 =                  	ORG  $F800
+f800 : f82c             COLD:      FDB   RESET  ; $F800 - cold start
+f802 : f871             WARM:      FDB   WARMS  ; $F802 - warm start
+f804 : ffe0             INCH:      FDB   OSRDCH ; $F804 - char input
+f806 : f8e0             INCHE:     FDB   INECHO ; $F806 - char input with echo
+f808 : f8f4             INCHECK:   FDB   KBDTST ; $F808 - test for char input
+f80a : ffee             OUTCH:     FDB   OSWRCH ; $F80A - char output
+f80c : f8e9             PDATA:     FDB   PRDAT  ; $F80C - output string until EOT
+f80e : ffe7             PCRLF:     FDB   OSNEWL ; $F80E - output CR/LF
+f810 : f8e6             PSTRING:   FDB   PRTST  ; $F810 - output CR/LF then string until EOT
+f812 : f8df             LRA:       FDB   LREAL  ; $F812 - Load Real Address
+f814 : 205b                        BRA   WARMS  ; $F814 - for FLEX compatibility
+                        
+f816 :                  BANNER:
+f816 : 0d               	FCB 13
+f817 : 36383039205455.. 	FCC "6809 TUBE 64K "
+f825 : 31               	FCB ((VERSION >> 8) & 15) + $30
+f826 : 2e               	FCB "."
+f827 : 30               	FCB ((VERSION >> 4) & 15) +$30
+f828 : 30               	FCB (VERSION & 15) + $30
+f829 : 200d00           	FCB 32,13,0
+f82c :                  RESET:
+f82c : 1a50             	ORCC #$50	; Ensure interupts disabled
+f82e : 10cef800         	LDS  #RAMEND	; Put stack at top of RAM
+                              IF RAMEND = ROMSTART
+f832 : 1f41             	TFR  S,X	; Start copying from start of ROM
+                              ELSE
+                        	LDX  #ROMSTART	; Start copying from start of ROM
+                              ENDIF
+f834 :                  RESETLP1:
+f834 : ec84             	LDD  ,X		; Get two bytes from ROM
+f836 : ed81             	STD  ,X++	; Store to RAM and increment X
+f838 : 8cfec0           	CMPX #IOADDRS
+f83b : 2603             	BNE  RESETLP2	; Loop until hit I/O space
+f83d : 8efef0           	LDX  #ROMHIGH	; Point to ROM after I/O space
+f840 :                  RESETLP2:
+f840 : 8cff8c           	CMPX #ADDRESS	; Don't modify ADDRESS and PROG
+f843 : 2603             	BNE  RESETLP3
+f845 : 8eff94           	LDX  #DMA_DONE
+f848 :                  RESETLP3:
+f848 : 8c0000           	CMPX #0
+f84b : 26e7             	BNE  RESETLP1	; Copy top part of ROM to RAM
+f84d : b6fee0           	LDA  >TUBE1S	; Access I/O registers to page ROM out
+                        			; Once ROM is paged out we can do subroutine calls
+                        			;  as we can now read from stack in RAM
+                        
+                        ; STARTUP
+                        ; =======
+                        ; Tube data: via R1: string $00  --  via R2: $7F or $80
+                        ;
+f850 :                  STARTUP:
+f850 : 1a50             	ORCC #$50	; Disable interupts
+f852 : 10ceff28         	LDS  #CLISTK	; Use internal stack
+f856 : 8d68             	BSR  MEM_INIT	; Reset user memory limits and error handler
+f858 : beff90           	LDX  PROGRAM	; Copy current PROGRAM to ADDRESS
+f85b : bfff8e           	STX  ADDRESS+2	;  so will re-enter on Soft Break
+f85e : 1c00             	ANDCC #$00	; Clear all flags, enable interupts
+f860 : 8ef816           	LDX  #BANNER	; Point to startup banner
+f863 : bdf933           	JSR  SEND_TXT	; Print it via Tube WRCH protocol
+f866 : bdffe7           	JSR  OSNEWL	; SEND_TXT will use 7 bytes on stack
+f869 : 4f               	CLRA		; Set A to zero
+                        ;	STA  >ESCFLG	; Clear Escape flag
+                        ;	ECSFLG will have been cleared when copying ROM/initialising workspace
+f86a : bdffee           	JSR  OSWRCH	; Send terminating zero byte
+                        			; This will use 3 bytes on stack
+f86d : 4f               	CLRA		; Carry Clear to indicate Reset
+f86e : bdfa30           	JSR  CLI_WAIT	; Wait for result byte and enter code
+                        			; This will use 14 bytes on stack including data transfer
+                        			; Data transfer may happen while waiting
+                        			; Fall through to CLICOM if nothing executed
+                        
+                        ; Command line prompt
+                        ; ===================
+                        ; Allow user to enter *command
+                        ;
+f871 :                  WARMS:
+f871 :                  CLILOOP:
+f871 : 10ceff28         	LDS  #CLISTK	; Initially use internal stack
+f875 : 8d49             	BSR  COM_INIT	; Reset user memory limits and error handler
+f877 : 10feff8a         	LDS  MEMTOP	; Reset stack to top of user memory
+f87b : 8effb9           	LDX  #CLICOM	; Make CLICOM the current program to re-enter
+f87e : bfff90           	STX  PROGRAM	;  on soft reset
+f881 : 1c00             	ANDCC #$00	; Clear all flags, enable interupts
+f883 :                  CLILOOP2:
+f883 : 8ef896           	LDX  #PROMPT
+f886 : bdf933           	JSR  SEND_TXT	; Display prompt
+                        ;	CLRA		; Set A to zero (SEND_TXT returned A=0)
+                        ;	LDX  #COM_BLK	; Point to control block (SEND_TXT returned X=COM_BLK)
+f889 : bdfff1           	JSR  OSWORD	; OSWORD &00 - Read a line of text
+f88c : 2514             	BCS  COM_ESC	; Escape pressed
+f88e : 8eff28           	LDX  #CLIBUF
+f891 : bdfff7           	JSR  OS_CLI	; Execute command
+f894 : 20ed             	BRA  CLILOOP2	; Loop back for another line
+f896 :                  PROMPT:
+f896 : 363830393e2a     	FCC  "6809>*"	; Command prompt
+f89c : 00               	FCB  0
+f89d :                  COM_BLK:
+f89d : ff28             	FDB  CLIBUF		; Input buffer
+f89f : 57               	FCB  CLIEND-CLIBUF-1	; Buffer size
+f8a0 : 20               	FCB  32			; Lowest acceptable CHR$32
+f8a1 : ff               	FCB  255		; Highest acceptable CHR$255
+f8a2 :                  COM_ESC:
+f8a2 : 867e             	LDA  #126
+f8a4 : bdfff4           	JSR  OSBYTE	; Acknowledge Escape
+f8a7 :                  ESCAPE:
+f8a7 : 3f               	SWI
+f8a8 : 11               	FCB  17
+f8a9 : 457363617065     	FCC  "Escape"
+f8af : 00               	FCB  0
+                        
+f8b0 :                  COM_ERR:
+f8b0 : 10feff8a         	LDS  MEMTOP	; Reset stack to top of user memory
+f8b4 : bdffe7           	JSR  OSNEWL
+f8b7 : a680             	LDA  ,X+        ; Step X past error number
+f8b9 : 8d78             	BSR  SEND_TXT	; Print text at X
+f8bb : bdffe7           	JSR  OSNEWL
+f8be : 20c3             	BRA  CLILOOP2	; Return to command prompt
+                        
+f8c0 :                  MEM_INIT:
+f8c0 :                  COM_INIT:
+                        ; This has already been done by copying ROM to RAM. But, when entering
+                        ; Supervisor we want to ensure full memory available.
+f8c0 : cc0000           	LDD  #RAMSTART
+f8c3 : fdff88           	STD  MEMBOT	; Initialise bottom of user memory
+f8c6 : ccf800           	LDD  #RAMEND
+f8c9 : fdff8a           	STD  MEMTOP	; Initialise top of user memory
+f8cc :                  COM_BRKV:
+f8cc : ccf8b0           	LDD  #COM_ERR	; Get Supervisor error handler address
+f8cf : fdfffa           	STD  BRKV	; Set error handler
+f8d2 :                  ERR_INIT:
+f8d2 : ccfe22           	LDD  #SWI_HANDLE
+f8d5 : fdfefa           	STD  XSWIV	; Point SWI vector to error BRK handler
+f8d8 : 8efffa           	LDX  #BRKV
+f8db : 108eff80         	LDY  #ESCFLG	; Return X=BRKV, Y=ESCFLG
+f8df :                  PREND:
+f8df :                  LREAL:
+f8df : 39               	RTS
+                        
+                        
+                        ; FLEX/OS-9 BIOS code
+                        ; ===================
+f8e0 : bdffe0           INECHO:	JSR  OSRDCH
+f8e3 : 7effee           	JMP  OSWRCH
+f8e6 : bdffe7           PRTST:	JSR  OSNEWL
+f8e9 : a680             PRDAT:	LDA  ,X+	; Get character
+f8eb : 8104             	CMPA #4		; EOT character?
+f8ed : 27f0             	BEQ  PREND      ; End printing
+f8ef : bdffee           	JSR  OSWRCH	; Print character
+f8f2 : 20f5             	BRA  PRDAT	; Loop to next
+f8f4 : 3432             KBDTST:	PSHS A,X,Y
+f8f6 : 8680             	LDA  #$80
+f8f8 : 8effff           	LDX  #$FFFF	; Should check ADVAL(-2) if Serial is current input stream
+f8fb : 1f12             	TFR  X,Y
+f8fd : bdfff4           	JSR  OSBYTE	; ADVAL(-1) - keyboard input buffer
+f900 : 8c0000           	CMPX #0		; Set Z/NZ from X
+f903 : 35b2             	PULS A,X,Y,PC
+                        
+                        
+                        ; *****************
+                        ; Printout Routines
+                        ; *****************
+                        
+                        ; Print X as 4-digit hex
+                        ; ======================
+                        ; Preserves all registers
+f905 :                  PR_2HEX:
+f905 : 3406             	PSHS D		; Save AB
+f907 : 1f10             	TFR  X,D	; Copy X to D, so copy b16-b31 to A
+f909 : 8d06             	BSR  PR_HEX	; Print it
+f90b : 1f98             	TFR  B,A	; Copy other b0-b15 to A
+f90d : 8d02             	BSR  PR_HEX	; Print it
+f90f : 3586             	PULS D,PC	; Restore AB and return
+                        
+                        ; Print A as 2-digit hex
+                        ; ======================
+                        ; On exit:  A corrupted
+                        ;
+f911 :                  PR_HEX:
+f911 : 3402             	PSHS  A		; Standard hex-print code
+f913 : 44               	LSRA
+f914 : 44               	LSRA
+f915 : 44               	LSRA
+f916 : 44               	LSRA
+f917 : 8d06             	BSR  PR_NYBBLE
+f919 : a6e4             	LDA  ,S
+f91b : 8d02             	BSR  PR_NYBBLE
+f91d : 3582             	PULS A,PC
+f91f :                  PR_NYBBLE:
+f91f : 840f             	ANDA #$0F
+f921 : 810a             	CMPA #$0A
+f923 : 2502             	BCS  PR_DIGIT
+f925 : 8b07             	ADDA #7
+f927 :                  PR_DIGIT:
+f927 : 8b30             	ADDA #$30
+f929 : 7effee           	JMP  OSWRCH
+                        
+                        ; Print inline text
+                        ; =================
+                        ; On exit:  X= corrupted
+                        ;           A=$00
+                        ;
+f92c :                  PR_TEXT:
+f92c : 3510             	PULS X		; Pop PC to X
+f92e : 8d03             	BSR  SEND_TXT	; Print text
+f930 : 3410             	PSHS X		; Push updated X
+f932 :                  SEND_END:
+f932 : 39               	RTS		; And return to it
+                        
+                        ; Print text string at X
+                        ; ======================
+                        ; On entry: X=>zero-terminated text string
+                        ; On exit:  X=>byte after zero byte terminator
+                        ;           A=$00
+                        ;
+f933 :                  SEND_TXT:
+f933 : a680             	LDA  ,X+	; Get byte from X, increment X
+f935 : 27fb             	BEQ  SEND_END	; End if $00 byte
+f937 : bdffe3           	JSR  OSASCI	; Send to OSASCI
+f93a : 20f7             	BRA  SEND_TXT	; Loop until $00 sent
+                        
+                        
+                        ; **********************
+                        ; Line scanning Routines
+                        ; **********************
+                        
+                        ; Scan hex string
+                        ; ===============
+                        ; On entry, X=>start of hex string
+                        ; On exit,  X=>first non-hex character
+                        ;           Y=hex value
+                        ;           A=terminating character
+                        ;           B=corrupted
+                        ;           CS if number terminated, eg 123 X or 123<cr>
+                        ;           CC if number not terminated, eg 123X
+                        ;
+f93c :                  RD_HEX:
+f93c : 108e0000         	LDY  #0		; Clear hex accumulator
+f940 :                  RD_HEXLP:
+f940 : a680             	LDA  ,X+	; Get current character
+f942 : 8130             	CMPA #$30	; <'0', exit
+f944 : 252b             	BCS  RD_HEXDONE
+f946 : 813a             	CMPA #$3A	; '0'..'9', add to accumulator
+f948 : 250a             	BCS  RD_HEXADD
+f94a : 84df             	ANDA #$DF	; Ensure upper case letter
+f94c : 8007             	SUBA #$07	; Convert letter, if <'A', exit
+f94e : 2521             	BCS  RD_HEXDONE
+f950 : 8140             	CMPA #$40
+f952 : 241d             	BCC  RD_HEXDONE	; If >'F', exit
+f954 :                  RD_HEXADD:
+f954 : 840f             	ANDA #$0F	; AB=0Nxx, X=>line Y=acc
+f956 : 1e02             	EXG  D,Y	; AB=acc, X=>line Y=0Nxx
+f958 : 58               	ASLB
+f959 : 49               	ROLA
+f95a : 58               	ASLB
+f95b : 49               	ROLA
+f95c : 58               	ASLB
+f95d : 49               	ROLA
+f95e : 58               	ASLB
+f95f : 49               	ROLA		; AB=acc*16, X=>line, Y=0Nxx
+f960 : 1e12             	EXG  X,Y	; AB=acc*16, X=0Nxx, Y=>line
+f962 : 1e01             	EXG  D,X	; AB=0Nxx, X=acc*16, Y=>line
+f964 : 1e89             	EXG  A,B	; AB=xx0N, X=acc*16, Y=>line
+f966 : 3a               	ABX		; AB=xx0N, X=acc*16+N, Y=>line
+f967 : 1e12             	EXG  X,Y	; AB=xx0N, X=>line, Y=acc*16+N
+f969 : 20d5             	BRA  RD_HEXLP	; Move to next character
+                        
+                        ; Skip spaces
+                        ; ===========
+                        ; On entry, X=>command line
+                        ; On exit,  X=>first non-space character
+                        ;           A=first non-space character
+f96b :                  SKIPSPC:
+f96b : a680             	LDA  ,X+
+f96d : 8120             	CMPA #' '
+f96f : 27fa             	BEQ  SKIPSPC	; Skip space characters
+f971 :                  RD_HEXDONE:
+f971 : 301f             	LEAX -1,X	; Point to non-hex/non-space char
+f973 : 8121             	CMPA #'!'	; Return CS if no following character
+f975 : 39               	RTS
+                        
+                        
+                        ; **********************
+                        ; MOS Interface Routines
+                        ; **********************
+                        
+                        ; OSCLI - Execute command
+                        ; =======================
+                        ; On entry: X=>command string
+                        ; On exit:  A holds any return value
+                        ;
+                        ; First check for local commands, then pass on to host
+                        ;
+f976 :                  CLI:
+f976 : 347c             	PSHS B,DP,X,Y,U	   ; Save everything on users's stack, except A and CC
+f978 : 118cf800         	CMPS #ROMSTART	   ; Check where the stack is
+f97c : 2408             	BCC  CLI_SYSSTK	   ; We're already using internal stack
+f97e : 10fff98a         	STS  STKSAVE-2	   ; As a *command may result in data transfer, that
+f982 : 10ceff28         	LDS  #CLISTK	   ;  data may end up overwriting stack in user memory,
+f986 :                  CLI_SYSSTK:		   ;  so use a temporary stack to do OS_CLI. If OS_CLI
+f986 : 8d0f             	BSR  CLI_GO	   ;  ends up jumping to a new process, new stack will
+f988 : 10ce0000         	LDS  #0		   ;  be set up by that new process.
+f98c :                  STKSAVE:
+f98c : 35fc             	PULS B,DP,X,Y,U,PC ; Restore everything and return contents of A.
+                        
+                        ; Local *commands
+                        ; ---------------
+f98e :                  CLI_TABLE:
+f98e : 48454c50         	FCC  "HELP"
+f992 : 80               	FCB  $80
+f993 : 474f             	FCC  "GO"
+f995 : 81               	FCB  $81
+f996 : 00               	FCB  0
+                        
+                        ; OSCLI - Check for local commands
+                        ; --------------------------------
+                        ; On entry: X=>command string
+                        ;
+f997 :                  CLI_GO:
+f997 :                  CLI_LP1:
+f997 : 8dd2             	BSR  SKIPSPC	; Skip leading spaces
+f999 : a680             	LDA  ,X+
+f99b : 812a             	CMPA #'*'
+f99d : 27f8             	BEQ  CLI_LP1	; Skip leading '*'s
+f99f : 301f             	LEAX -1,X
+f9a1 : 3410             	PSHS X		; Save start of command text
+f9a3 :                  CLI_LP2:
+f9a3 : a680             	LDA  ,X+	; Step past command
+f9a5 : 8121             	CMPA #'!'
+f9a7 : 24fa             	BCC  CLI_LP2
+f9a9 : 301f             	LEAX -1,X
+f9ab : 8dbe             	BSR  SKIPSPC
+f9ad : bfff86           	STX  LPTR	; Point LPTR to command parameters
+                        
+f9b0 : 108ef98e         	LDY  #CLI_TABLE	; Point to command table
+f9b4 :                  CLI_LOOP1:
+f9b4 : aee4             	LDX  ,S		; Get start of command text back
+f9b6 : a684             	LDA  ,X		; Get first character
+f9b8 : 8141             	CMPA #'A'
+f9ba : 2568             	BCS  CLI_TUBE	; Not a letter, pass to host
+f9bc :                  CLI_LOOP2:
+f9bc : a680             	LDA  ,X+	; Get character from command line
+f9be : 84df             	ANDA #$DF	; Force to upper case
+f9c0 : a1a0             	CMPA ,Y+	; Compare with table entry
+f9c2 : 27f8             	BEQ  CLI_LOOP2	; Characters match, check next
+f9c4 : a6a2             	LDA  ,-Y	; Step to command token
+f9c6 : 2b16             	BMI  CLI_MATCH	; Match
+f9c8 : a61f             	LDA  -1,X	; Get character from command line
+f9ca : 812e             	CMPA #'.'
+f9cc : 270a             	BEQ  CLI_DOT	; Abbreviated command
+f9ce :                  CLI_NEXT:
+f9ce : a6a0             	LDA  ,Y+	; Search for command token
+f9d0 : 2afc             	BPL  CLI_NEXT	; Step to end of table entry
+f9d2 : a6a4             	LDA  ,Y
+f9d4 : 26de             	BNE  CLI_LOOP1	; Not end of table
+f9d6 : 204c             	BRA  CLI_TUBE	; Pass to host
+f9d8 :                  CLI_DOT:
+f9d8 : a6a0             	LDA  ,Y+	; Search for command token
+f9da : 2afc             	BPL  CLI_DOT	; Step to end of table entry
+f9dc : 2006             	BRA  CLI_MATCH2
+f9de :                  CLI_MATCH:
+f9de : e682             	LDB  ,-X	; Get current character
+f9e0 : c121             	CMPB #'!'
+f9e2 : 2440             	BCC  CLI_TUBE	; Command line longer than table entry
+f9e4 :                  CLI_MATCH2:
+f9e4 : 8180             	CMPA #$80
+f9e6 : 272d             	BEQ  CMD_HELP
+                        ;	CMPA #$81
+                        ;	BNE  CLI_TUBE
+                        
+                        ; *GO <addr> ; parameters
+                        ; -----------------------
+f9e8 :                  CMD_GO:
+f9e8 : 8d81             	BSR  SKIPSPC
+f9ea : 10beff90         	LDY  PROGRAM	; Default to re-enter current program
+f9ee : 810d             	CMPA #13
+f9f0 : 2718             	BEQ  CLI_GO2	; *GO<cr> - enter current program
+f9f2 : 813b             	CMPA #';'
+f9f4 : 2712             	BEQ  CLI_GO1	; *GO ;params - enter current program
+f9f6 : bdffa1           	JSR  SCANHEX	; Get hex address
+f9f9 : 2429             	BCC  CLI_TUBE	; Malformed hex address, pass to host
+f9fb : bdf96b           	BSR  SKIPSPC
+f9fe : 813b             	CMPA #';'	; Check for ';' parameter marker
+fa00 : 2706             	BEQ  CLI_GO1	; *GO <addr>;params or *GO <addr> ;params
+fa02 : 810d             	CMPA #13
+fa04 : 261e             	BNE  CLI_TUBE	; *GO <addr>... or *GO <addr> ....
+fa06 : 301f             	LEAX -1,X	; Balance following 1,X
+fa08 :                  CLI_GO1:
+fa08 : 3001             	LEAX 1,X	; Step past ';'
+fa0a :                  CLI_GO2:
+fa0a : bfff86           	STX  LPTR	; Save pointer to command parameters
+fa0d : 3510             	PULS X		; Drop old line pointer
+fa0f : 1f21             	TFR  Y,X	; X=entry address
+fa11 : 1a01             	ORCC #$01	; Set Carry to indicate OSCLI
+fa13 : 2023             	BRA  EXECUTE2
+                        
+                        ; *HELP (<words>)
+                        ; ---------------
+fa15 :                  CMD_HELP:
+fa15 : bdf96b           	JSR  SKIPSPC
+fa18 : 2504             	BCS  CMD_HELP2	; *HELP<cr> - display help
+fa1a : 812e             	CMPA #'.'	; *HELP . - display help
+fa1c : 2606             	BNE  CLI_TUBE	; Otherwise, pass stright to host
+fa1e :                  CMD_HELP2:
+fa1e : 8ef816           	LDX  #BANNER
+fa21 : bdf933           	JSR  SEND_TXT	; Print banner as help message
+                        			; Fall through to CLI_TUBE
+                        
+                        
+                        ; OSCLI - Send command line to host
+                        ; =================================
+                        ; On entry: stacked X=>command string
+                        ; On exit:  All registers possibly corrupted
+                        ;           Registers should be preserved by calling code
+                        ;
+                        ; Tube data: $02 string $0D  --  $7F or $80
+                        ;
+fa24 :                  CLI_TUBE:
+fa24 : 3510             	PULS X		; Get command string back
+fa26 : 8602             	LDA  #2
+fa28 : bdfcde           	JSR  SEND_CMD	; Send command $02 = OSCLI
+fa2b : bdfca2           	JSR  SEND_STR	; Send string at X
+fa2e :                  CLI_WAIT1:
+fa2e : 1a01             	ORCC #$01	; Set Carry to indicate OSCLI
+fa30 :                  CLI_WAIT:
+fa30 : bdfab4           	JSR  WAIT_BYTE	; Wait for result via Tube R2 (preserves Cy)
+                        			; Data transfer may happen while waiting
+                        ;	TSTA		; Check return code
+                        			; WAIT_BYTE returns flags set from A
+fa33 : 2a51             	BPL  CLI_DONE	; Nothing to execute, return
+                        
+                        
+                        ; EXECUTE - Enter code at ADDRESS
+                        ; ===============================
+                        ; Checks for possible code header, makes code current PROGRAM.
+                        ; On entry, ADDRESS=code entry address
+                        ;           CS=entering from OSCLI
+                        ;           CC=entering from RESET
+                        ;
+                        ; If code in high memory, MEMTOP moved to below code.
+                        ; If code returns, MEMTOP and PROGRAM restored to previous value.
+                        ;
+                        ; If code has a header it is made the current program so it can be re-entered
+                        ; at soft reset, and entered with A=1. If not, it is entered with A=0. Code
+                        ; has a small initial stack with 20 bytes available on it (eg 10 subroutine
+                        ; calls). Note: this small stack will be overwritten if the called code calls
+                        ; OSCLI without first setting up a new stack.
+                        ;
+                        ; If called from RESET and not 6809 code, error not reported, jumps directly
+                        ; to CLICOM. In future this is the point where a disk operating system would
+                        ; be checked for and booted.
+                        ;
+fa35 :                  EXECUTE:
+fa35 : beff8e           	LDX  ADDRESS+2	; Get transfer address, note: big-endian
+fa38 :                  EXECUTE2:
+fa38 : 3401             	PSHS CC		 ; Save RESET/OSCLI flag
+fa3a : 1f12             	TFR  X,Y	 ; Save address in Y
+fa3c : e607             	LDB  7,X	 ; Get (C) offset
+fa3e : 3a               	ABX		 ; X=>(C) string
+fa3f : cefa93           	LDU  #EXEC_CHK+4 ; U=>check string
+fa42 : c604             	LDB  #4		 ; 4 bytes to check
+fa44 :                  EXEC_LP:
+fa44 : a680             	LDA  ,X+	; Get byte from header
+fa46 : a1c2             	CMPA ,-U	; Compare with check string
+fa48 : 263d             	BNE  EXEC_JUMP	; No match, enter as raw code
+fa4a : 5a               	DECB
+fa4b : 26f7             	BNE  EXEC_LP	; Loop to check all four bytes
+fa4d : a626             	LDA  6,Y	; Get code type
+fa4f : 48               	ASLA		; Check b6 by moving it into b7
+fa50 : 2a41             	BPL  ERR_NOTCODE
+fa52 : 841e             	ANDA #2*15	; Byte has been moved up, so mask and compare with 2*n
+fa54 : 8106             	CMPA #2*3
+fa56 : 263b             	BNE  ERR_NOT6809
+                        			; Should also check entry opcode for BRA or JMP to
+                        			;  filter out 68000 code with ROMTYPE=3
+fa58 : 301c             	LEAX -4,X
+fa5a : bfff82           	STX  FAULT	; Point FAULT to (C) string (should be version string)
+fa5d : feff90           	LDU  PROGRAM
+fa60 : beff8a           	LDX  MEMTOP
+fa63 : 3502             	PULS A		; Get RESET/OSCLI flag to A
+fa65 : 3450             	PSHS X,U	; Save current MEMTOP and PROGRAM
+fa67 : 108c8000         	CMPY #$8000
+fa6b : 2504             	BCS  EXEC_ENTER	; Entering code in low memory, leave MEMTOP where it is
+fa6d : 10bfff8a         	STY  MEMTOP	; Entering in high memory, put MEMTOP below entered code
+fa71 :                  EXEC_ENTER:
+fa71 : 46               	RORA		; Move RESET/OSCLI flag back into Carry
+fa72 : 10bfff90         	STY  PROGRAM	; Set as current program
+fa76 : beff86           	LDX  LPTR	; X=>command line
+fa79 : 8601             	LDA  #1		; A=1 for code with a header
+fa7b : ada4             	JSR  ,Y		; Call program execution address
+fa7d : 3560             	PULS Y,U
+fa7f : 10bfff8a         	STY  MEMTOP	; Restore previous MEMTOP if code returns
+fa83 : ffff90           	STU  PROGRAM	; Restore previous PROGRAM
+fa86 :                  NULL:			; Null routines
+fa86 :                  CLI_DONE:
+fa86 : 39               	RTS		; Return
+fa87 :                  EXEC_JUMP:
+fa87 : beff86           	LDX  LPTR	; X=>command line
+fa8a : 4f               	CLRA		; A=0 for raw code
+fa8b : 3501             	PULS CC		; Get RESET/OSCLI flag
+fa8d : 6ea4             	JMP  ,Y		; Enter raw code
+fa8f :                  EXEC_CHK:
+fa8f : 294328           	FCC ")C("	; Deliberately backwards so doesn't match itself
+fa92 : 00               	FCB 0
+fa93 :                  ERR_NOTCODE:
+                        ;	PULS CC		; Get RESET/OSCLI flag
+                        ;	LBCC CLICOM	; If called from RESET, drop straight into Supervisor
+                        ;	JSR  COM_BRKV
+                        ;	SWI
+                        ;	FCB  249
+                        ;	FCC  "Not code"
+                        ;	FCB 0
+fa93 :                  ERR_NOT6809:
+fa93 : 3501             	PULS CC		; Get RESET/OSCLI flag
+fa95 : 10240520         	LBCC CLICOM	; If called from RESET, drop straight into Supervisor
+                        			; Here is where we would check if this is hard reset,
+                        			; and look for a disk operating system to boot instead.
+fa99 : bdf8cc           	JSR  COM_BRKV	; Error handler may have been overwritten, so set up
+fa9c : 3f               	SWI		;  Supervisor error handler
+fa9d : f9               	FCB  249
+fa9e : 4e6f7420363830.. 	FCC  "Not 6809 code"
+faab : 00               	FCB 0
+                        
+                        
+                        ; OSRDCH - Wait for character from input stream
+                        ; =============================================
+                        ; On exit: A=char, Cy=carry
+                        ;
+                        ; Tube data: $00  --  Carry Char
+                        ;
+faac :                  RDCH:
+faac : 4f               	CLRA
+faad : bdfcde           	JSR  SEND_CMD	; Send command $00 - OSRDCH
+fab0 :                  WAIT_CHAR:
+fab0 : 8d02             	BSR  WAIT_BYTE	; Get returned byte
+fab2 : 8b80             	ADDA #$80	; Copy b7 into Carry
+                        			; Fall through to fetch byte from Tube R2
+                        
+                        
+                        ; Wait for a byte from Tube Register 2
+                        ; ====================================
+                        ; On exit: A=byte read
+                        ;          PL/MI, EQ/NE set from A
+                        ;          Other flags preserved
+                        ;
+fab4 :                  WAIT_BYTE:
+fab4 : b6fee2           	LDA  >TUBE2S	; Read Tube R2 Status
+fab7 : 2afb             	BPL  WAIT_BYTE	; Wait for b7 set
+fab9 : b6fee3           	LDA  >TUBE2	; Get byte from Tube R2
+fabc :                  BYTE_DONE:
+fabc : 39               	RTS
+                        
+                        
+                        ; OSBYTE
+                        ; ======
+                        ; On entry: A,X,Y=OSBYTE parameters
+                        ; On exit:  A preserved
+                        ;           If A<$80, X=returned value
+                        ;           If A>$7F, X, Y, Carry=returned values
+                        ;
+                        ; Tube data: $04 X A    --  X
+                        ;            $06 X Y A  --  Cy Y X
+                        ;
+fabd :                  BYTE:
+fabd : 3406             	PSHS A,B
+fabf : 4d               	TSTA
+fac0 : 2b23             	BMI  BYTE_HI
+fac2 : 8604             	LDA  #4
+fac4 : bdfcde           	JSR  SEND_CMD	; Send command $04 - short BYTE
+fac7 : 1f10             	TFR  X,D	; B=X
+fac9 : bdfcdc           	JSR  SEND_BYTEB	; Send second parameter from B
+facc : 3506             	PULS A,B
+face : 3406             	PSHS A,B
+fad0 : bdfcde           	JSR  SEND_BYTE	; Send first parameter
+fad3 : 8ddf             	JSR  WAIT_BYTE	; Wait for response
+fad5 : 1f89             	TFR  A,B	; Move result to low byte
+fad7 : 4f               	CLRA		; Ensure AB is only 8-bit value
+fad8 : 1f01             	TFR  D,X
+fada : 3586             	PULS A,B,PC
+                        
+fadc :                  BYTE_WAIT:
+fadc : 8ef816           	LDX  #BANNER	; Point LPTR to <cr>
+fadf : bfff86           	STX  LPTR
+fae2 : 7efa2e           	BRA  CLI_WAIT1	; Wait for program start
+                        
+                        ; OSBYTE >$7F
+                        ; -----------
+fae5 :                  BYTE_HI:
+fae5 : 8182             	CMPA #$82
+fae7 : 2739             	BEQ  MEM82	; Fetch address high word
+fae9 : 8183             	CMPA #$83
+faeb : 2737             	BEQ  MEM83	; Fetch user memory low limit
+faed : 8184             	CMPA #$84
+faef : 2733             	BEQ  MEM84	; Fetch user memory high limit
+faf1 : 8606             	LDA  #6
+faf3 : bdfcde           	JSR  SEND_CMD	; Send command $06 - long byte
+faf6 : 1f10             	TFR  X,D	; B=X - second parameter
+faf8 : bdfcdc           	JSR  SEND_BYTEB	; Send second parameter from B
+fafb : bdfcda           	JSR  SEND_BYTEY ; Send third parameter from Y
+fafe : 3506             	PULS A,B
+fb00 : bdfcde           	JSR  SEND_BYTE	; Send first parameter
+fb03 : 819d             	CMPA #$9D	; Was it fast BPUT?
+fb05 : 27b5             	BEQ  BYTE_DONE	; Don't wait for response
+fb07 : 818e             	CMPA #$8E	; Was it start language?
+fb09 : 27d1             	BEQ  BYTE_WAIT	; Wait for program start
+fb0b : 3406             	PSHS A,B
+fb0d : 8da5             	JSR  WAIT_BYTE	; Wait for response
+fb0f : 8b80             	ADDA #$80	; Copy b7 into carry
+fb11 : 3401             	PSHS CC		; Save flags
+fb13 : 8d9f             	JSR  WAIT_BYTE	; Wait for response
+fb15 : 1f89             	TFR  A,B	; Move result to low byte
+fb17 : 4f               	CLRA		; Ensure AB is only 8-bit value
+fb18 : 1f02             	TFR  D,Y	; Return result in Y
+fb1a : 8d98             	JSR  WAIT_BYTE	; Wait for response, high byte still in B
+fb1c : 1e89             	EXG  A,B	; Swap so high byte is Y, low byte is fetched byte
+fb1e : 1f01             	TFR  D,X	; Return result in X as returned Y*256+X value
+fb20 : 3587             	PULS CC,A,B,PC	; Restore flags/A/B and return
+fb22 :                  MEM82:
+fb22 : 8685             	LDA  #$85
+fb24 :                  MEM83:
+fb24 :                  MEM84:
+fb24 : 48               	ASLA		; A=6,8,10
+fb25 : 8eff82           	LDX  #MEMBOT-6	; Point to addresses
+fb28 : ec84             	LDD  ,X		; Fetch address value
+fb2a : 1f01             	TFR  D,X	; Return X=address
+fb2c : 1f89             	TFR  A,B	; Copy top byte to bottom byte
+fb2e : 4f               	CLRA		; Clear top byte
+fb2f : 1f02             	TFR  D,Y	; Return Y=address DIV 256
+fb31 : 3586             	PULS A,B,PC
+                        
+                        
+                        ; OSWORD
+                        ; ======
+                        ; On entry: A=OSWORD number
+                        ;           X=>control block
+                        ;
+fb33 :                  WORD:
+fb33 : 4d               	TSTA
+fb34 : 275c             	BEQ  RDLINE	; Jump with OSWORD 0 - RDLINE
+                        
+                        ; OSWORD <>&00
+                        ; ------------
+                        ; Tube data: &08 function in_length block out_length  --  block
+                        ;
+fb36 : 3426             	PSHS D,Y	; Save AB and Y
+fb38 : 3410             	PSHS X		; Save X=>control block
+fb3a : 1f89             	TFR  A,B	; B=function
+fb3c : 8608             	LDA  #$08
+fb3e : bdfcde           	JSR  SEND_CMD	; Send command $08 - OSWORD
+fb41 : bdfcdc           	JSR  SEND_BYTEB	; Send OSWORD function in B
+fb44 : 5d               	TSTB		; Check OSWORD function
+fb45 : 2a04             	BPL  WORD_TXLO	; Jump with functions<&80
+fb47 : a684             	LDA  ,X		; Get block length from control block
+fb49 : 200c             	BRA  WORD_SEND	; Jump to send control block
+fb4b :                  WORD_TXLO:
+fb4b : 8610             	LDA  #$10	; Default SendBlock length
+fb4d : c115             	CMPB #$15	; Check OSWORD function
+fb4f : 2406             	BCC  WORD_SEND	; Use 16 bytes for OSWORD &15 to &7F
+fb51 : 8efbc1           	LDX  #WORDTX-1	; X=>send length table
+fb54 : 3a               	ABX		; X=X+B, X=>send length
+fb55 : a684             	LDA  ,X		; Get send length for OSWORD &01 to &14
+fb57 :                  WORD_SEND:
+fb57 : 3510             	PULS X		; Get X=>control block back
+fb59 : bdfcde           	JSR  SEND_BYTE	; Send outward block length
+fb5c : 1f02             	TFR  D,Y	; AB=length+function  Y=length+function
+fb5e : 1e89             	EXG  A,B	; AB=function+length  Y=length+function
+fb60 : 4f               	CLRA		; AB=00000000+length  Y=length+function
+fb61 : 1e02             	EXG  D,Y	; AB=length+function  Y=000000+length
+fb63 : 4a               	DECA		; Convert 0 to -1
+fb64 : 2b03             	BMI  WORD_NOTX	; Only send length 1 to 128
+fb66 : bdfcab           	JSR  SEND_BLK	; Send control block
+fb69 :                  WORD_NOTX:
+fb69 : 3410             	PSHS X		; Save X=>control block
+fb6b : 5d               	TSTB		; Check OSWORD function
+fb6c : 2a04             	BPL  WORD_RXLO	; Jump with functions<&80
+fb6e : a601             	LDA  1,X	; Get block length from control block
+fb70 : 200c             	BRA  WORD_RECV	; Jump to send control block
+fb72 :                  WORD_RXLO:
+fb72 : 8610             	LDA  #$10	; Default ReceiveBlock length
+fb74 : c115             	CMPB #$15	; Check OSWORD function
+fb76 : 2406             	BCC  WORD_RECV	; Use 16 bytes for OSWORD &15 to &7F
+fb78 : 8efbd5           	LDX  #WORDRX-1	; X=>receive length table
+fb7b : 3a               	ABX		; X=X+B, X=>receive length
+fb7c : a684             	LDA  ,X		; Get receive length for OSWORD &01 to &14
+fb7e :                  WORD_RECV:
+fb7e : 3510             	PULS X		; Get X=>control block back
+fb80 : bdfcde           	JSR  SEND_BYTE	; Send inward block length
+fb83 : 1f02             	TFR  D,Y	; AB=length+function  Y=length+function
+fb85 : 1e89             	EXG  A,B	; AB=function+length  Y=length+function
+fb87 : 4f               	CLRA		; AB=00000000+length  Y=length+function
+fb88 : 1e02             	EXG  D,Y	; AB=length+function  Y=000000+length
+fb8a : 4a               	DECA		; Convert 0 to -1
+fb8b : 2b03             	BMI  WORD_NORX	; Only receive length 1 to 128
+fb8d : bdfcbb           	JSR  WAIT_BLK	; Wait for returned control block
+fb90 :                  WORD_NORX:
+fb90 : 35a6             	PULS Y,D,PC	; Restore Y and AB and return
+                        
+                        
+                        ; OSWORD 0 - Read a line of text
+                        ; ------------------------------
+                        ; On entry: X=>addr.hi, addr.lo, maxlen, charlo, charhi
+                        ; On exit:  Cy=0: Ok, Cy=1: Escape
+                        ;           Y=length of returned string in buffer at addr
+                        ;
+                        ; Note: Address of text string in control block is local big-endian address
+                        ;       All other MOS calls use little-endian addresses to match Host
+                        ;
+                        ; Tube data: $0A block  --  $FF or $7F string $0D
+                        ;
+fb92 :                  RDLINE:
+fb92 : 860a             	LDA  #10
+fb94 : bdfcde           	JSR  SEND_CMD	; Send command $0A - RDLINE
+fb97 : 3002             	LEAX 2,X	; X=X+2, point to parameters
+fb99 : 108e0003         	LDY  #3
+fb9d : bdfcab           	JSR  SEND_BLK	; Send 3-byte control block
+fba0 : 301e             	LEAX -2,X	; X=X-2, point back to text pointer
+fba2 : 8607             	LDA  #7
+fba4 : bdfcde           	JSR  SEND_BYTE	; Send $0700
+fba7 : 4f               	CLRA
+fba8 : bdfcde           	JSR  SEND_BYTE
+fbab : bdfab4           	JSR  WAIT_BYTE	; Wait for response
+fbae : 8b80             	ADDA #$80	; Copy bit 7 into Carry
+fbb0 : 250f             	BCS  RD_DONE
+fbb2 : ae84             	LDX  ,X		; Get text pointer from control block
+                        ;	LDY  #0		; Y=number received (Y already zero from SEND_BLK)
+fbb4 :                  RD_STR:
+fbb4 : bdfab4           	JSR  WAIT_BYTE	; Wait for bytes from Tube R2
+fbb7 : a780             	STA  ,X+	; Store in text buffer, increment X
+fbb9 : 3121             	LEAY 1,Y	; Increment character count
+fbbb : 810d             	CMPA #13	; Check current byte
+fbbd : 26f5             	BNE  RD_STR	; Loop until <CR>
+fbbf : 313f             	LEAY -1,Y	; Decrement character count to balance <CR>
+                        ;	ANDCC #$FE	; Clear carry (already CC from CMPA #13)
+fbc1 :                  RD_DONE:
+fbc1 : 39               	RTS
+                        
+                        ; Table of OSWORD control block lengths for &01-&14
+                        ; -------------------------------------------------
+fbc2 :                  WORDTX:
+fbc2 : 0005000504       	FCB $00,$05,$00,$05,$04
+fbc7 : 05080e0401       	FCB $05,$08,$0E,$04,$01
+fbcc : 0105001020       	FCB $01,$05,$00,$10,$20
+fbd1 : 100d000480       	FCB $10,$0D,$00,$04,$80
+fbd6 :                  WORDRX:
+fbd6 : 0500050005       	FCB $05,$00,$05,$00,$05
+fbdb : 0000000509       	FCB $00,$00,$00,$05,$09
+fbe0 : 0500081900       	FCB $05,$00,$08,$19,$00
+fbe5 : 010d800480       	FCB $01,$0D,$80,$04,$80
+                        
+                        
+                        ; OSARGS - Read info on open file
+                        ; ===============================
+                        ; On entry: A=action
+                        ;           X=>data (little-endian)
+                        ;           Y=handle
+                        ; On exit:  A=returned value
+                        ;           X preserved
+                        ;           X=>any returned data
+                        ;           Y preserved
+                        ;
+                        ; Tube Data: $0C handle block function  --  result block
+                        ;
+fbea :                  ARGS:
+fbea : 3426             	PSHS Y,B,A	; Save handle, B and function
+fbec : 860c             	LDA  #$0C
+fbee : bdfcde           	JSR  SEND_CMD	; Send command $0C - OSARGS
+fbf1 : bdfcda           	JSR  SEND_BYTEY ; Send handle
+fbf4 : 108e0004         	LDY  #4
+fbf8 : bdfcab           	JSR  SEND_BLK	; Send four-byte control block
+fbfb : 3506             	PULS A,B	; Get action back and restore B
+fbfd : bdfcde           	JSR  SEND_BYTE	; Send action
+fc00 : bdfab4           	JSR  WAIT_BYTE	; Wait for returned result
+fc03 : 3402             	PSHS A		; Save result
+fc05 : 108e0004         	LDY  #4
+fc09 : bdfcbb           	JSR  WAIT_BLK	; Wait for four-byte control block
+fc0c : 35a2             	PULS A,Y,PC	; Get result and original handle back, and return
+                        
+                        
+                        ; OSBGet - Get a byte from open file
+                        ; ==================================
+                        ; On entry: Y=handle
+                        ; On exit:  A=byte Read
+                        ;           Y=preserved
+                        ;           Cy set if EOF
+                        ;
+                        ; Tube data: $0E handle --  Carry byte
+                        ;
+fc0e :                  BGet:
+fc0e : 3404             	PSHS B
+fc10 : 860e             	LDA  #$0E
+fc12 : bdfcde           	JSR  SEND_CMD	; Send command $0E - OSBGet
+fc15 : bdfcda           	JSR  SEND_BYTEY	; Send handle
+fc18 : 3504             	PULS B
+fc1a : 7efab0           	JMP  WAIT_CHAR	; Wait for Carry, Byte
+                        
+                        
+                        ; OSBPut - Put a byte to an open file
+                        ; ===================================
+                        ; On entry: A=byte to write
+                        ;           Y=handle
+                        ; On exit:  A=preserved
+                        ;           Y=preserved
+                        ;
+                        ; Tube data: $10 handle byte  --  $7F
+                        ;
+fc1d :                  BPut:
+fc1d : 3406             	PSHS A,B	; Save byte and B
+fc1f : 8610             	LDA  #$10
+fc21 : bdfcde           	JSR  SEND_CMD	; Send command $10 - OSBPut
+fc24 : bdfcda           	JSR  SEND_BYTEY	; Send handle
+fc27 : 3506             	PULS A,B	; Get A and B back
+fc29 : 3406             	PSHS A,B
+fc2b : bdfcde           	JSR  SEND_BYTE	; Send byte to Tube
+fc2e : bdfab4           	JSR  WAIT_BYTE	; Wait for acknowledgement
+fc31 : 3586             	PULS A,B,PC	; Restore A/B and return
+                        
+                        
+                        ; OSFIND - Open or Close a file
+                        ; =============================
+                        ; On entry: A=function
+                        ;           Y=handle or X=>filename
+                        ; On exit:  A=zero or handle
+                        ;           X,Y preserved
+                        ;
+                        ; Tube data: $12 function string $0D  --  handle
+                        ;            $12 $00 handle  --  $7F
+                        ;
+fc33 :                  FIND:
+fc33 : 3406             	PSHS A,B	; Save A
+fc35 : 8612             	LDA  #$12
+fc37 : bdfcde           	JSR  SEND_CMD	; Send command $12 - OSFIND
+fc3a : 3506             	PULS A,B	; Get function back
+fc3c : bdfcde           	JSR  SEND_BYTE	; Send function
+fc3f : 4d               	TSTA		; Check function
+fc40 : 2706             	BEQ  Close	; Jump to deal with Close
+fc42 : bdfca2           	JSR  SEND_STR	; Send string at X
+fc45 : 7efab4           	JMP  WAIT_BYTE	; Wait for returned handle
+fc48 :                  Close:
+fc48 : 3404             	PSHS B
+fc4a : bdfcda           	JSR  SEND_BYTEY	; Send handle to Tube
+fc4d : bdfab4           	JSR  WAIT_BYTE	; Wait for acknowledgement
+fc50 : 4f               	CLRA		; Zero A
+fc51 : 3584             	PULS B,PC	; Restore B and return
+                        
+                        
+                        ; OSFILE - Operate on whole files
+                        ; ===============================
+                        ; On entry: A=function
+                        ;           X=>control block
+                        ; On exit:  A=result
+                        ;           X preserved
+                        ;           control block updated
+                        ;
+                        ; Note: Address of text string in control block is local big-endian address
+                        ;       All other MOS calls use little-endian addresses to match Host
+                        ;
+                        ; Tube data: $14 block string <cr> function  --  result block
+                        ;
+fc53 :                  FILE:
+fc53 : 3432             	PSHS Y,X,A	; Save Y, X and function
+fc55 : 8614             	LDA  #$14
+fc57 : bdfcde           	JSR  SEND_CMD	; Send command $14 - OSFILE
+fc5a : 3002             	LEAX 2,X	; Point to control block contents
+fc5c : 108e0010         	LDY  #16
+fc60 : bdfcab           	JSR  SEND_BLK	; Send 16-byte control block
+fc63 : 301e             	LEAX -2,X	; Point to filename pointer
+fc65 : ae84             	LDX  ,X		; Get filename pointer to X
+fc67 : bdfca2           	JSR  SEND_STR	; Send filename string
+fc6a : 3502             	PULS A
+fc6c : bdfcde           	JSR  SEND_BYTE	; Send function
+fc6f : bdfab4           	JSR  WAIT_BYTE	; Wait for returned result
+                        			; Data transfer via interupts may happen while waiting
+fc72 : 3510             	PULS X		; Get control block pointer back
+fc74 : 3402             	PSHS A		; Save result
+fc76 : 3002             	LEAX 2,X	; Point to control block contents
+fc78 : 108e0010         	LDY  #16
+fc7c : bdfcbb           	JSR  WAIT_BLK	; Wait for 16-byte control block
+fc7f : 301e             	LEAX -2,X	; Restore X
+fc81 : 35a2             	PULS A,Y,PC	; Get result and Y back and return
+                        
+                        
+                        ; OSGBPB - Multiple byte Read and write
+                        ; =====================================
+                        ; On entry: A=function
+                        ;           X=>control block
+                        ; On exit:  A=returned value
+                        ;              control block updated
+                        ;
+                        ; Tube data: $16 block function  --   block Carry result
+                        ;
+fc83 :                  GBPB:
+fc83 : 3422             	PSHS A,Y	; Save Y and function
+fc85 : 8616             	LDA  #$16
+fc87 : bdfcde           	JSR  SEND_CMD	; Send command $16 - OSGBPB
+fc8a : 108e000d         	LDY  #13
+fc8e : bdfcab           	JSR  SEND_BLK	; Send 13-byte control block
+fc91 : 3502             	PULS A
+fc93 : bdfcde           	JSR  SEND_BYTE	; Send function
+fc96 : 108e000d         	LDY  #13
+fc9a : bdfcbb           	JSR  WAIT_BLK	; Wait for 13-byte control block
+fc9d : 3520             	PULS Y		; Get Y back
+fc9f : 7efab0           	JMP  WAIT_CHAR	; Get Carry and result byte
+                        
+                        
+                        ; *****************
+                        ; Tube I/O routines
+                        ; *****************
+                        
+                        ; Send cr-string at X to Tube Register 2
+                        ; =========================================
+fca2 :                  SEND_STR:
+fca2 : a680             	LDA  ,X+	; Get byte from X, increment X
+fca4 : 8d38             	BSR  SEND_BYTE	; Send byte via Tube R2
+fca6 : 810d             	CMPA #13	; Test current character
+fca8 : 26f8             	BNE  SEND_STR	; Loop until CR sent
+fcaa : 39               	RTS
+                        
+                        
+                        ; Send block at X to Tube Register 2, Y=block length
+                        ; ==================================================
+fcab :                  SEND_BLK:
+fcab : 3404             	PSHS B		; Save B
+fcad : 1f20             	TFR  Y,D	; B=Y
+fcaf : 3a               	ABX		; X=X+B, X points to end of block+1
+fcb0 : 3504             	PULS B		; Restore B
+fcb2 :                  SEND_BLKLP:
+fcb2 : a682             	LDA  ,-X	; Decrement X, get byte from X
+fcb4 : 8d28             	BSR  SEND_BYTE	; Send byte via Tube R2
+fcb6 : 313f             	LEAY -1,Y	; Decrement count of bytes to send
+fcb8 : 26f8             	BNE  SEND_BLKLP	; Loop until all bytes sent
+fcba : 39               	RTS
+                        
+                        
+                        ; Wait for block at X from Tube Register 2, Y=block length
+                        ; ========================================================
+fcbb :                  WAIT_BLK:
+fcbb : 3404             	PSHS B		; Save B
+fcbd : 1f20             	TFR  Y,D	; B=Y
+fcbf : 3a               	ABX		; X=X+B, X points to end of block+1
+fcc0 : 3504             	PULS B		; Restore B
+fcc2 :                  WAIT_BLKLP:
+fcc2 : bdfab4           	JSR  WAIT_BYTE	; Get byte via Tube R2
+fcc5 : a782             	STA  ,-X	; Decrement X, store byte at X
+fcc7 : 313f             	LEAY -1,Y	; Decrement count of bytes
+fcc9 : 26f7             	BNE  WAIT_BLKLP	; Loop until all bytes sent
+fccb : 39               	RTS
+                        
+                        
+                        ; OSWRCH - Send character in A to Tube Register 1
+                        ; ===============================================
+                        ; Preserves A, corrupts flags
+                        ;
+fccc :                  WRCH:
+fccc : 3402             	PSHS A		; Save A
+fcce :                  SEND_R1LP:
+fcce : b6fee0           	LDA  >TUBE1S	; Read Tube R1 status
+fcd1 : 48               	ASLA		; Move TxRDY from b6 to b7
+fcd2 : 2afa             	BPL  SEND_R1LP	; Loop until TxRDY set
+fcd4 : 3502             	PULS A		; Get A back
+fcd6 : b7fee1           	STA  >TUBE1	; Send byte to Tube R1
+fcd9 : 39               	RTS
+                        
+                        
+                        ; Send byte in Y to Tube Register 2 via B
+                        ; =======================================
+fcda :                  SEND_BYTEY:
+fcda : 1f20             	TFR  Y,D
+                        ;			; Fall through into SEND_BYTEB
+                        
+                        
+                        ; Send byte in B to Tube Register 2
+                        ; ==================================
+fcdc :                  SEND_BYTEB:
+fcdc : 1f98             	TFR  B,A
+                        ;			; Fall through into SendByte
+                        
+                        
+                        ; Send byte in A to Tube Register 2
+                        ; ==================================
+                        ; Preserves A, corrupts flags
+                        ;
+fcde :                  SEND_CMD:
+fcde :                  SEND_BYTE:
+fcde : 3402             	PSHS A		 ; Save A
+fce0 :                  SEND_BYTELP:
+fce0 : b6fee2           	LDA  >TUBE2S	 ; Read Tube R2 status
+fce3 : 48               	ASLA		 ; Move TxRDY from b6 to b7
+fce4 : 2afa             	BPL  SEND_BYTELP ; Loop until TxRDY set
+fce6 : 3502             	PULS A		 ; Get A back
+fce8 : b7fee3           	STA  >TUBE2	 ; Send byte to Tube R2
+fceb : 39               	RTS
+                        
+                        
+                        ; ****************************************
+                        ; Host->Client communication via interupts
+                        ; ****************************************
+                        ; When Host sends a byte to R1 or R4 it generates a Client IRQ.
+                        ; Data transfers are syncronised with client NMIs. Graham Toal's
+                        ; design sends Tube IRQs to 6809 FIRQs and Tube NMIs to 6809 IRQs.
+                        ; Transfers are synchronised with SYNC instruction waiting for IRQs.
+                        ;
+                        ; This code manually translated from Graham Toal's Skimp code
+                        ; with half an eye on the PDP-11, Z80 and 6502 code.
+                        ; Most code before this point translated from JGH PDP-11 client.
+                        
+                        
+                        ; Interupt handler
+                        ; ================
+                        ; Stack holds: CC with E=0, PC
+                        ; CC has I and F set to disable further IRQs and FIRQs
+                        ;
+fcec :                  FIRQ_HANDLE:
+fcec : 3402             	PSHS A
+fcee : b6fee6           	LDA  >TUBE4S	; Read Tube R4 status
+fcf1 : 2b51             	BMI  FIRQ_R4	; If data in Tube R4, jump to process errors and transfers
+fcf3 : b6fee0           	LDA  >TUBE1S	; Read Tube R1 status
+fcf6 : 2b06             	BMI  FIRQ_R1	; If data in Tube R1, jump to process Escape and Events
+fcf8 : 3502             	PULS A		; Get A back
+fcfa : 6e9fffb1         	JMP  [IRQ2V]	; Pass interupt onwards
+                        
+                        ; Interupt generated by data in Tube R1
+                        ; -------------------------------------
+fcfe :                  FIRQ_R1:
+fcfe : b6fee1           	LDA  >TUBE1
+fd01 : 2b1b             	BMI  FIRQ_Escape ; b7=1, jump to set Escape state
+                        ;
+                        ; A<$80 - Host event being passed to client
+                        ; Tube data: via R1: $00 Y X A
+                        ;
+fd03 : 3502             	PULS A		; Pop A to restack all registers
+fd05 : 3476             	PSHS A,B,X,Y,U	; Save everything
+fd07 : 8d1c             	BSR  Get_R1	; Get event Y parameter
+fd09 : 1f89             	TFR  A,B
+fd0b : 4f               	CLRA		; Ensure AB is 8-bit value
+fd0c : 1f02             	TFR  D,Y
+fd0e : 8d15             	BSR  Get_R1	; Get event X parameter
+fd10 : 1f89             	TFR  A,B
+fd12 : 4f               	CLRA		; Ensure AB is 8-bit value
+fd13 : 1f01             	TFR  D,X
+fd15 : 8d0e             	BSR  Get_R1	; Get event A parameter
+fd17 : ad9ffffc         	JSR  [EVENTV]	; Dispatch event
+fd1b : 3576             	PULS U,Y,X,B,A	; Restore registers
+fd1d : 3b               	RTI		; Return from interupt
+                        
+                        ; A>$7F - Host changing Escape state
+                        ; Tube data: via R1: flag, b7=1, b6=state
+                        ;
+fd1e :                  FIRQ_Escape:
+fd1e : 48               	ASLA		; Move b6 into b7
+fd1f : b7ff80           	STA  >ESCFLG	; Store Escape flag
+fd22 : 3502             	PULS A		; Restore A
+fd24 : 3b               	RTI		; Return from interupt
+                        
+                        ; Read byte from Tube R1, allowing Tube R4 transfers to take place
+                        ; ---------------------------------------------------------------- 
+fd25 :                  Get_R1:
+fd25 : b6fee6           	LDA  >TUBE4S	; Read Tube R4 status
+fd28 : 2b02             	BMI  NotFIRQ_R4	; Pending R4 transfer higher priority than R1 transfer
+fd2a : 8d12             	BSR  FIRQ_R4_CC	; Deal with R4 interupt
+fd2c :                  NotFIRQ_R4:
+fd2c : b6fee0           	LDA  >TUBE1S	; Read Tube R1 status
+fd2f : 2af4             	BPL  Get_R1	; Loop until b7 set
+fd31 : b6fee1           	LDA  >TUBE1	; Get byte from Tube R1
+fd34 : 39               	RTS
+                        
+                        ; Read byte from Tube R4
+                        ; ----------------------
+fd35 :                  Get_R4:
+fd35 : b6fee6           	LDA  >TUBE4S	; Read Tube R4 status
+fd38 : 2afb             	BPL  Get_R4	; Loop until b7 set
+fd3a : b6fee7           	LDA  >TUBE4	; Get byte from Tube R4
+fd3d : 39               	RTS
+                        
+                        ; Interrupt generated by data in Tube R4
+                        ; --------------------------------------
+fd3e :                  FIRQ_R4_CC:
+fd3e : 1c7f             	ANDCC #$7F	; Clear 'all registers' bit
+fd40 : 3401             	PSHS CC		; Push CC to let this be a subroutine
+fd42 : 3402             	PSHS A		; Push A to balance following Pull
+fd44 :                  FIRQ_R4:
+fd44 : 3502             	PULS A		; Pop A to restack registers
+fd46 : 3416             	PSHS A,B,X	; Rearrange stack contents
+fd48 : b6fee7           	LDA  >TUBE4
+fd4b : 2a22             	BPL  FIRQ_Data  ; b7=0, jump for data transfer
+                        
+                        ; A>$7F - Error occured
+                        ; Tube data: via R2: $00 err string $00
+                        ;
+fd4d : 10ceff80         	LDS  #ERRSTK	; Collapse stack
+fd51 : 8eff00           	LDX  #ERRBLK	; Point to error buffer
+fd54 : bdfab4           	JSR  WAIT_BYTE	; Wait for BRK error code
+fd57 : 863f             	LDA  #$3F	; SWI opcode
+fd59 : a780             	STA  ,X+	; Store SWI opcode
+fd5b : bdfab4           	JSR  WAIT_BYTE	; Get error number
+fd5e : a780             	STA  ,X+	; Store error number
+fd60 :                  FIRQ_R4LP:
+fd60 : bdfab4           	JSR  WAIT_BYTE	; Wait for byte of error string
+fd63 : a780             	STA  ,X+	; Store in error buffer
+                        			; WAIT_BYTE returns flags set from A
+fd65 : 26f9             	BNE  FIRQ_R4LP	; Loop until terminating $00 received
+fd67 : 8eff01           	LDX  #ERRBLK+1	; Point to error block after SWI opcode
+fd6a : 3410             	PSHS X		; Push error pointer onto stack
+fd6c : 7effbc           	JMP  ERRJMP	; Jump to generate error
+                        			; FIRQ and IRQ will be enabled by error handler
+                        
+                        ; Data transfer via FIRQs
+                        ; -----------------------
+                        ; R4<$80 - Data transfer
+                        ; Tube data: via R4: action ID block sync, via R3: data
+                        ;
+                        ; Cribbed from Graham Toal's Skimp code
+                        ;
+fd6f :                  FIRQ_Data:
+                        ; A=transfer type
+                        ;
+fd6f : 3402             	PSHS A		 ; Save transfer type
+fd71 : 8dc2             	BSR  Get_R4	 ; Wait for caller ID
+fd73 : 3502             	PULS A		 ; Get transfer type back
+fd75 : 8105             	CMPA #5		 ; Is it 'release'?
+fd77 : 2606             	BNE  FIRQ_NotDone; No, jump to do transfer DMB: fixed BEQ/BNE error
+fd79 : 7fff94           	CLR  DMA_DONE	 ; Signal 'transfer done'
+fd7c : 3516             	PULS A,B,X	 ; Restore registers
+fd7e : 3b               	RTI		 ; and return from interupt
+                        ;
+fd7f :                  FIRQ_NotDone:
+fd7f : 3402             	PSHS A		; Save transfer type again and save X and B
+fd81 : 8db2             	BSR  Get_R4	; Get data address MSB
+fd83 : b7ff8c           	STA  ADDRESS+0	; Note - 6809 is big-endian
+fd86 : 8dad             	BSR  Get_R4	; Get data address
+fd88 : b7ff8d           	STA  ADDRESS+1
+fd8b : 8da8             	BSR  Get_R4	; Get data address
+fd8d : b7ff8e           	STA  ADDRESS+2
+fd90 : 8da3             	BSR  Get_R4	; Get data address LSB
+fd92 : b7ff8f           	STA  ADDRESS+3
+fd95 : 8d9e             	BSR  Get_R4	; Get sync byte
+fd97 : 86ff             	LDA  #$FF
+fd99 : b7ff94           	STA  DMA_DONE	; Signal 'transfer in progress'
+fd9c : 1cbf             	ANDCC #$BF	; DMB: re-enable FIRQ interrupts to allow Release FIRQ
+                        
+fd9e : beff8e           	LDX  ADDRESS+2	; Prepare X with transfer address
+fda1 : a6e0             	LDA  ,S+	; Pop A from stack and set Z flag
+fda3 : 276c             	BEQ  FIRQ0	; Dispatch to FIRQ subhandler
+fda5 : 8102             	CMPA #2
+fda7 : 255b             	BCS  FIRQ1
+fda9 : 2749             	BEQ  FIRQ2
+fdab : 8104             	CMPA #4
+fdad : 2535             	BCS  FIRQ3
+fdaf : 276e             	BEQ  FIRQ4
+fdb1 : 5f               	CLRB		; B=offset from start address for 256-byte transfers
+fdb2 : 8107             	CMPA #7		; We will never get a FIRQ5 here as filtered out earlier
+fdb4 : 2511             	BCS  FIRQ6
+fdb6 : 2667             	BNE  FIRQ_EXIT
+                        
+                        ; 1-byte and 2-byte Tube R3 interrupts done via IRQ/SYNC mechanism
+                        ; 256-byte transfers done by polling transfer register
+                        
+                        ; Transfer 7 - Multiple byte host -> parasite
+                        ; -------------------------------------------
+fdb8 :                  FIRQ7:
+fdb8 :                  FIRQ7lp:
+fdb8 : b6fee4           	LDA  >TUBE3S	 ; Wait for Tube R3 ready
+fdbb : 2afb             	BPL  FIRQ7lp     
+fdbd : b6fee5           	LDA  >TUBE3	 ; Get byte from Tube host via R3
+fdc0 : a785             	STA  B,X	 ; Store in parasite memory at (X+B)
+fdc2 : 5c               	INCB		 ; Increment offset from X
+fdc3 : 26f3             	BNE  FIRQ7lp	 ; Loop 256 times
+fdc5 : 2017             	BRA  FIRQ67_DONE ; Update ADDRESS and exit
+                        
+                        ; Transfer 6 - Multiple byte parasite -> host
+                        ; -------------------------------------------
+fdc7 :                  FIRQ6:
+fdc7 :                  FIRQ6lp:
+fdc7 : b6fee4           	LDA  >TUBE3S	; Wait for Tube R3 ready
+fdca : 48               	ASLA
+fdcb : 2afa             	BPL  FIRQ6lp
+fdcd : a685             	LDA  B,X	; Get byte from parasite memory at (X+B)
+fdcf : b7fee5           	STA  >TUBE3	; Send to Tube host via R3
+fdd2 : 5c               	INCB		; Increment offset from X
+fdd3 : 26f2             	BNE  FIRQ6lp	; Loop 256 times
+fdd5 :                  FIRQ6lp2:
+fdd5 : b6fee4           	LDA  >TUBE3S	; Wait for Tube R3 ready
+fdd8 : 48               	ASLA
+fdd9 : 2afa             	BPL  FIRQ6lp2
+fddb : b7fee5           	STA  >TUBE3	; Send 257th byte to flush FIFO
+fdde :                  FIRQ67_DONE:
+fdde : 30890100         	LEAX 256,X	; X=X+256
+fde2 : 2038             	BRA  FIRQ_DONE
+                        
+                        ; Transfer 3 - Double byte host -> parasite
+                        ; -----------------------------------------
+fde4 :                  FIRQ3:
+fde4 :                  FIRQ3lp:
+fde4 : 13               	SYNC		; Wait for IRQ
+fde5 : b6fee5           	LDA  >TUBE3	; Get two bytes from Tube host
+fde8 : f6fee5           	LDB  >TUBE3
+fdeb : ed81             	STD  ,X++	; Store them in parasite memory
+fded : b6ff94           	LDA  DMA_DONE
+fdf0 : 26f2             	BNE  FIRQ3lp
+fdf2 : 2028             	BRA  FIRQ_DONE
+                        
+                        ; Transfer 2 - Double byte parasite -> host
+                        ; -----------------------------------------
+fdf4 :                  FIRQ2:
+fdf4 :                  FIRQ2lp:
+fdf4 : 13               	SYNC		; Wait for IRQ
+fdf5 : ec81             	LDD  ,X++	; Fetch two bytes from parasite memory
+fdf7 : b7fee5           	STA  >TUBE3	; Send them to Tube host
+fdfa : f7fee5           	STB  >TUBE3
+fdfd : b6ff94           	LDA  DMA_DONE	; Has flag changed?
+fe00 : 26f2             	BNE  FIRQ2lp	; Loop until FIRQ5 clears flag
+fe02 : 2018             	BRA  FIRQ_DONE
+                        
+                        ; Transfer 1 - Single bytes host -> parasite
+                        ; ------------------------------------------
+fe04 :                  FIRQ1:
+fe04 :                  FIRQ1lp:
+fe04 : 13               	SYNC		; Wait for IRQ
+fe05 : b6fee5           	LDA  >TUBE3	; Get byte from Tube host
+fe08 : a780             	STA  ,X+	; Store in parasite memory
+fe0a : b6ff94           	LDA  DMA_DONE	; Has flag changed?
+fe0d : 26f5             	BNE  FIRQ1lp	; Loop until FIRQ5 clears flag
+fe0f : 200b             	BRA  FIRQ_DONE
+                        
+                        ; Transfer 0 - Single bytes parasite -> host
+                        ; ------------------------------------------
+fe11 :                  FIRQ0:
+fe11 :                  FIRQ0lp:
+fe11 : 13               	SYNC		; Wait for IRQ
+fe12 : a680             	LDA  ,X+	; Get byte from parasite memory
+fe14 : b7fee5           	STA  >TUBE3	; Send to Tube host
+fe17 : b6ff94           	LDA  DMA_DONE	; Has flag changed?
+fe1a : 26f5             	BNE  FIRQ0lp	; Loop until FIRQ5 clears flag
+fe1c :                  FIRQ_DONE:
+fe1c : bfff8e           	STX  ADDRESS+2	; Update transfer address
+                        
+                        ; Transfer 4 - Set program execute address
+                        ; ----------------------------------------
+fe1f :                  FIRQ4:
+fe1f :                  FIRQ_EXIT:
+fe1f : 3516             	PULS A,B,X
+                        ; After a FIRQ4 the Host will then send a FIRQ5 to release the Tube and
+                        ; clear DNA_DONE. OSCLI handler will pick up execution address and pass
+                        ; it to PROGRAM.
+                        
+                        
+                        ; Null interupt routines
+                        ; ======================
+                        ; OS-9 and FLEX use a timer on IRQ to poll background processes
+                        ;
+fe21 :                  NULL_RTI:
+fe21 :                  RES_HANDLE:
+fe21 :                  SWI2_HANDLE:
+fe21 :                  SWI3_HANDLE:
+fe21 :                  IRQ_HANDLE:
+fe21 :                  NMI_HANDLE: 
+fe21 : 3b               	RTI
+                        
+                        
+                        ; SWI - Generate an error
+                        ; =======================
+fe22 :                  SWI_HANDLE:
+fe22 : 326a             	LEAS  10,S	; Point to stacked PC
+fe24 :                  ERR_HANDLE:
+fe24 : 3510             	PULS  X		; Pop address of error block after SWI opcode
+fe26 : bfff82           	STX   FAULT	; Save pointer to last error
+fe29 : 1c00             	ANDCC #$00	; Clear all flags, enable interupts
+fe2b : 6e9ffffa         	JMP   [BRKV]	; Jump to current error handler with X=>error
+                        
+                        
+                        ; I/O address space
+                        ; =================
+                        ; Add any extra I/O devices here by pulling IOADDRS backwards
+                        ; For example:
+                        ; $FECx  VIA
+                        ; $FEDx  MMU
+                        ; $FEEx  TUBE
+                        ; $FEFx  VECTORS
+                        ;
+fec0 =                  	ORG $FEC0
+fec0 :                  IOADDRS:
+fee0 =                  	ORG $FEE0
+fee0 : 00               TUBE1S:   FCB  0	; $FEE0   ; Tube registers
+fee1 : 00               TUBE1:    FCB  0	; $FEE1
+fee2 : 00               TUBE2S:   FCB  0	; $FEE2
+fee3 : 00               TUBE2:    FCB  0	; $FEE3
+fee4 : 00               TUBE3S:   FCB  0	; $FEE4
+fee5 : 00               TUBE3:    FCB  0	; $FEE5
+fee6 : 00               TUBE4S:   FCB  0	; $FEE6
+fee7 : 00               TUBE4:    FCB  0	; $FEE7
+                        ; If Tube registers fully decoded, space for 8 I/O addresses here
+                        ; For example:
+                        ; $FEE8/9 ACIA
+                        
+                        
+                        ; Remapped hardware vectors
+                        ; =========================
+                        ; BA/BS decoded to toggle address line A8 to map hardware vectors to $FEF0
+                        ;
+fef0 =                  	ORG $FEF0
+fef0 :                  ROMHIGH:
+fef0 : fe21             XRESV:    FDB  RES_HANDLE  ; $FEF0   ; Hardware vectors, paged in to $FFFx
+fef2 : fe21             XSWI3V:   FDB  SWI3_HANDLE ; $FEF2
+fef4 : fe21             XSWI2V:   FDB  SWI2_HANDLE ; $FEF4
+fef6 : fcec             XFIRQV:   FDB  FIRQ_HANDLE ; $FEF6
+fef8 : fe21             XIRQV:    FDB  IRQ_HANDLE  ; $FEF8
+fefa : fe22             XSWIV:    FDB  SWI_HANDLE  ; $FEFA
+fefc : fe21             XNMIV:    FDB  NMI_HANDLE  ; $FEFC
+fefe : f82c             XRESETV:  FDB  RESET       ; $FEFE
+                        
+                        
+                        ; Text buffers
+                        ; ============
+ff00 =                  	ORG $FF00
+ff00 : 00000000000000.. ERRBLK:   RMB 40	; Buffer to store host error block
+ff28 :                  CLISTK:			; Internal stack for CLI commands
+                        			; as main memory may be overwritten
+ff28 : 00000000000000.. CLIBUF:   RMB 128-40	; Space to enter command line from CLI prompt
+ff80 :                  CLIEND:   ;EQU ESCFLG
+ff80 :                  ERRSTK:			; Internal stack for host errors
+                        
+                        
+                        ; Tube system workspace and MOS entry block
+                        ; =========================================
+ff80 =                  	ORG $FF80
+ff80 :                  WORKSP:				    ; Use same addresses as Z80
+ff80 : 00               ESCFLG:   FCB 0           ; $FF80   ; Escape flag
+ff81 : 00                         FCB 0           ; $FF81   ; TempA/Personality
+ff82 : f816             FAULT:    FDB BANNER      ; $FF82   ; Last error message
+ff84 : f8b0             DEFERR:   FDB COM_ERR     ; $FF84   ; Default error handler
+ff86 : f816             LPTR:     FDB BANNER      ; $FF86   ; Command line tail
+ff88 : 0000             MEMBOT:   FDB RAMSTART    ; $FF88   ; Bottom of user memory
+ff8a : f800             MEMTOP:   FDB RAMEND      ; $FF8A   ; Top of user memory
+ff8c : 0000             ADDRESS:  FDB 0           ; $FF8C   ; Tube transfer address
+ff8e : 0000             	  FDB 0
+ff90 : ffb9             PROGRAM:  FDB CLICOM      ; $FF90   ; Program entry address
+ff92 : ff00             CTRL:     FDB ERRBLK      ; $FF92   ; Control block address
+ff94 : 00               DMA_DONE: FCB 0           ; $FF94   ; Transfer completion flag
+                        
+                        ; Tube system entry points
+                        ; ------------------------
+ff95 =                  	ORG $FF95
+ff95 : 7efa86                     JMP  >NULL      ; &FF95   ; Service
+ff98 : 7ef82c                     JMP  >RESET     ; &FF98   ; Cold
+ff9b : 7efa86                     JMP  >NULL      ; &FF9B   ; ReadDec
+ff9e : 7efa86                     JMP  >NULL      ; &FF9E   ;
+ffa1 : 7ef93c           SCANHEX:  JMP  >RD_HEX    ; &FFA1   ; ReadHex
+ffa4 : 7efa86           DISKACC:  JMP  >NULL      ; &FFA4   ; DiskAccess
+ffa7 : 7ef871           OSQUIT:   JMP  >WARMS     ; &FFA7   ; Quit current process
+ffaa : 7ef911           PRHEX:    JMP  >PR_HEX    ; &FFAA   ; Print A as 8-bit hex
+ffad : 7ef905           PR2HEX:   JMP  >PR_2HEX   ; &FFAD   ; Print X as 16-bit hex
+ffb0 : 7efe21           USERINT:  JMP  >NULL_RTI  ; &FFB0   ; Pass on FIRQs if not Tube FIRQ
+ffb1 =                  IRQ2V:    EQU  USERINT+1
+ffb3 : 7ef92c           PRTEXT:   JMP  >PR_TEXT   ; &FFB3   ; Print inline ZASCII text
+ffb6 : 7efa86                     JMP  >NULL      ; &FFB6   ; VecDef/PrntC
+ffb9 : 7ef871           CLICOM:   JMP  >CLILOOP   ; &FFB9   ; Enter Supervisor *command prompt
+ffbc : 7efe24           ERRJMP:   JMP  >ERR_HANDLE; &FFBC   ; Generate an error
+ffbf : 7ef8d2           INITERR:  JMP  >ERR_INIT  ; &FFBF   ; Initialise default error handler
+ffc2 : 7efa86           DISKRST:  JMP  >NULL      ; &FFC2   ; DiskReset
+ffc5 : 7ef933           PRSTRING: JMP  >SEND_TXT  ; &FFC5   ; Print ZASCII text at X
+ffc8 : 7efa86                     JMP  >NULL      ; &FFC8
+ffcb : 7efa86                     JMP  >NULL      ; &FFCB
+                        
+                        ; MOS file entry points
+                        ; ---------------------
+ffce : 7efc33           OSFIND:   JMP  >FIND      ; $FFCE
+ffd1 : 7efc83           OSGBPB:   JMP  >GBPB      ; $FFD1
+ffd4 : 7efc1d           OSBPUT:   JMP  >BPut      ; $FFD4
+ffd7 : 7efc0e           OSBGET:   JMP  >BGet      ; $FFD7
+ffda : 7efbea           OSARGS:   JMP  >ARGS      ; $FFDA
+ffdd : 7efc53           OSFILE:   JMP  >FILE      ; $FFDD
+                        
+                        ; MOS character entry points
+                        ; --------------------------
+ffe0 : 7efaac           OSRDCH:   JMP  >RDCH      ; $FFE0
+ffe3 : 810d             OSASCI:   CMPA #13        ; $FFE3
+ffe5 : 2607                       BNE  OSWRCH
+ffe7 : 860a             OSNEWL:   LDA  #10        ; $FFE7
+ffe9 : bdffee                     JSR  OSWRCH
+ffec : 860d             OSWRCR:   LDA  #13        ; $FFEC
+ffee : 7efccc           OSWRCH:   JMP  >WRCH      ; $FFEE
+                        
+                        ; MOS system entry points
+                        ; -----------------------
+fff1 : 7efb33           OSWORD:   JMP  >WORD      ; $FFF1
+fff4 : 7efabd           OSBYTE:   JMP  >BYTE      ; $FFF4
+fff7 : 7ef976           OS_CLI:   JMP  >CLI       ; $FFF7
+fffa : f8b0             BRKV:     FDB  COM_ERR    ; $FFFA   ; Error handler
+fffc : fa86             EVENTV:   FDB  NULL       ; $FFFC   ; Event vector
+fffe : f82c             L_FFFE:   FDB  RESET      ; $FFFE   ; Reset vector
+                        
+                        
+                        ; Memory Mapping Unit/Dynamic Address Translation
+                        ; ===============================================
+                        ; SWTPC clones have an MMU/DAT at $FFF0
+                        
+                        
+No errors in pass 2.
+Wrote binary from address $f800 through $ffff.
+Total size 2048 bytes.
+
