@@ -28,7 +28,13 @@ module ICAP_core
 
    reg [7:0]    soft_dip = 8'b00000000;
 
-   assign test = 8'b0;
+   reg test_trig;
+
+   assign test = { clk_16M00, test_trig, busy, ff_icap_wr, 
+    sw_in[0] ? icap_dout[3:0] :
+        (sw_in[1] ? icap_dout[7:4] :
+            (sw_in[2] ? icap_dout[11:8] :
+                (sw_in[3] ? icap_dout[15:12] : 4'b1010)))};
 
    assign sw_out = powerup ? sw_in : soft_dip[3:0];
 
@@ -218,7 +224,7 @@ module ICAP_core
 
          RD_LATCH_DATA:
             begin
-               if (busy && !reconfigure) begin
+               if (busy) begin
                    next_state  = RD_LATCH_DATA;
                    icap_ce     = 0;
                    icap_wr     = 1;
@@ -486,6 +492,11 @@ module ICAP_core
       end else begin
          MBT_REBOOT <= MBT_REBOOT + 4'b0001;
          state <= INIT;
+      end
+      if (state == RD_LATCH_DATA) begin
+         test_trig <= 1'b1;
+      end else begin
+         test_trig <= 1'b0;
       end
       if (state == RD_LATCH_DATA && !busy) begin
          soft_dip <= icap_dout[7:0];
