@@ -32,4 +32,7 @@ project close
 project open LX9Co-Null.xise
 project clean
 project close
+project open LX9Co-SPI.xise
+project clean
+project close
 exit

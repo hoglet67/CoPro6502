@@ -22,7 +22,7 @@ module LX9CoPro80186 (
         input fastclk,
         
         // GOP Signals
-        output [8:1] test,
+        inout [8:1] test,
         input [3:0] sw,
         
         // Tube signals (use 16 out of 22 DIL pins)
@@ -536,13 +536,10 @@ tube tube_inst(
                         
   // 06bb:0a55                      
   assign trigger = (pc[15:0] == 16'h7605) ? 1 : 0; 
-                        
-  assign test = sw_out[0] ? pc[15:8] : 
-              ( sw_out[1] ? {p_cs_b, pc[6:0]} :
-              ( sw_out[2] ? {p_nmi_b, p_irq_b, p_cs_b, p_wr_b, nmi, nmia, intr, inta } :
-              ( sw_out[3] ? {trigger, p_irq_b, p_cs_b, p_wr_b, p_data[7], p_addr[2:0]} :
-              ( { trigger, pc[6:0] }
-              ))));
+
+  // default to hi-impedence, to avoid conflicts with
+  // a Raspberry Pi connected to the test connector
+  assign test = 8'bZ;
   
   assign dack_b = 1;
   

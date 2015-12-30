@@ -7,7 +7,7 @@ entity LX9CoProPDP11 is
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
-        test      : out   std_logic_vector(8 downto 1);
+        test      : inout std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(3 downto 0);
 
         -- Tube signals
@@ -246,23 +246,9 @@ begin
 -- test signals
 --------------------------------------------------------
 
---    test(8) <= clk_cpu;
---    test(7) <= clk_tube;
---    test(6) <= '1' when p_cs_b = '0' and cpu_addr(3 downto 1) = "101" and cpu_wr = '0' else '0';
---    test(5) <= cpu_NMI_n;
---    test(4) <= cpu_din(3);
---    test(3) <= cpu_din(2);
---    test(2) <= cpu_din(1);
---    test(1) <= cpu_din(0);
-    
-    test(8) <= '1' when ifetch = '1' and cpu_addr = o"176320" else '0';
-    test(7) <= '1' when ifetch = '1' and cpu_addr = o"176404" else '0';
-    test(6) <= '1' when ifetch = '1' and cpu_addr = o"176406" else '0';
-    test(5) <= '1' when ifetch = '1' and cpu_addr = o"176430" else '0';
-    test(4) <= '1' when ifetch = '1' and cpu_addr = o"176432" else '0';
-    test(3) <= '1' when ifetch = '1' and cpu_addr = x"1000"   else '0';
-    test(2) <= '1' when ifetch = '1' and cpu_addr = x"0000"   else '0';
-    test(1) <= cpu_IRQ_n;
+    -- default to hi-impedence, to avoid conflicts with
+    -- a Raspberry Pi connected to the test connector
+    test <= (others => 'Z');
 
 --------------------------------------------------------
 -- clock enable generator

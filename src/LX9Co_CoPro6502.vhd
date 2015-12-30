@@ -12,7 +12,7 @@ entity LX9CoPro6502 is
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
-        test      : out   std_logic_vector(8 downto 1);
+        test      : inout std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals
@@ -224,14 +224,9 @@ begin
 --------------------------------------------------------
 -- test signals
 --------------------------------------------------------
-    test(8) <= cpu_NMI_n;
-    test(7) <= h_phi2;
-    test(6) <= not((not p_cs_b) and cpu_clken);
-    test(5) <= cpu_R_W_n;
-    test(4) <= cpu_addr(2);
-    test(3) <= cpu_addr(1);
-    test(2) <= cpu_addr(0);
-    test(1) <= cpu_clken;
+    -- default to hi-impedence, to avoid conflicts with
+    -- a Raspberry Pi connected to the test connector
+    test <= (others => 'Z');
     
 --------------------------------------------------------
 -- boot mode generator

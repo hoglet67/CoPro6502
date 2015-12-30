@@ -35,6 +35,11 @@
 `timescale 1ns /1ns
 
 // Interrupts can be open collector type outputs in non-trivial systems
+`ifdef TWOSTATE_HOST_INTERRUPTS_D
+ `define H_INTERRUPT_OFF_D 1'b1
+`else
+ `define H_INTERRUPT_OFF_D 1'bz
+`endif
 `ifdef TWOSTATE_PARASITE_INTERRUPTS_D
  `define P_INTERRUPT_OFF_D 1'b1
 `else
@@ -54,11 +59,16 @@
 module tube (
              input [2:0] h_addr,
              input       h_cs_b,
+`ifdef SEPARATE_HOST_DATABUSSES_D
+             input [7:0]  h_data_in,
+             output [7:0] h_data_out,
+`else 
              inout [7:0] h_data,
+`endif 
              input       h_phi2,
              input       h_rdnw,
              input       h_rst_b,
-             inout       h_irq_b,
+             output      h_irq_b,
 `ifndef OMIT_DMA_PINS_D            
              output      drq,
              input       dack_b,
@@ -76,8 +86,8 @@ module tube (
              input       p_rdnw,
              input       p_phi2,
              output      p_rst_b,
-             inout       p_nmi_b,
-             inout       p_irq_b
+             output      p_nmi_b,
+             output      p_irq_b
              );
    
 `ifdef OMIT_DMA_PINS_D   
@@ -132,14 +142,22 @@ module tube (
 
 
    // host interrupt active only if enabled and data ready in register 4 
-   assign h_irq_b = ( h_reg0_q_r[`Q_IDX] & h_data_available_w[3] ) ? 1'b0 : 1'bz;
+   assign h_irq_b = ( h_reg0_q_r[`Q_IDX] & h_data_available_w[3] ) ? 1'b0 : `H_INTERRUPT_OFF_D ;
    assign p_nmi_b = (p_nmi_b_r) ?  `P_INTERRUPT_OFF_D : 1'b0 ;
    // parasite IRQ active
    assign p_irq_b = ( (h_reg0_q_r[`I_IDX] & p_data_available_w[0]) | (h_reg0_q_r[`J_IDX] & p_data_available_w[3]) ) ? 1'b0 : `P_INTERRUPT_OFF_D  ;
 
    // Active p_rst_b when '1' in P flag or host reset is applied
    assign p_rst_b = (!h_reg0_q_r[`P_IDX] & h_rst_b) ;   
+
+`ifdef SEPARATE_HOST_DATABUSSES_D
+   wire [7:0] 	h_data;
+   assign h_data = h_data_in;
+   assign h_data_out = h_data_r;
+`else // SEPARATE_HOST_DATABUSSES_D
    assign h_data = ( h_rdnw && !h_cs_b && h_phi2 ) ? h_data_r : 8'bzzzzzzzz;
+`endif // SEPARATE_HOST_DATABUSSES_D
+
 `ifdef SEPARATE_PARASITE_DATABUSSES_D
    wire [7:0] 	p_data;
    assign p_data = p_data_in;
@@ -339,7 +357,7 @@ module tube (
              h_select_fifo_q_r[3] <= h_select_fifo_d_w[3];      
           end  
      end // always @ ( posedge h_phi2 or negedge h_rst_b )
-   
+
 
    // Provide option for retiming read of status/command reg from host to parasite
    always @ ( posedge p_phi2 or negedge h_rst_b )   

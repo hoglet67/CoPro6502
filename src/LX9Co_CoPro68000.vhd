@@ -7,7 +7,7 @@ entity LX9CoPro68000 is
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
-        test      : out   std_logic_vector(8 downto 1);
+        test      : inout std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals (use 16 out of 22 DIL pins)
@@ -203,25 +203,9 @@ begin
 -- test signals
 --------------------------------------------------------
 
-    test(8) <= cpu_clken;
-    test(7) <= tube_cs_b;
-    test(6) <= '1' when p_cs_b = '0' and cpu_addr(2 downto 1) & cpu_uds = "101" and cpu_R_W_n = '1' else '0';
-    test(5) <= cpu_NMI_n;
-    test(4) <= cpu_as;
-    test(3) <= cpu_uds;
-    test(2) <= cpu_lds;
-    test(1) <= cpu_R_W_n;
-
---    test(8) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0074" else '0'; -- nmi vector
---    test(7) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f0602" else '0'; -- default nmi
---    test(6) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05a6" else '0'; -- type 00 nmi
---    test(5) <= '1' when cpu_addr(23 downto 1) & '0' = x"3f05ba" else '0'; -- type 01 nmi    
---    test(4) <= cpu_R_W_n;
---    test(3) <= tube_cs_b;
---    test(2) <= cpu_irq_n_sync;
---    test(1) <= cpu_nmi_n_sync;
-    
-    -- test <= cpu_as & cpu_R_W_n & tube_cs_b & cpu_irq_n_sync & cpu_nmi_n_sync & trig2 & trig1 & trig0;
+    -- default to hi-impedence, to avoid conflicts with
+    -- a Raspberry Pi connected to the test connector
+    test <= (others => 'Z');
      
 --------------------------------------------------------
 -- boot mode generator

@@ -8,7 +8,7 @@
 # design 0001      - 0x0a8000 - working/LX9CoProZ80.bit
 # design 0010      - 0x0fc000 - working/LX9CoPro6809.bit
 # design 0011      - 0x150000 - working/LX9CoPro80186.bit
-# design 0100      - 0x1a4000 - working/LX9Co_BIST.bit
+# design 0100      - 0x1a4000 - working/LX9CoProSPI.bit
 # design 10xx      - 0x1f8000 - working/LX9CoPro6502fast.bit (32/16/8/4MHz)
 # design 11xx      - 0x24c000 - working/LX9CoProZ80fast.bit(36/24/12/8Mhz)
 # design 0111      - 0x2a0000 - working/LX9CoProPDP11.bit
@@ -26,7 +26,7 @@ promgen                                 \
 -u  A8000 working/LX9CoProZ80.bit       \
 -u  FC000 working/LX9CoPro6809.bit      \
 -u 150000 working/LX9CoPro80186.bit     \
--u 1A4000 working/LX9Co_BIST.bit        \
+-u 1A4000 working/LX9CoProSPI.bit       \
 -u 1F8000 working/LX9CoPro6502fast.bit  \
 -u 24C000 working/LX9CoProZ80fast.bit   \
 -u 2A0000 working/LX9CoProPDP11.bit     \

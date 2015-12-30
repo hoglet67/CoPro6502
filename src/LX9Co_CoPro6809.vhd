@@ -7,7 +7,7 @@ entity LX9CoPro6809 is
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
-        test      : out   std_logic_vector(8 downto 1);
+        test      : inout std_logic_vector(8 downto 1);
         sw        : in    std_logic_vector(3 downto 0);
         
         -- Tube signals (use 16 out of 22 DIL pins)
@@ -180,7 +180,9 @@ begin
 -- test signals
 --------------------------------------------------------
 
-     test <= (others => '0');
+    -- default to hi-impedence, to avoid conflicts with
+    -- a Raspberry Pi connected to the test connector
+    test <= (others => 'Z');
      
 --------------------------------------------------------
 -- boot mode generator
