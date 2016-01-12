@@ -313,20 +313,8 @@ a23_core instance_name (
   assign irq      = tubeint2;
   assign h_irq_b  = 1;
 
-  assign test[8] = rst;
-  assign test[7] = irq;
-  assign test[6] = nmi;
-  assign test[5] = stb;
-  assign test[4] = we;
-  assign test[3] = (adr[25:24] == 2'b11) ? 1 : 0;
-  assign test[2] = (adr[25:24] == 2'b01) ? 1 : 0;
-  assign test[1] = (adr[25:24] == 2'b00) ? 1 : 0;
-  //assign test[3] = ({6'b0, adr[25:2], 2'b0} == 32'h03001858) ? 1 : 0; 
-  //assign test[2] = ({6'b0, adr[25:2], 2'b0} == 32'h03001848) ? 1 : 0; 
-  //assign test[1] = ({6'b0, adr[25:2], 2'b0} == 32'h03001824) ? 1 : 0; 
-  
   // default to hi-impedence, to avoid conflicts with
   // a Raspberry Pi connected to the test connector
-  // assign test = 8'bZ;
+  assign test = 8'bZ;
 
 endmodule
