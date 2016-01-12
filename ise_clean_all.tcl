@@ -35,4 +35,7 @@ project close
 project open LX9Co-SPI.xise
 project clean
 project close
+project open LX9Co-ARM2.xise
+project clean
+project close
 exit

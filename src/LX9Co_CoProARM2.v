@@ -96,17 +96,17 @@ module LX9CoProARM2 (
 
   wire [3:0]  sw_out;
    
-//  ICAP_config inst_ICAP_config (
-//    .fastclk(fastclk),
-//    .sw_in  (sw),
-//    .sw_out (sw_out),
-//    .h_addr (h_addr),
-//    .h_cs_b (h_cs_b),
-//    .h_data (h_data),
-//    .h_phi2 (h_phi2),
-//    .h_rdnw (h_rdnw),
-//    .h_rst_b(h_rst_b)
-//  );
+  ICAP_config inst_ICAP_config (
+    .fastclk(fastclk),
+    .sw_in  (sw),
+    .sw_out (sw_out),
+    .h_addr (h_addr),
+    .h_cs_b (h_cs_b),
+    .h_data (h_data),
+    .h_phi2 (h_phi2),
+    .h_rdnw (h_rdnw),
+    .h_rst_b(h_rst_b)
+  );
    
   
   dcm_32_16 inst_dcm (

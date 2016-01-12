@@ -35,5 +35,8 @@ project close
 project open LX9Co-SPI.xise
 process run "Generate Programming File"
 project close
+project open LX9Co-ARM2.xise
+process run "Generate Programming File"
+project close
 exit
 
