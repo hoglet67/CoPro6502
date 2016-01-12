@@ -82,6 +82,9 @@ module LX9CoProARM2 (
   wire        irq;
   wire        nmi;
   
+  reg         gsr0;
+  reg         gsr1;
+  reg         gsr2;
   reg         tubeint0;
   reg         tubeint1;
   reg         tubeint2;
@@ -116,13 +119,26 @@ module LX9CoProARM2 (
   // Ensure reset is held active for 256 clock cycles on power up
   // Needed as Beeb's reset is missed when using multiboot loader as initialization takes too long
   always @(posedge clk)
-  begin
+    begin
+      gsr0 <= !p_rst_b;
+      gsr1 <= gsr0;
+      gsr2 <= gsr1 && !gsr0;
       if (reset_counter[8] == 0)
           reset_counter <= reset_counter + 1;
   end
     
   wire rst;
   assign rst = !p_rst_b | !reset_counter[8];
+
+  STARTUP_SPARTAN6 startup_inst (
+    .CFGCLK(),
+    .CFGMCLK(),                                 
+    .EOS(),
+    .CLK(),
+    .GSR(gsr2),
+    .GTS(),
+    .KEYCLEARB()
+  );
 
   bootrom bootrom (
     .clk (clk),            // Wishbone slave interface
