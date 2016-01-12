@@ -108,13 +108,7 @@ module LX9CoProARM2 (
     .h_rst_b(h_rst_b)
   );
    
-  
-  dcm_32_16 inst_dcm (
-    .CLKIN_IN(fastclk), 
-    .CLK0_OUT(clk), 
-    .CLK0_OUT1(), 
-    .CLK2X_OUT()
-  );
+  assign clk = fastclk;
 
   // Ensure reset is held active for 256 clock cycles on power up
   // Needed as Beeb's reset is missed when using multiboot loader as initialization takes too long
@@ -210,7 +204,7 @@ tube tube_inst(
     );
 
 // Instantiate the module
-a23_core instance_name (
+a23_core amber (
     .i_clk(clk), 
     .i_irq(irq), 
     .i_firq(nmi), 
