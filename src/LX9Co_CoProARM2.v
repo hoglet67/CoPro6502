@@ -79,18 +79,12 @@ module LX9CoProARM2 (
   wire        p_nmi_b;
   wire        p_irq_b;
 
-  wire        irq;
-  wire        nmi;
+  reg         irq;
+  reg         nmi;
   
   reg         gsr0;
   reg         gsr1;
   reg         gsr2;
-  reg         tubeint0;
-  reg         tubeint1;
-  reg         tubeint2;
-  reg         tubenmi0;
-  reg         tubenmi1;
-  reg         tubenmi2;
   
   reg [8:0]   reset_counter;
 
@@ -286,25 +280,10 @@ a23_core amber (
   );
 
   always @(posedge clk) begin
-     if (rst) begin
-         tubeint0 <= 0;
-         tubeint1 <= 0;
-         tubeint2 <= 0;
-         tubenmi0 <= 0;
-         tubenmi1 <= 0;
-         tubenmi2 <= 0;
-     end else begin
-         tubeint0 <= ~p_irq_b;
-         tubeint1 <= tubeint0;
-         tubeint2 <= tubeint1;
-         tubenmi0 <= ~p_nmi_b;
-         tubenmi1 <= tubenmi0;
-         tubenmi2 <= tubenmi1;
-     end     
+    irq <= ~p_irq_b;
+    nmi <= ~p_nmi_b;
   end
 
-  assign nmi      = tubenmi2;
-  assign irq      = tubeint2;
   assign h_irq_b  = 1;
 
   // default to hi-impedence, to avoid conflicts with
