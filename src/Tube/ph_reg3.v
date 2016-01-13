@@ -34,7 +34,7 @@ module ph_reg3 (
                 input       one_byte_mode,                
                 output [7:0] h_data,                  
                 output       h_data_available,
-                output       h_zero_bytes_available,               
+                output       p_empty,               
                 output       p_full
                 );
 
@@ -49,7 +49,6 @@ module ph_reg3 (
    assign byte1_d_w = ( p_selectData & !p_rdnw & (  p_full_w[0] & !one_byte_mode) ) ? p_data : byte1_q_r;      
       
    assign h_data = ( h_data_available_w[0]) ? byte0_q_r : byte1_q_r;   
-   assign h_zero_bytes_available = ! (h_data_available_w[0] | (  h_data_available_w[1] &  !one_byte_mode )) ;
 
    //This was a work around for a SAVE issue cause by too much latency through the sumchronizers 
    //reg           h_zero_bytes_available;  
@@ -73,6 +72,24 @@ module ph_reg3 (
    assign h_data_available = (h_data_available_w[0] &  one_byte_mode) | h_data_available_w[1];
    assign p_full = ( one_byte_mode ) ? p_full_w[0] : p_full_w[1];
 
+   // DMB: 13/01/2016
+   // On the ARM2 in the SAVE (p->h) direction, we were seeing NMI happening twice
+   // After writing data to R3, it took approx 1us for NMI to be removed, which was
+   // too slow (as NMI is level sensitive, and the handler is only 3 instructions).
+   // It seems the bug is that NMI is generated from h_zero_bytes_available, which
+   // lags because it is synchronized to the host domain. I don't know why a host domain
+   // signal was ever being used in NMI, which is a parasite signal. Anyway, I think
+   // the best fix is instead to generate a p_empty signal, which should have the same
+   // semantics, but be more reactive to parasite writes. The danger is it's less
+   // reacive to host reads, and so we increase the NMI latency, possibly causing some
+   // Co Pros to fail. This will need to be tested on all Co Pros.
+
+   // This was the old signal
+   // assign h_zero_bytes_available = ! (h_data_available_w[0] | (  h_data_available_w[1] &  !one_byte_mode )) ;
+
+   // This is the new signal
+   assign p_empty = !p_full_w[0] & ( !p_full_w[1] | one_byte_mode ) ;
+                      
    // Need to set a flag_0 in this register on reset to avoid generating a PNMI on reset...
    ph_flag_m #(1'b1) flag_0 (
                       .rst_b(h_rst_b),

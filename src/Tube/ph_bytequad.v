@@ -32,7 +32,7 @@ module ph_bytequad (
                     input p_phi2,
                     input p_rdnw,
                     input one_byte_mode,
-                    output h_zero_bytes_available,
+                    output ph_zero_r3_bytes_avail,
                     output [7:0] h_data,                  
                     output [3:0] h_data_available,
                     output [3:0] p_full
@@ -106,7 +106,7 @@ module ph_bytequad (
                        .one_byte_mode(one_byte_mode),
                        .h_data(fifo2_w),
                        .h_data_available(h_data_available[2]),
-                       .h_zero_bytes_available(h_zero_bytes_available),
+                       .p_empty(ph_zero_r3_bytes_avail),
                        .p_full(p_full_pre_w[2])
                        );
 

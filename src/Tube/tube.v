@@ -326,7 +326,7 @@ module tube (
                          .h_data (h_data_w),                
                          .one_byte_mode( ! h_reg0_q_r[`V_IDX]),  
                          .h_data_available( h_data_available_w),
-                         .h_zero_bytes_available( ph_zero_r3_bytes_avail_w ),
+                         .ph_zero_r3_bytes_avail( ph_zero_r3_bytes_avail_w ),
                          .p_full(p_full_w)
                          );
    
