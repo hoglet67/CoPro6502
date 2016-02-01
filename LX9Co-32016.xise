@@ -123,8 +123,8 @@
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="109"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="13"/>
     </file>
-    <file xil_pn:name="src/LX9Co_6SLX25.ucf" xil_pn:type="FILE_UCF">
-      <association xil_pn:name="Implementation" xil_pn:seqID="0"/>
+    <file xil_pn:name="src/LX9Co_6SLX9TQG144_U1_32bitRam.ucf" xil_pn:type="FILE_UCF">
+      <association xil_pn:name="Implementation" xil_pn:seqID="89"/>
     </file>
   </files>
 
@@ -175,9 +175,9 @@
     <property xil_pn:name="Create Mask File" xil_pn:value="false" xil_pn:valueState="default"/>
     <property xil_pn:name="Create ReadBack Data Files" xil_pn:value="false" xil_pn:valueState="default"/>
     <property xil_pn:name="Cross Clock Analysis" xil_pn:value="false" xil_pn:valueState="default"/>
-    <property xil_pn:name="DSP Utilization Ratio" xil_pn:value="50" xil_pn:valueState="non-default"/>
+    <property xil_pn:name="DSP Utilization Ratio" xil_pn:value="100" xil_pn:valueState="default"/>
     <property xil_pn:name="Delay Values To Be Read from SDF" xil_pn:value="Setup Time" xil_pn:valueState="default"/>
-    <property xil_pn:name="Device" xil_pn:value="xc6slx16" xil_pn:valueState="non-default"/>
+    <property xil_pn:name="Device" xil_pn:value="xc6slx9" xil_pn:valueState="non-default"/>
     <property xil_pn:name="Device Family" xil_pn:value="Spartan6" xil_pn:valueState="non-default"/>
     <property xil_pn:name="Device Speed Grade/Select ABS Minimum" xil_pn:value="-2" xil_pn:valueState="default"/>
     <property xil_pn:name="Disable Detailed Package Model Insertion" xil_pn:value="false" xil_pn:valueState="default"/>
@@ -454,7 +454,7 @@
   </properties>
 
   <bindings>
-    <binding xil_pn:location="/LX9CoPro32016" xil_pn:name="src/LX9Co_6SLX25.ucf"/>
+    <binding xil_pn:location="/LX9CoPro32016" xil_pn:name="src/LX9Co_6SLX9TQG144_U1_32bitRam.ucf"/>
   </bindings>
 
   <libraries/>

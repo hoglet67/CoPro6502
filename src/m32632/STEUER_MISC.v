@@ -505,7 +505,7 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 
 	always @(OPREG)	// whether the Opcode is valid is decided in DECODER !
 	  casex (OPREG)	// [13:0]
-		14'bxx_xxxx_1111_1110 : op_code = {2'b01,OPREG[11:10],OPREG[8]};	// DOT/POLY/SCALB
+//		14'bxx_xxxx_1111_1110 : op_code = {2'b01,OPREG[11:10],OPREG[8]};	// DOT/POLY/SCALB
 		14'b00_0xxx_0000_1110 : op_code = 5'b1_0000;	// MOVS/CMPS
 		14'b00_11xx_0000_1110 : op_code = 5'b1_0000;	// SKPS
 		14'b00_0xxx_1100_1110 : op_code = 5'b1_0001;	// MOVM/CMPM
@@ -789,116 +789,117 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 			  state_59 = dont_care;
 			  state_5A = dont_care;
 			end
-		5'b01_000 :	// SCALBL : RMW critical !
-			begin
-			  STATE_0  = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, src_1l,1'b1,temp_h,op_trul, 2'b11,2'b00,4'h0  };
-			  state_50 = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, src_1l,1'b1,temp_h,op_trul, 2'b11,2'b00,4'h0  };
-			  state_53 = {   addr_nop,8'h55, imme,  src_x, 1'b1,temp_h,op_mov,	2'b00,2'b00,get8b_s };
-			  state_54 = ACCA[1] ?
-						 {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_trul, 2'b00,2'b00,NXRW2 }
-					   : {	 addr_nop,8'h5A, src_x, src_x, 1'b0,temp_h,op_trul,	2'b00,2'b00,4'h0  };
-			  state_55 = {	 addr_nop,8'h54, rtmph, imme,  1'b1,temp_h,op_trul, 2'b11,2'b00,4'h0  };	// 2. half of external SRC1
-			  state_58 = {	 addr_nop,8'h59, rtmph, imme,  1'b0,dest_2,OPERA,	2'b01,2'b00,4'h0  };
-			  state_59 = {	 addr_nop,8'h1F, src_x, (ACCA[1] ? imme : src_2l),
-													   ~ACCA[1],dest_2,OPERA,	2'b10,2'b00,4'h0  };
-			  state_5A = {	 addr_nop,8'h59, rtmph, SRC_2, 1'b0,dest_2,OPERA,	2'b01,2'b00,4'h0  };	// empty cycle for TRUNC => TEMP !
-			end
-		5'b01_001 :	// SCALBF : RMW critical !
-			begin
-			  STATE_0  = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, src_x, 1'b1,temp_h,op_truf, 2'b00,2'b00,4'h0  };
-			  state_50 = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, src_x, 1'b1,temp_h,op_truf, 2'b00,2'b00,4'h0  };
-			  state_53 = {   addr_nop,8'h54, imme,  src_x, 1'b1,temp_h,op_truf, 2'b00,2'b00,4'h0  };
-			  state_54 = ACCA[1] ?
-						 {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 }
-					   : {	 addr_nop,8'h1F, rtmph, SRC_2, 1'b1,dest_2,OPERA,	2'b11,2'b00,4'h0  };
-			  state_55 = dont_care;
-			  state_58 = {	 addr_nop,8'h1F, rtmph, imme,  1'b0,dest_x,OPERA,	2'b11,2'b00,4'h0  };
-			  state_59 = dont_care;
-			  state_5A = dont_care;
-			end
-		5'b01_100 :	// POLYL
-			begin
-			  STATE_0  = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,4'h0  };
-			  state_50 = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,4'h0  };
-			  state_53 = {   addr_nop,8'h54, imme,  F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,get8b_s };
-			  state_54 = {	 addr_nop,8'h64, (ACCA[3] ? imme : src_1l),
-													F0,    1'b1,temp_h,op_mull, 2'b10,2'b00,4'h0  };
-			  state_55 = dont_care;
-			  state_58 = {	 addr_nop,8'h59, imme,  rtmph, 1'b0,dest_x,op_addl, 2'b01,2'b00,get8b_d };
-			  state_59 = {	 addr_nop,8'h62, (ACCA[1] ? imme : src_2l),
-													rtmpl, 1'b1,w_F0_h,op_addl, 2'b10,2'b00,4'h0  };
-			  state_5A = dont_care;
-			end			  
-		5'b01_101 :	// POLYF
-			begin
-			  STATE_0  = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, F0,    1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
-			  state_50 = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {	 addr_nop,8'h54, SRC_1, F0,    1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
-			  state_53 = {   addr_nop,8'h54, imme,  F0,    1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
-			  state_54 = ACCA[1] ?
-						 {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 }
-					   : {	 addr_nop,8'h00, rtmph, SRC_2, 1'b1,w_F0  ,op_addf, 2'b00,2'b00,4'h0  };
-			  state_55 = dont_care;
-			  state_58 = {	 addr_nop,8'h00, rtmph, imme,  1'b1,w_F0  ,op_addf, 2'b00,2'b00,4'h0  };
-			  state_59 = dont_care;
-			  state_5A = dont_care;
-			end			  
-		5'b01_110 :	// DOTL
-			begin
-			  STATE_0  = (~ACCA[3] & ~ACCA[1]) ?		// _R.R.
-						 {	 addr_nop,8'h59, SRC_1, SRC_2, 1'b0,dest_x,op_mull, 2'b01,2'b00,4'h0  }
-					   : (  ACCA[3] ?		// _M...
-						    {ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-						  : {ADRD2,   phsrc2,src_x, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 } );
-			  state_50 = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {   ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
-			  state_53 = ACCA[1] ?		// _..M.
-						 {   addr_nop,8'h54, imme,  src_x, 1'b1,temp_h,op_mov,  2'b00,2'b00,get8b_s }
-					   : {	 addr_nop,8'h59, imme,  SRC_2, 1'b0,dest_x,op_mull, 2'b01,2'b00,get8b_s };
-			  state_54 = {	 addr_nop,8'h55, imme,  src_x, 1'b1,temp_l,op_mov,  2'b00,2'b00,4'h0  };
-			  state_55 = {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
-			  state_58 = {	 addr_nop,8'h59, (ACCA[3] ? rtmph : SRC_1),		//_M...
-													imme,  1'b0,dest_x,op_mull, 2'b01,2'b00,get8b_d };
-			  state_59 = {	 addr_nop,8'h5A, (ACCA[3] ? (ACCA[1] ? rtmpl : imme) : src_1l), (ACCA[1] ? imme : src_2l),
-														   1'b1,temp_h,op_mull, 2'b10,2'b00,4'h0  };
-			  state_5A = {	 addr_nop,8'h61, rtmph, F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,4'h0  };
-			end			  
-		5'b01_111 :	// DOTF
-			begin
-			  STATE_0  = (~ACCA[3] & ~ACCA[1]) ?		// _R.R.
-						 {	 addr_nop,8'h63, SRC_1 ,SRC_2 ,1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  }		// opera = MULF
-					   : (  ACCA[3] ?		// _M...
-						    {ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-						  : {ADRD2,   phsrc2,src_x, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 } );
-			  state_50 = ACCA[3] ?		// _M...
-						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
-					   : {   ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
-			  state_53 = ACCA[1] ?		// _..M.
-						 {   addr_nop,8'h55, imme,  src_x, 1'b1,temp_h,op_mov,  2'b00,2'b00,4'h0  }
-					   : {	 addr_nop,8'h63, imme,  SRC_2 ,1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
-			  state_54 = dont_care;
-			  state_55 = {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
-			  state_58 = {	 addr_nop,8'h63, (ACCA[3] ? rtmph : SRC_1),		//_M...
-													imme,  1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
-			  state_59 = dont_care;
-			  state_5A = dont_care;
-			end			  
+
+//		5'b01_000 :	// SCALBL : RMW critical !
+//			begin
+//			  STATE_0  = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, src_1l,1'b1,temp_h,op_trul, 2'b11,2'b00,4'h0  };
+//			  state_50 = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, src_1l,1'b1,temp_h,op_trul, 2'b11,2'b00,4'h0  };
+//			  state_53 = {   addr_nop,8'h55, imme,  src_x, 1'b1,temp_h,op_mov,	2'b00,2'b00,get8b_s };
+//			  state_54 = ACCA[1] ?
+//						 {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_trul, 2'b00,2'b00,NXRW2 }
+//					   : {	 addr_nop,8'h5A, src_x, src_x, 1'b0,temp_h,op_trul,	2'b00,2'b00,4'h0  };
+//			  state_55 = {	 addr_nop,8'h54, rtmph, imme,  1'b1,temp_h,op_trul, 2'b11,2'b00,4'h0  };	// 2. half of external SRC1
+//			  state_58 = {	 addr_nop,8'h59, rtmph, imme,  1'b0,dest_2,OPERA,	2'b01,2'b00,4'h0  };
+//			  state_59 = {	 addr_nop,8'h1F, src_x, (ACCA[1] ? imme : src_2l),
+//													   ~ACCA[1],dest_2,OPERA,	2'b10,2'b00,4'h0  };
+//			  state_5A = {	 addr_nop,8'h59, rtmph, SRC_2, 1'b0,dest_2,OPERA,	2'b01,2'b00,4'h0  };	// empty cycle for TRUNC => TEMP !
+//			end
+//		5'b01_001 :	// SCALBF : RMW critical !
+//			begin
+//			  STATE_0  = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, src_x, 1'b1,temp_h,op_truf, 2'b00,2'b00,4'h0  };
+//			  state_50 = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, src_x, 1'b1,temp_h,op_truf, 2'b00,2'b00,4'h0  };
+//			  state_53 = {   addr_nop,8'h54, imme,  src_x, 1'b1,temp_h,op_truf, 2'b00,2'b00,4'h0  };
+//			  state_54 = ACCA[1] ?
+//						 {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 }
+//					   : {	 addr_nop,8'h1F, rtmph, SRC_2, 1'b1,dest_2,OPERA,	2'b11,2'b00,4'h0  };
+//			  state_55 = dont_care;
+//			  state_58 = {	 addr_nop,8'h1F, rtmph, imme,  1'b0,dest_x,OPERA,	2'b11,2'b00,4'h0  };
+//			  state_59 = dont_care;
+//			  state_5A = dont_care;
+//			end
+//		5'b01_100 :	// POLYL
+//			begin
+//			  STATE_0  = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,4'h0  };
+//			  state_50 = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,4'h0  };
+//			  state_53 = {   addr_nop,8'h54, imme,  F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,get8b_s };
+//			  state_54 = {	 addr_nop,8'h64, (ACCA[3] ? imme : src_1l),
+//													F0,    1'b1,temp_h,op_mull, 2'b10,2'b00,4'h0  };
+//			  state_55 = dont_care;
+//			  state_58 = {	 addr_nop,8'h59, imme,  rtmph, 1'b0,dest_x,op_addl, 2'b01,2'b00,get8b_d };
+//			  state_59 = {	 addr_nop,8'h62, (ACCA[1] ? imme : src_2l),
+//													rtmpl, 1'b1,w_F0_h,op_addl, 2'b10,2'b00,4'h0  };
+//			  state_5A = dont_care;
+//			end			  
+//		5'b01_101 :	// POLYF
+//			begin
+//			  STATE_0  = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, F0,    1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
+//			  state_50 = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {	 addr_nop,8'h54, SRC_1, F0,    1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
+//			  state_53 = {   addr_nop,8'h54, imme,  F0,    1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
+//			  state_54 = ACCA[1] ?
+//						 {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 }
+//					   : {	 addr_nop,8'h00, rtmph, SRC_2, 1'b1,w_F0  ,op_addf, 2'b00,2'b00,4'h0  };
+//			  state_55 = dont_care;
+//			  state_58 = {	 addr_nop,8'h00, rtmph, imme,  1'b1,w_F0  ,op_addf, 2'b00,2'b00,4'h0  };
+//			  state_59 = dont_care;
+//			  state_5A = dont_care;
+//			end			  
+//		5'b01_110 :	// DOTL
+//			begin
+//			  STATE_0  = (~ACCA[3] & ~ACCA[1]) ?		// _R.R.
+//						 {	 addr_nop,8'h59, SRC_1, SRC_2, 1'b0,dest_x,op_mull, 2'b01,2'b00,4'h0  }
+//					   : (  ACCA[3] ?		// _M...
+//						    {ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//						  : {ADRD2,   phsrc2,src_x, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 } );
+//			  state_50 = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {   ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
+//			  state_53 = ACCA[1] ?		// _..M.
+//						 {   addr_nop,8'h54, imme,  src_x, 1'b1,temp_h,op_mov,  2'b00,2'b00,get8b_s }
+//					   : {	 addr_nop,8'h59, imme,  SRC_2, 1'b0,dest_x,op_mull, 2'b01,2'b00,get8b_s };
+//			  state_54 = {	 addr_nop,8'h55, imme,  src_x, 1'b1,temp_l,op_mov,  2'b00,2'b00,4'h0  };
+//			  state_55 = {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
+//			  state_58 = {	 addr_nop,8'h59, (ACCA[3] ? rtmph : SRC_1),		//_M...
+//													imme,  1'b0,dest_x,op_mull, 2'b01,2'b00,get8b_d };
+//			  state_59 = {	 addr_nop,8'h5A, (ACCA[3] ? (ACCA[1] ? rtmpl : imme) : src_1l), (ACCA[1] ? imme : src_2l),
+//														   1'b1,temp_h,op_mull, 2'b10,2'b00,4'h0  };
+//			  state_5A = {	 addr_nop,8'h61, rtmph, F0_h,  1'b0,temp_h,op_mull, 2'b01,2'b00,4'h0  };
+//			end			  
+//		5'b01_111 :	// DOTF
+//			begin
+//			  STATE_0  = (~ACCA[3] & ~ACCA[1]) ?		// _R.R.
+//						 {	 addr_nop,8'h63, SRC_1 ,SRC_2 ,1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  }		// opera = MULF
+//					   : (  ACCA[3] ?		// _M...
+//						    {ADRD1,   phsrc1,src_x, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//						  : {ADRD2,   phsrc2,src_x, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 } );
+//			  state_50 = ACCA[3] ?		// _M...
+//						 {   ADRD1,   phsrc1,IRRW1, REGA1, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRD1 }
+//					   : {   ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
+//			  state_53 = ACCA[1] ?		// _..M.
+//						 {   addr_nop,8'h55, imme,  src_x, 1'b1,temp_h,op_mov,  2'b00,2'b00,4'h0  }
+//					   : {	 addr_nop,8'h63, imme,  SRC_2 ,1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
+//			  state_54 = dont_care;
+//			  state_55 = {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,  2'b00,2'b00,NXRW2 };
+//			  state_58 = {	 addr_nop,8'h63, (ACCA[3] ? rtmph : SRC_1),		//_M...
+//													imme,  1'b1,temp_h,op_mulf, 2'b00,2'b00,4'h0  };
+//			  state_59 = dont_care;
+//			  state_5A = dont_care;
+//			end			  
 		default
 			begin
 			  STATE_0  = dont_care;

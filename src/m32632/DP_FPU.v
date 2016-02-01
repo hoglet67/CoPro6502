@@ -990,7 +990,8 @@ module DP_LOGIK ( BCLK, BRESET, OPCODE, SRC1, SRC2, FSR, START, MRESULT, BWD, FL
 	reg		 [2:0]	DP_CMP;
 	reg		 [5:0]	preflags;
 	reg		 [5:0]	srcflags;
-	reg		[69:0]	fpout;
+//	reg		[69:0]	fpout;
+	wire	[69:0]	fpout;
 	reg		 [2:0]	tt;
 	reg		 [6:0]	select;
 	reg		 [4:0]	wctrl;
@@ -1152,13 +1153,15 @@ module DP_LOGIK ( BCLK, BRESET, OPCODE, SRC1, SRC2, FSR, START, MRESULT, BWD, FL
 	
 	// FP - path : selection of result and rounding :
 
-	always @(misc_op or OPCODE or mulout or addout or divout or miscout)
-		casex ({misc_op,OPCODE[5],OPCODE[3:2]})	//OPCODE[5] only for Flags i.e. NAN 
-		  4'b1xxx : fpout = miscout;		// for MOVLF,MOVFL,SCALB & LOGB
-		  4'b0110 : fpout = divout;
-		  4'b0111 : fpout = mulout;
-		  default : fpout = addout;
-		endcase
+//	always @(misc_op or OPCODE or mulout or addout or divout or miscout)
+//		casex ({misc_op,OPCODE[5],OPCODE[3:2]})	//OPCODE[5] only for Flags i.e. NAN 
+//		  4'b1xxx : fpout = miscout;		// for MOVLF,MOVFL,SCALB & LOGB
+//		  4'b0110 : fpout = divout;
+//		  4'b0111 : fpout = mulout;
+//		  default : fpout = addout;
+//		endcase
+   assign fpout = 70'd0;
+    
 	
 	always @(FSR or fpout)	// Calculation of Carry according to rounding mode, fpout[67] = sign bit
 		casex (FSR[8:7])
