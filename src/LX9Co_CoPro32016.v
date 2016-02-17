@@ -2,7 +2,7 @@ module LX9CoPro32016 (
     input fastclk,
 
     // GOP Signals
-    inout [8:1] test,
+    output[8:1] test,
     input [3:0] sw,
 
     // Tube signals
@@ -56,6 +56,11 @@ module LX9CoPro32016 (
 
     reg         bootmode;
 
+    wire [3:0]  status;
+    wire [7:0]  statsigs;
+    wire fetchc;
+    wire fetchd;
+    
     dcm_32_16 inst_dcm (
         .CLKIN_IN(fastclk),
         .CLK0_OUT(clk),
@@ -92,9 +97,9 @@ module LX9CoPro32016 (
         .BRESET(p_rst_b),           // input
         .NMI_N(nmi_reg),            // input
         .INT_N(irq_reg),            // input
-        .STATUS(),                  // output
+        .STATUS(status),            // output
         .ILO(),                     // output
-        .STATSIGS(),                // output
+        .STATSIGS(statsigs),        // output
 
         // +++++++++ General Purpose Interface
         .IO_WR(IO_WR),              // output
@@ -125,7 +130,7 @@ module LX9CoPro32016 (
         .DRAM_DI(),                 // output
 
         // +++++++++ DMA Interface
-        .HOLD(1'b0),                // input
+        .HOLD(1'b1),                // input
         .HLDA(),                    // output
         .FILLRAM(1'b0),             // input
         .DMA_AA(24'b0),             // input
@@ -222,8 +227,15 @@ module LX9CoPro32016 (
 
   assign h_irq_b  = 1;
 
+  assign fetchc = IO_RD & (status == 4'b1000);
+  assign fetchd = IO_RD & (status == 4'b1010);
+  
   // default to hi-impedence, to avoid conflicts with
   // a Raspberry Pi connected to the test connector
-  assign test = 8'bZ;
+  assign test = sw[3] ? {p_rst_b, fastclk, clk, bootmode,  status} :
+                sw[2] ? {p_rst_b, fetchc, fetchd, IO_A[14:10]} :
+                sw[1] ? {p_rst_b, fetchc, fetchd, IO_A[9:5]} :
+                sw[0] ? {p_rst_b, fetchc, fetchd, IO_A[4:0]} :
+                        {p_rst_b, p_nmi_b, p_irq_b, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable}; 
 
 endmodule
