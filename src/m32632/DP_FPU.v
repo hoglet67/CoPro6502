@@ -1378,7 +1378,7 @@ PREPDATA	DP_PREP(
 	.MSD_1(MSD_1),
 	.MSD_2(MSD_2));
 
-	assign MRESULT = MDA * MDB;	// unsigned multiplier 53 * 53 bits = 106 bits
+	assign MRESULT =  {21'd0,MDA[31:0]} * {21'd0,MDB[31:0]};	// unsigned multiplier 53 * 53 bits = 106 bits
 	
 	assign DP_OUT = CLR_LSB ? DP_Q : DOUT[63:32];
 	
