@@ -4,10 +4,11 @@
 // http://opencores.org/project,m32632
 //
 // Filename: DECODER.v
-// Version:  1.0
-// Date:     30 May 2015
+// Version:  1.1 bug fix
+// History:  1.0 first release of 30 Mai 2015
+// Date:     21 January 2016
 //
-// Copyright (C) 2015 Udo Moeller
+// Copyright (C) 2016 Udo Moeller
 // 
 // This source file may be used and distributed without 
 // restriction provided that this copyright statement is not 
@@ -306,8 +307,8 @@ module DECODER ( BCLK, BRESET, INT_N, NMI_N, ANZ_VAL, OPREG, CFG, PSR, ACC_DONE,
 	parameter rtmph		= 7'h3D;
 	parameter rtmp1		= 7'h3E;
 	parameter rtmp2		= 7'h3F;
-	parameter op_mov	= {3'bxxx,8'h45};
-	parameter op_adr	= {3'bxxx,8'h49};
+	parameter op_mov	= 11'h345;
+	parameter op_adr	= 11'h349;
 	parameter op_add	= 11'h340;	// for CXP
 	parameter op_flip	= 11'h364;	// for CXP : LSHD -16,Ri
 	parameter op_lmr	= 11'h36A;	// for LPR CFG, LMR and CINV
@@ -871,7 +872,7 @@ module DECODER ( BCLK, BRESET, INT_N, NMI_N, ANZ_VAL, OPREG, CFG, PSR, ACC_DONE,
 	assign hdr_d = hdx_a ? {2'b10,OPREG[16:15],1'b0,OPREG[14]} : {2'b10,OPREG[16:14],1'b1};
 	assign hdr_e = OPREG[11] ? {2'b10,OPREG[21:20],1'b0,OPREG[19]} : {2'b10,OPREG[21:19],1'b1};
 	assign hdr_f = OPREG[11] ? {2'b10,OPREG[16:14],1'b1}		   : {2'b10,OPREG[16:15],1'b0,OPREG[14]};
-	assign hdr_g = {3'b000,OPREG[16:15],1'b1};	// exclusiv for DEI
+	assign hdr_g = {3'b000,OPREG[16:15],~OPREG[14]};	// exclusiv for DEI/MEI
 	assign hdr_m = {3'b001,OPREG[17:15]};	// MMU Register Index 8-15
 	
 	always @(*)
@@ -913,11 +914,11 @@ module DECODER ( BCLK, BRESET, INT_N, NMI_N, ANZ_VAL, OPREG, CFG, PSR, ACC_DONE,
 	// Gruppe 2 opcodes
 		  11'b0x11_xx_1010x : op3_feld = {6'o77,3'o1,hdr_a,hdr_b, hdl_b,hdl_b,OPREG[23:14],2'b00,hdl_a,8'h45};		// MOVUS,MOVSU
 		  11'b000x_xx_1100x : op3_feld = {6'o66,3'o0,hdr_a,hdr_b, 2'bxx,2'b10,OPREG[23:14],2'b10,hdl_c, hdo_d};		// MOVM/CMPM
-		  11'b001x_0x_1111x : op3_feld = {6'o11,3'o0,hdr_c,hdr_d, hdl_d,hdl_d,OPREG[23:14],2'b10,hdl_e,4'hC,hdo_a};	// DOTf,POLYf
+		  11'b001x_0x_1111x : op3_feld = {6'o11,3'o2,hdr_c,hdr_d, hdl_d,hdl_d,OPREG[23:14],2'b10,hdl_e,4'hC,hdo_a};	// DOTf,POLYf
 		  11'b0101_0x_1111x : op3_feld = {6'o11,3'o5,hdr_c,hdr_d, hdl_d,hdl_d,OPREG[23:14],2'b00,hdl_e,4'hB,hdo_e};	// LOGB
-		  11'b0100_0x_1111x : op3_feld = {6'o11,3'o0,hdr_c,hdr_d, hdl_d,hdl_d,OPREG[23:14],2'b10,hdl_e,4'hB,hdo_e};	// SCALB
+		  11'b0100_0x_1111x : op3_feld = {6'o11,3'o7,hdr_c,hdr_d, hdl_d,hdl_d,OPREG[23:14],2'b10,hdl_e,4'hB,hdo_e};	// SCALB
 		  11'b0011_xx_1100x : op3_feld = {6'o50,3'o0,hdr_a,hdr_b, hdl_g,hdl_b,OPREG[23:14],2'b10,hdl_c,4'h7,hdo_a};	// EXTS
-		  11'bxxx0_xx_1110x : op3_feld = {6'o71,3'o0,hdr_a,hdr_b, hdl_h,hdl_b,OPREG[23:14],2'b10,hdl_c,4'h8,hdo_c};	// CHECK
+		  11'bxxx0_xx_1110x : op3_feld = {6'o71,3'o2,hdr_a,hdr_b, hdl_h,hdl_b,OPREG[23:14],2'b10,hdl_c,4'h8,hdo_c};	// CHECK
 		  11'b0x1x_xx_0100x : op3_feld = (OPREG[18:17] == 2'b00) ?	// target is register => standard flow
 										 {6'o11,3'o3,hdr_a,hdr_b, hdl_b,2'b10,OPREG[23:14],2'b00,hdl_a,4'h6,hdo_a}	// SBIT/CBIT
 									   : {6'o14,3'o3,hdr_a,hdr_b, hdl_b,2'b00,OPREG[23:14],2'b10,hdl_a,4'h6,hdo_a};
@@ -929,7 +930,7 @@ module DECODER ( BCLK, BRESET, INT_N, NMI_N, ANZ_VAL, OPREG, CFG, PSR, ACC_DONE,
 		  11'bxxx0_xx_1010x : op3_feld = {6'o14,3'o0,hdr_a,hdr_b, hdl_b,2'b10,OPREG[23:14],2'b10, 3'o3,4'h8,hdo_c}; // INS
 		  11'b0010_xx_1100x : op3_feld = {6'o14,3'o0,hdr_a,hdr_b, hdl_b,2'b10,OPREG[23:14],2'b10, 3'o3,4'h8,hdo_a}; // INSS
 		  11'bxxx0_xx_0110x : op3_feld = {6'o61,3'o0,hdr_a,hdr_b, hdl_b,2'b10,OPREG[23:14],2'b10, 3'o3,4'h8,hdo_c}; // CVTP no Opcode
-		  11'bxxx1_xx_0010x : op3_feld = {6'o11,3'o0,hdr_a,hdr_b, hdl_b,hdl_b,OPREG[23:14],2'b10, 3'o3,8'h84};		// INDEX
+		  11'bxxx1_xx_0010x : op3_feld = {6'o11,3'o2,hdr_a,hdr_b, hdl_b,hdl_b,OPREG[23:14],2'b10, 3'o3,8'h84};		// INDEX
 	// Gruppe 2 opcodes can have dedicated operation codes. Therefore the operation code definition here is "don't care"
 		  11'b000x_xx_0001x : op3_feld = {6'o70,3'o0,hdr_a,hdr_b, 2'b00,2'b10,OPREG[23:19],5'b0,2'b10,3'o0,8'h45};	// RDVAL+WRVAL 
 		  11'b1001_11_0001x : op3_feld = {6'o11,3'o1,hdr_a,temp_h,2'b10,2'b10,OPREG[23:19],5'b0,2'b00,3'o3,8'h45};	// CINV
@@ -1076,7 +1077,7 @@ module DECODER ( BCLK, BRESET, INT_N, NMI_N, ANZ_VAL, OPREG, CFG, PSR, ACC_DONE,
 	assign pop_1  = {2'b00,src1_le,9'h108};	// SP update, DISP=0 and POST
 	assign mpoi_1 = (src1_addr[4:2] == 3'b100) | (src1_addr == 5'h16);	// Pointer in memory always DWord
 	assign auop_s = atys[0] ? 4'b1011 : 4'b0010;	// Only make effective address ?
-	assign src1_tos = (op_feld[22:18] == 5'h17) ? 2'b11 : 2'b00;	// Source 1 is true TOS
+	assign src1_tos = (op_feld[22:18] == 5'h17) & ~atys[2] ? 2'b11 : 2'b00;	// Source 1 is true TOS
 	
 	// Nextfield : 11=DISP read
 	// Address field : Size:2 RD WR LDEA FULLACC INDEX:4 SPUPD disp_val:4 POST CLRMSW SRC2SEL:2
@@ -1745,7 +1746,7 @@ module DECODER ( BCLK, BRESET, INT_N, NMI_N, ANZ_VAL, OPREG, CFG, PSR, ACC_DONE,
 	
 	// ++++++++++++++++++++ Here is the Sub-Modul for the opcodes of Gruppe 2  ++++++++++++++++
 	
-	GRUPPE_2 reste_ops (.BCLK(BCLK), .PHASE_0(PHASE_0), .OPREG(OPREG[13:0]), .PHASE(phase_ein[3:0]), 
+	GRUPPE_2 reste_ops (.BCLK(BCLK), .PHASE_0(PHASE_0), .OPREG(OPREG[18:0]), .PHASE(phase_ein[3:0]), 
 						.SRC_1(src_1), .SRC_2(src_2), .REGA1(rega1), .REGA2(rega2), .IRRW1(irrw1), .IRRW2(irrw2),
 						.ADRD1(adrd1), .ADRD2(adrd2), .EXR12(exr12), .EXR22(exr22), .PHRD1(phrd1[3:0]), .PHRD2(phrd2[3:0]),
 						.NXRD1(nxrd1), .NXRW2(nxrw2), .ACCA({acc1,1'b0,acc2,1'b0}), .OPERA(opera),

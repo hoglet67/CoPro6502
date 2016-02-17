@@ -4,10 +4,11 @@
 // http://opencores.org/project,m32632
 //
 // Filename: STEUER_MISC.v
-// Version:  1.0
-// Date:     30 May 2015
+// Version:  1.1 bug fix
+// History:  1.0 first release of 30 Mai 2015
+// Date:     21 January 2016
 //
-// Copyright (C) 2015 Udo Moeller
+// Copyright (C) 2016 Udo Moeller
 // 
 // This source file may be used and distributed without 
 // restriction provided that this copyright statement is not 
@@ -431,7 +432,7 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 
 
 	input			BCLK,PHASE_0;
-	input	[13:0]	OPREG;
+	input	[18:0]	OPREG;
 	input	 [3:0]	PHASE;	// nur die 4 LSBs
 	// Source 1 & 2 Inputs
 	input	 [6:0]	SRC_1,SRC_2,REGA1,REGA2,IRRW1,IRRW2;
@@ -454,8 +455,9 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 	reg		 [1:0]	bwdreg;
 	reg				tbit_flag,size_dw;
 	reg				inss_flag;
+	reg				ext_tos;
 	
-	wire	[18:0]	exoffset,re_wr;
+	wire	[18:0]	exoffset,re_wr,rexwr;
 	wire	[10:0]	op_kust,op_bwd;
 	wire	 [7:0]	phchk;
 	wire	 [4:0]	op_reg;
@@ -489,22 +491,22 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 	parameter rtmpl		= 7'h3C;
 	parameter rtmph		= 7'h3D;
 	parameter rtmp1		= 7'h3E;
-	parameter op_mov	= {3'bxxx,8'h45};
-	parameter op_adr	= {3'bxxx,8'h49};
-	parameter op_addl	= {3'b0xx,8'hB0};
-	parameter op_addf	= {3'b1xx,8'hB0};
-	parameter op_mull	= {3'b0xx,8'hBC};
-	parameter op_mulf	= {3'b1xx,8'hBC};
+	parameter op_mov	= {3'bx1x,8'h45};
+	parameter op_adr	= {3'bx1x,8'h49};
+	parameter op_addl	= {3'b01x,8'hB0};
+	parameter op_addf	= {3'b11x,8'hB0};
+	parameter op_mull	= {3'b01x,8'hBC};
+	parameter op_mulf	= {3'b11x,8'hBC};
 	parameter op_truf	= {3'b101,8'h9A};	// TRUNCFW for SCALBF
 	parameter op_trul	= {3'b001,8'h9A};	// TRUNCLW for SCALBL
-	parameter op_stpr	= {3'b1xx,8'h54};	// Special-Op for String opcodes
+	parameter op_stpr	= {3'b11x,8'h54};	// Special-Op for String opcodes
 	parameter op_lsh	= {3'b011,8'h65};	// EXT : shift to right : DOUBLE !
 	parameter op_msk	= {3'b011,8'h80};	// reuse of EXT Opcode at INS !
 	parameter op_mul	= {3'b011,8'h78};	// INDEX
-	parameter op_rwv	= {3'bxxx,8'hE0};	// RDVAL+WRVAL
+	parameter op_rwv	= {3'bx1x,8'hE0};	// RDVAL+WRVAL
 
 	always @(OPREG)	// whether the Opcode is valid is decided in DECODER !
-	  casex (OPREG)	// [13:0]
+	  casex (OPREG[13:0])
 //		14'bxx_xxxx_1111_1110 : op_code = {2'b01,OPREG[11:10],OPREG[8]};	// DOT/POLY/SCALB
 		14'b00_0xxx_0000_1110 : op_code = 5'b1_0000;	// MOVS/CMPS
 		14'b00_11xx_0000_1110 : op_code = 5'b1_0000;	// SKPS
@@ -552,7 +554,7 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 	assign get8b_d = (PHRD2 == 4'hB) ? 4'hC : 4'h0;	// Special case 8B Immeadiate, is used in State 58
 	
 	assign src_1l = {SRC_1[6:1],1'b0};
-	assign src_2l = {SRC_2[6:1],1'b0};
+	assign src_2l = {SRC_2[6:1],~SRC_2[0]};	// needed only for DEI/MEI
 	assign dest_2 =  SRC_2[5:0];
 	
 	assign phchk = {7'b0101_010,size_dw};	// Phase 54 or 55
@@ -562,6 +564,9 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 	
 	assign re_wr   = {EXR22[18:17],4'b0101,4'h0, 9'h003};	// REUSE Address : Write of rmw , top 2 Bits contain size
 
+	always @(posedge BCLK) if (PHASE_0) ext_tos <= (OPREG[18:14] == 5'h17);	// if TOS
+	assign rexwr   = {EXR22[18:17],4'b0101,4'h0, ext_tos, 8'h03};	// REUSE Addresse : Write von rmw , only for EXT and EXTS !
+	
 	always @(posedge BCLK) tbit_flag <= ~OPERA[1];	// due to Timing ...
 	always @(posedge BCLK) size_dw	 <=  OPERA[9];
 
@@ -678,7 +683,7 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 			  state_55 = dont_care;
 			  state_58 = {	 addr_nop,8'h59, src_x, src_x, 1'b0,dest_x,op_mov,	2'b00,2'b00,4'h8  };	// 1 Byte Immediate read
 			  state_59 = ACCA[1] ?		// _..M.
-						 {	 re_wr,   8'h27, imme,  rtmph, 1'b0,dest_x,OPERA,	2'b00,2'b10,4'h1  }		// result in memory
+						 {	 rexwr,   8'h27, imme,  rtmph, 1'b0,dest_x,OPERA,	2'b00,2'b10,4'h1  }		// result in memory
 					   : {	 addr_nop,8'h00, imme,  rtmph, 1'b1,dest_2,OPERA,	2'b00,2'b00,4'h0  };	// result in Register
 			  state_5A = dont_care;
 			end
@@ -700,7 +705,7 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 			  state_55 = {   exoffset,8'h54, rd_reg,src_x, 1'b0,dest_x,op_mov,	2'b00,2'b00,4'h1  };	// Read Source, EA reuse
 			  state_58 = {	 addr_nop,8'h59, rd_reg,rtmph, 1'b1,temp_h,op_lsh,	2'b00,2'b00,4'hE  };	// Displacement read
 			  state_59 = ACCA[1] ?		// _..M.
-						 {	 re_wr,   8'h27, src_x, rtmph, 1'b0,dest_x,OPERA,	2'b00,2'b10,4'h1  }		// result in memory
+						 {	 rexwr,   8'h27, src_x, rtmph, 1'b0,dest_x,OPERA,	2'b00,2'b10,4'h1  }		// result in memory
 					   : {	 addr_nop,8'h00, src_x, rtmph, 1'b1,dest_2,OPERA,	2'b00,2'b00,4'h0  };	// result in Register
 			  state_5A = {	 ADRD2,   phsrc2,IRRW2, REGA2, 1'b0,dest_x,op_mov,	2'b00,2'b00,NXRW2 };	// special case Mem-Mem
 			end
@@ -789,7 +794,6 @@ module GRUPPE_2 ( BCLK, PHASE_0, OPREG, PHASE, SRC_1, SRC_2, REGA1, REGA2, IRRW1
 			  state_59 = dont_care;
 			  state_5A = dont_care;
 			end
-
 //		5'b01_000 :	// SCALBL : RMW critical !
 //			begin
 //			  STATE_0  = ACCA[3] ?		// _M...

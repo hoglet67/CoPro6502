@@ -4,11 +4,12 @@
 // http://opencores.org/project,m32632
 //
 // Filename: I_PFAD.v
-// Version:  1.1 bug fix
+// Version:  1.2 bug fix
+// Version:  1.1 bug fix release of 7 November 2015
 // History:  1.0 first release of 30 Mai 2015
-// Date:     7 November 2015
+// Date:     4 February 2016
 //
-// Copyright (C) 2015 Udo Moeller
+// Copyright (C) 2016 Udo Moeller
 // 
 // This source file may be used and distributed without 
 // restriction provided that this copyright statement is not 
@@ -574,7 +575,7 @@ module I_PFAD ( BCLK, BRESET, SFP_DAT, FSR, DP_OUT, SRC1, SRC2, BMASKE, ADDR, MR
 	// ++++++++++++++ Format 4 Opcodes : Basic Integer Opcodes, MOVi is special case  +++++++++++++
 
 	reg				cy_in;
-	reg				get_psr,rd_psr,rd_dsr;
+	reg				get_psr,rd_psr,rd_dsr,get_mod;
 	wire			add_flag;
 	
 	always @(BWD or SRC1)
@@ -600,11 +601,13 @@ module I_PFAD ( BCLK, BRESET, SFP_DAT, FSR, DP_OUT, SRC1, SRC2, BMASKE, ADDR, MR
 	always @(posedge BCLK) get_psr <= (RDAA == 8'h9D) | (RDAA == 8'h90) | (RDAA == 8'h93);	// PSR or US or DSR is read
 	always @(posedge BCLK) rd_psr  <= (RDAA[1:0] == 2'b01);
 	always @(posedge BCLK) rd_dsr  <= (RDAA[1:0] == 2'b11);
+	always @(posedge BCLK) get_mod <= (RDAA == 8'h9F);
 	
-	always @(OPCODE or SRC1 or SRC2 or get_psr or rd_psr or rd_dsr or DSR or PSR or ADDR)
+	always @(OPCODE or SRC1 or SRC2 or get_psr or rd_psr or rd_dsr or get_mod or DSR or PSR or ADDR)
 		casex (OPCODE[3:1])
 		   3'b001 : pfad_4a = SRC2 & ~SRC1;	// BIC
-		   3'bx10 : pfad_4a = get_psr ? {({4{rd_dsr}} & DSR),16'd0,({4{rd_psr}} & PSR[11:8]),({8{~rd_dsr}} & PSR[7:0])} : SRC1;	// MOV
+		   3'bx10 : pfad_4a = get_psr ? {({4{rd_dsr}} & DSR),16'd0,({4{rd_psr}} & PSR[11:8]),({8{~rd_dsr}} & PSR[7:0])}	// MOV
+									  : (get_mod ? {16'd0,SRC1[15:0]} : SRC1);
 		   3'b011 : pfad_4a = SRC2 |  SRC1;	// OR
 		   3'b101 : pfad_4a = SRC2 &  SRC1;	// AND
 		   3'b111 : pfad_4a = SRC2 ^  SRC1;	// XOR
