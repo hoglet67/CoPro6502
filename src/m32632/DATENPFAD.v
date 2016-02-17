@@ -155,7 +155,7 @@ assign	OPCODE = OPER[7:0];
 
 assign	ERGEBNIS = SP_MUX ? FP_OUT : I_OUT;
 
-assign	WRADR_0 = WRADR[0] & ~CLR_LSB;
+assign	WRADR_0 = WRADR[0] ^ CLR_LSB;
 assign	ENWR = WREN_L | WREN;
 assign	DOWR = ENWR & TWREN;
 	
