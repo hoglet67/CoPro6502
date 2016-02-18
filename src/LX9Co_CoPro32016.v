@@ -25,6 +25,7 @@ module LX9CoPro32016 (
 );
 
     wire        clk;
+    reg         rst_reg;
     reg         nmi_reg;
     reg         irq_reg;
 
@@ -44,7 +45,7 @@ module LX9CoPro32016 (
     wire  [3:0] IO_BE;
     wire [31:0] IO_DI;
     wire [31:0] IO_Q;
-    reg         IO_READY;
+    wire        IO_READY;
 
     wire        ram_enable;
     wire        rom_enable;
@@ -55,19 +56,20 @@ module LX9CoPro32016 (
     wire [31:0] rom_dout;
 
     reg         bootmode;
+    reg         rd_rdy;
 
     wire [3:0]  status;
     wire [7:0]  statsigs;
     wire fetchc;
     wire fetchd;
-    
+
     dcm_32_16 inst_dcm (
         .CLKIN_IN(fastclk),
         .CLK0_OUT(clk),
         .CLK0_OUT1(),
         .CLK2X_OUT()
     );
-   
+
 //    reg         gsr0;
 //    reg         gsr1;
 //    reg         gsr2;
@@ -77,24 +79,24 @@ module LX9CoPro32016 (
 //           gsr1 <= gsr0;
 //           gsr2 <= gsr1 && !gsr0;
 //        end
-//    
+//
 //    STARTUP_SPARTAN6 startup_inst (
 //        .CFGCLK(),
-//        .CFGMCLK(),                                 
+//        .CFGMCLK(),
 //        .EOS(),
 //        .CLK(),
 //        .GSR(gsr2),
 //        .GTS(),
 //        .KEYCLEARB()
 //      );
-   
+
     M32632 cpu (
 
         // ++++++++++ Basic Signals
         .BCLK(clk),                 // input
         .MCLK(~clk),                // input
         .WRCFG(1'b1),               // input
-        .BRESET(p_rst_b),           // input
+        .BRESET(rst_reg),           // input
         .NMI_N(nmi_reg),            // input
         .INT_N(irq_reg),            // input
         .STATUS(status),            // output
@@ -145,9 +147,9 @@ module LX9CoPro32016 (
 
     assign IO_Q = ram_enable    ? ram_dout :
                   rom_enable    ? rom_dout :
-                  tube_enable   ? {24'b0, p_data_out} :
+                  tube_enable   ? {p_data_out, p_data_out, p_data_out, p_data_out} :
                   32'b0;
-   
+
    //               config_enable ? 32'b0 :
    //               32'hAAAAAAAA;
 
@@ -188,8 +190,7 @@ module LX9CoPro32016 (
     assign ram_data = (ram_enable & IO_WR) ? IO_DI : 32'bz;
 
     // Tube
-
-    assign p_data_in = IO_DI[7:0];
+    assign p_data_in = IO_A[1] ? IO_DI[23:16] : IO_DI[7:0];
     assign p_cs_b = !tube_enable;
     assign p_addr = IO_A[3:1];
     assign p_wr_b = !IO_WR;
@@ -215,27 +216,29 @@ module LX9CoPro32016 (
 
     always @(posedge clk)
         begin
-            nmi_reg <= p_nmi_b;
-            irq_reg <= p_irq_b;
-            // Might get away with assigning this to 1'b1
-            IO_READY <= IO_RD | IO_WR;
-            if (!p_rst_b)
+            rst_reg  <= p_rst_b;
+            nmi_reg  <= p_nmi_b;
+            irq_reg  <= p_irq_b;
+            rd_rdy   <= IO_RD & ~rd_rdy;
+            if (!rst_reg)
                 bootmode <= 1'b1;
             else if (IO_RD & (IO_A[23:18] == 6'b111100))
                 bootmode <= 1'b0;
         end
 
-  assign h_irq_b  = 1;
+    assign IO_READY = IO_WR | rd_rdy;
 
-  assign fetchc = IO_RD & (status == 4'b1000);
-  assign fetchd = IO_RD & (status == 4'b1010);
-  
-  // default to hi-impedence, to avoid conflicts with
-  // a Raspberry Pi connected to the test connector
-  assign test = sw[3] ? {p_rst_b, fastclk, clk, bootmode,  status} :
-                sw[2] ? {p_rst_b, fetchc, fetchd, IO_A[14:10]} :
-                sw[1] ? {p_rst_b, fetchc, fetchd, IO_A[9:5]} :
-                sw[0] ? {p_rst_b, fetchc, fetchd, IO_A[4:0]} :
-                        {p_rst_b, p_nmi_b, p_irq_b, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable}; 
+    assign h_irq_b  = 1;
+
+    assign fetchc = IO_RD & (status == 4'b1000);
+    assign fetchd = IO_RD & (status == 4'b1010);
+
+    // default to hi-impedence, to avoid conflicts with
+    // a Raspberry Pi connected to the test connector
+    assign test = sw[3] ? {rst_reg, fetchc, fetchd, bootmode,  status} :
+                  sw[2] ? {rst_reg, fetchc, fetchd, IO_A[14:10]} :
+                  sw[1] ? {rst_reg, fetchc, fetchd, IO_A[9:5]} :
+                  sw[0] ? {rst_reg, tube_enable, p_cs_b, p_wr_b, p_data_in[3:0]} :
+                          {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
 
 endmodule
