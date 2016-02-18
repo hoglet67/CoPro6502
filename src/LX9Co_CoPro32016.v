@@ -15,12 +15,12 @@ module LX9CoPro32016 (
     output h_irq_b,
 
     // Ram Signals
-    output ram_ub_b,
-    output ram_lb_b,
-    output ram_cs,
-    output ram_oe,
-    output ram_wr,
-    output [18:0] ram_addr,
+    output reg ram_ub_b,
+    output reg ram_lb_b,
+    output reg ram_cs,
+    output reg ram_oe,
+    output reg ram_wr,
+    output reg [18:0] ram_addr,
     inout  [31:0] ram_data
 );
 
@@ -52,7 +52,7 @@ module LX9CoPro32016 (
     wire        tube_enable;
     //wire        config_enable;
 
-    wire [31:0] ram_dout;
+    reg  [31:0] ram_dout;
     wire [31:0] rom_dout;
 
     reg         bootmode;
@@ -180,14 +180,14 @@ module LX9CoPro32016 (
     // External RAM
     // in spite of the naming, these are all active low
 
-    assign ram_ub_b = 1'b0;
-    assign ram_lb_b = 1'b0;
-    assign ram_cs   = !(ram_enable);
-    assign ram_oe   = !(ram_enable & IO_RD);
-    assign ram_wr   = !(ram_enable & IO_WR);
-    assign ram_addr = IO_A[20:2];
-    assign ram_dout = ram_data;
-    assign ram_data = (ram_enable & IO_WR) ? IO_DI : 32'bz;
+    //assign ram_ub_b = 1'b0;
+    //assign ram_lb_b = 1'b0;
+    //assign ram_cs   = !(ram_enable);
+    //assign ram_oe   = !(ram_enable & IO_RD);
+    //assign ram_wr   = !(ram_enable & IO_WR);
+    //assign ram_addr = IO_A[20:2];
+    //assign ram_dout = ram_data;
+    //assign ram_data = (ram_enable & IO_WR) ? IO_DI : 32'bz;
 
     // Tube
     assign p_data_in = IO_A[1] ? IO_DI[23:16] : IO_DI[7:0];
@@ -226,18 +226,142 @@ module LX9CoPro32016 (
                 bootmode <= 1'b0;
         end
 
-    assign IO_READY = IO_WR | rd_rdy;
+    assign IO_READY = ram_enable ? ram_rdy : (IO_WR | rd_rdy);
 
     assign h_irq_b  = 1;
+
+
+    //----------------------------------------------------------------------------
+    // State Machine machine performing read-modify-write cycles
+    //----------------------------------------------------------------------------
+
+    parameter latency             = 1;    // 0 .. 7
+
+    parameter s_idle              = 0;
+    parameter s_read              = 1;
+    parameter s_read_modify_write = 2;
+    parameter s_write             = 3;
+
+    reg [2:0]  state;
+    reg        ram_rdy;
+
+    // Latency countdown
+    reg [2:0]  lcount;
+
+    // Tri-State-Driver
+    reg [31:0] wdat;
+    reg        wdat_oe;  
+    assign ram_data = wdat_oe ? wdat : 32'bz;
+
+    // Merged data for byte enables writes
+    wire [31:0] merged_dat = {(IO_BE[3] ? IO_DI[31:24] : ram_data[31:24]),
+                              (IO_BE[2] ? IO_DI[23:16] : ram_data[23:16]),
+                              (IO_BE[1] ? IO_DI[15: 8] : ram_data[15: 8]),
+                              (IO_BE[0] ? IO_DI[ 7: 0] : ram_data[ 7: 0])};
+   
+    always @(posedge clk) begin
+        if (~rst_reg) begin
+            state   <= s_idle;
+            lcount  <= 0;
+            ram_rdy <= 0;
+        end else begin
+            case (state)
+            s_idle: begin
+                ram_rdy <= 0;
+                if (~ram_rdy & ram_enable & IO_RD) begin
+                    ram_cs     <= 0;
+                    ram_oe     <= 0;
+                    ram_wr     <= 1;
+                    ram_addr   <= IO_A[20:2];
+                    ram_ub_b   <= 0;
+                    ram_lb_b   <= 0;
+                    wdat_oe    <= 0;
+                    lcount     <= latency;
+                    state      <= s_read;
+                end else if (~ram_rdy & ram_enable & IO_WR & (IO_BE == 4'b1111)) begin
+                    ram_cs     <= 0;
+                    ram_oe     <= 1;
+                    ram_wr     <= 0;
+                    ram_addr   <= IO_A[20:2];
+                    ram_ub_b   <= 0;
+                    ram_lb_b   <= 0;
+                    wdat       <= IO_DI;
+                    wdat_oe    <= 1;
+                    lcount     <= latency;
+                    state      <= s_write;
+                end else if (~ram_rdy & ram_enable & IO_WR) begin
+                    ram_cs     <= 0;
+                    ram_oe     <= 0;
+                    ram_wr     <= 1;
+                    ram_addr   <= IO_A[20:2];
+                    ram_ub_b   <= 0;
+                    ram_lb_b   <= 0;
+                    wdat_oe    <= 0;
+                    lcount     <= latency;
+                    state      <= s_read_modify_write;
+                end else begin
+                    ram_cs     <= 1;
+                    ram_oe     <= 1;
+                    ram_wr     <= 1;
+                    wdat_oe    <= 0;
+                end
+            end
+            s_read: begin
+                if (lcount != 0) begin
+                    lcount     <= lcount - 1;
+                end else begin
+                    ram_cs     <= 1;
+                    ram_oe     <= 1;
+                    ram_wr     <= 1;
+                    ram_dout   <= ram_data;
+                    ram_rdy    <= 1;
+                    state      <= s_idle;
+                end
+            end
+            s_read_modify_write: begin
+                if (lcount != 0) begin
+                    lcount     <= lcount - 1;
+                end else begin
+                    ram_cs     <= 0;
+                    ram_oe     <= 1;
+                    ram_wr     <= 0;
+                    ram_addr   <= IO_A[20:2];
+                    ram_ub_b   <= 0;
+                    ram_lb_b   <= 0;
+                    wdat       <= merged_dat;
+                    wdat_oe    <= 1;
+                    lcount     <= latency;
+                    state      <= s_write;
+                end
+            end
+            s_write: begin
+                if (lcount != 0) begin
+                    lcount     <= lcount - 1;
+                end else begin
+                    ram_cs     <= 1;
+                    ram_oe     <= 1;
+                    ram_wr     <= 1;
+                    ram_rdy    <= 1;       // XXX   We could acknoledge write  XXX
+                    state      <= s_idle;  // XXX   requests 1 cycle ahead     XXX
+                end
+            end
+            endcase
+        end
+    end
+
+    //----------------------------------------------------------------------------
+    // Test outputs
+    //----------------------------------------------------------------------------
+
+    // default to hi-impedence, to avoid conflicts with
+    // a Raspberry Pi connected to the test connector
 
     assign fetchc = IO_RD & (status == 4'b1000);
     assign fetchd = IO_RD & (status == 4'b1010);
 
-    // default to hi-impedence, to avoid conflicts with
-    // a Raspberry Pi connected to the test connector
     assign test = sw[3] ? {rst_reg, fetchc, fetchd, bootmode,  status} :
                   sw[2] ? {rst_reg, fetchc, fetchd, IO_A[14:10]} :
-                  sw[1] ? {rst_reg, fetchc, fetchd, IO_A[9:5]} :
+                  sw[1] ? {rst_reg, ram_enable, IO_RD, IO_WR, ram_cs, ram_oe, ram_wr, ram_rdy} :
                   sw[0] ? {rst_reg, tube_enable, p_cs_b, p_wr_b, p_data_in[3:0]} :
                           {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
 
