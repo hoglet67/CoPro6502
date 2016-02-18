@@ -226,7 +226,9 @@ module LX9CoPro32016 (
                 bootmode <= 1'b0;
         end
 
-    assign IO_READY = ram_enable ? ram_rdy : (IO_WR | rd_rdy);
+    assign IO_READY = ram_enable ? ram_rdy :
+                      rom_enable ? (IO_WR | rd_rdy) :
+                      (IO_WR | IO_RD);
 
     assign h_irq_b  = 1;
 
