@@ -63,12 +63,15 @@ module LX9CoPro32016 (
     wire fetchc;
     wire fetchd;
 
-    dcm_32_16 inst_dcm (
-        .CLKIN_IN(fastclk),
-        .CLK0_OUT(clk),
-        .CLK0_OUT1(),
-        .CLK2X_OUT()
-    );
+//    dcm_32_16 inst_dcm (
+//        .CLKIN_IN(fastclk),
+//        .CLK0_OUT(clk),
+//        .CLK0_OUT1(),
+//        .CLK2X_OUT()
+//    );
+
+    assign clk = fastclk;
+    
 
 //    reg         gsr0;
 //    reg         gsr1;
@@ -227,8 +230,11 @@ module LX9CoPro32016 (
         end
 
     assign IO_READY = ram_enable ? ram_rdy :
-                      rom_enable ? (IO_WR | rd_rdy) :
+                      (rom_enable | (tube_enable & (IO_A[3:1] != 3'b101)))  ? (IO_WR | rd_rdy) :
                       (IO_WR | IO_RD);
+
+//  LOAD doesn't work in this version, because reads take two cycles 
+//  assign IO_READY = ram_enable ? ram_rdy : (IO_WR | rd_rdy);
 
     assign h_irq_b  = 1;
 
