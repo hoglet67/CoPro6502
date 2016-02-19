@@ -144,7 +144,7 @@ module LX9CoPro32016 (
         .COP_GO(),                  // output
         .COP_OP(),                  // output
         .COP_OUT(),                 // output
-        .COP_DONE(1'b1),            // input
+        .COP_DONE(1'b0),            // input
         .COP_IN(64'b0)              // input
     );
 
