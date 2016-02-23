@@ -243,12 +243,16 @@ module LX9CoPro32016 (
     // State Machine machine performing read-modify-write cycles
     //----------------------------------------------------------------------------
 
-    parameter latency             = 1;    // 0 .. 7
+    parameter rd_latency          = 1;    // 0 .. 7, must be odd or m32632 messes up
+    parameter wr_latency          = 1;    // 0 .. 7
+    parameter rmw_rd_latency      = 1;    // 0 .. 7
+    parameter rmw_wr_latency      = 1;    // 0 .. 7
 
     parameter s_idle              = 0;
     parameter s_read              = 1;
     parameter s_read_modify_write = 2;
     parameter s_write             = 3;
+    parameter s_done              = 4;
 
     reg [2:0]  state;
     reg        ram_rdy;
@@ -276,7 +280,7 @@ module LX9CoPro32016 (
             case (state)
             s_idle: begin
                 ram_rdy <= 0;
-                if (~ram_rdy & ram_enable & IO_RD) begin
+                if (ram_enable & IO_RD) begin
                     ram_cs     <= 0;
                     ram_oe     <= 0;
                     ram_wr     <= 1;
@@ -284,9 +288,9 @@ module LX9CoPro32016 (
                     ram_ub_b   <= 0;
                     ram_lb_b   <= 0;
                     wdat_oe    <= 0;
-                    lcount     <= latency;
+                    lcount     <= rd_latency;
                     state      <= s_read;
-                end else if (~ram_rdy & ram_enable & IO_WR & (IO_BE == 4'b1111)) begin
+                end else if (ram_enable & IO_WR & (IO_BE == 4'b1111)) begin
                     ram_cs     <= 0;
                     ram_oe     <= 1;
                     ram_wr     <= 0;
@@ -295,9 +299,9 @@ module LX9CoPro32016 (
                     ram_lb_b   <= 0;
                     wdat       <= IO_DI;
                     wdat_oe    <= 1;
-                    lcount     <= latency;
+                    lcount     <= wr_latency;
                     state      <= s_write;
-                end else if (~ram_rdy & ram_enable & IO_WR) begin
+                end else if (ram_enable & IO_WR) begin
                     ram_cs     <= 0;
                     ram_oe     <= 0;
                     ram_wr     <= 1;
@@ -305,7 +309,7 @@ module LX9CoPro32016 (
                     ram_ub_b   <= 0;
                     ram_lb_b   <= 0;
                     wdat_oe    <= 0;
-                    lcount     <= latency;
+                    lcount     <= rmw_rd_latency;
                     state      <= s_read_modify_write;
                 end else begin
                     ram_cs     <= 1;
@@ -323,7 +327,7 @@ module LX9CoPro32016 (
                     ram_wr     <= 1;
                     ram_dout   <= ram_data;
                     ram_rdy    <= 1;
-                    state      <= s_idle;
+                    state      <= s_done;
                 end
             end
             s_read_modify_write: begin
@@ -338,7 +342,7 @@ module LX9CoPro32016 (
                     ram_lb_b   <= 0;
                     wdat       <= merged_dat;
                     wdat_oe    <= 1;
-                    lcount     <= latency;
+                    lcount     <= rmw_wr_latency;
                     state      <= s_write;
                 end
             end
@@ -350,9 +354,13 @@ module LX9CoPro32016 (
                     ram_oe     <= 1;
                     ram_wr     <= 1;
                     ram_rdy    <= 1;       // XXX   We could acknoledge write  XXX
-                    state      <= s_idle;  // XXX   requests 1 cycle ahead     XXX
+                    state      <= s_done;  // XXX   requests 1 cycle ahead     XXX
                 end
             end
+            s_done: begin
+                ram_rdy    <= 0;
+                state      <= s_idle;
+            end            
             endcase
         end
     end
