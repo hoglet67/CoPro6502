@@ -62,6 +62,7 @@ module LX9CoPro32016 (
     wire [7:0]  statsigs;
     wire fetchc;
     wire fetchd;
+//    wire [7:0]  trig;
 
 //    dcm_32_16 inst_dcm (
 //        .CLKIN_IN(fastclk),
@@ -171,6 +172,12 @@ module LX9CoPro32016 (
     assign ram_enable    = (IO_RD | IO_WR) & (!bootmode & (IO_A[23:21] == 3'b000));
     assign tube_enable   = (IO_RD | IO_WR) & (!bootmode & (IO_A[23: 4] == 20'hFFFFF));
     assign config_enable = (IO_RD)         & (!bootmode & (IO_A[23: 4] == 20'hF9000));
+
+//    // For Udo's CPU Test Program
+//    assign rom_enable    = (IO_RD)         & (IO_A[23:13] == 11'b00000000000);
+//    assign ram_enable    = (IO_RD | IO_WR) & (IO_A[23:13] != 11'b00000000000);
+//    assign tube_enable   = 0;
+//    assign config_enable = 0;
 
     // Internal ROM 8Kx32 bits
 
@@ -374,6 +381,18 @@ module LX9CoPro32016 (
 
     assign fetchc = IO_RD & (status == 4'b1000);
     assign fetchd = IO_RD & (status == 4'b1010);
+
+//    assign trig[5] = fetchc & (IO_A[23:0] == 24'h000000);
+//    assign trig[4] = fetchc & (IO_A[23:0] == 24'h000A60);
+//    assign trig[3] = fetchc & (IO_A[23:0] == 24'h001C70);
+//    assign trig[2] = fetchc & (IO_A[23:0] == 24'h001CA8);
+//    assign trig[1] = fetchc & (IO_A[23:0] == 24'h001CA9);
+//    assign trig[0] = fetchc & (IO_A[23:0] == 24'h001CB8);
+//    assign test = sw[3] ? {rst_reg, fetchc, IO_A[17:12]} :
+//                  sw[2] ? {rst_reg, fetchc, IO_A[11:6]} :
+//                  sw[1] ? {rst_reg, fetchc, IO_A[5:0]} :
+//                  sw[0] ? {rst_reg, fetchc, trig[5:0]} :
+//                          {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
 
     assign test = sw[3] ? {rst_reg, fetchc, fetchd, bootmode,  status} :
                   sw[2] ? {rst_reg, fetchc, fetchd, IO_A[14:10]} :
