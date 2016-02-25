@@ -319,13 +319,13 @@ module ADDR_UNIT ( BCLK, BRESET, READ, WRITE, LDEA, NEWACC, CLRMSW, POST, DISP_O
 		//
 		  7'b01_xxxx_1 : acc_step = acc_ok;	// Word : 	aligned access , only 1 packet
 		  7'b01_1x1x_0 : acc_step = acc_ok;	//			READ must wait for all data
-		  7'b01_001x_0 : acc_step = acc_ok;	//			WRITE Adr. ist not perfect and waits for last packet
-		  7'b01_01xx_0 : acc_step = acc_ok;	//			WRITE Adr. perfect - acc_step after 1. packet
+		  7'b01_0x1x_0 : acc_step = acc_ok;	//			WRITE Adr. ist not perfect and waits for last packet
+		  7'b01_0100_0 : acc_step = acc_ok;	//			WRITE Adr. perfect - acc_step after 1. packet
 		//
 		  7'b10_xxxx_1 : acc_step = acc_ok;	// DWord : 	aligned access , only 1 packet
 		  7'b10_1x1x_0 : acc_step = acc_ok;	//			READ must wait for all data
-		  7'b10_001x_0 : acc_step = acc_ok;	//			WRITE Adr. ist not perfect and waits for last packet
-		  7'b10_01xx_0 : acc_step = acc_ok;	//			WRITE Adr. perfect - acc_step after 1. packet
+		  7'b10_0x1x_0 : acc_step = acc_ok;	//			WRITE Adr. ist not perfect and waits for last packet
+		  7'b10_0100_0 : acc_step = acc_ok;	//			WRITE Adr. perfect - acc_step after 1. packet      
 		// fast QWord READ : there would be a 2. acc_step if not ~PACK... 
 		  7'b11_1xxx_x : acc_step = acc_ok & ( (qwa_flag & ~io_rdy & ca_hit) ? ~PACKET[3] : PACKET[3] );
 		  7'b11_0x1x_x : acc_step = acc_ok;
