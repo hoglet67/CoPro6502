@@ -1,3 +1,5 @@
+`define CONFIG_SWITCHES 32'h0
+
 module LX9CoPro32016 (
     input fastclk,
 
@@ -50,7 +52,7 @@ module LX9CoPro32016 (
     wire        ram_enable;
     wire        rom_enable;
     wire        tube_enable;
-    //wire        config_enable;
+    wire        config_enable;
 
     reg  [31:0] ram_dout;
     wire [31:0] rom_dout;
@@ -60,39 +62,20 @@ module LX9CoPro32016 (
 
     wire [3:0]  status;
     wire [7:0]  statsigs;
-    wire fetchc;
-    wire fetchd;
-//    wire [7:0]  trig;
 
-//    dcm_32_16 inst_dcm (
-//        .CLKIN_IN(fastclk),
-//        .CLK0_OUT(clk),
-//        .CLK0_OUT1(),
-//        .CLK2X_OUT()
-//    );
+    ICAP_config inst_ICAP_config (
+        .fastclk(fastclk),
+        .sw_in  (sw),
+        .sw_out (sw_out),
+        .h_addr (h_addr),
+        .h_cs_b (h_cs_b),
+        .h_data (h_data),
+        .h_phi2 (h_phi2),
+        .h_rdnw (h_rdnw),
+        .h_rst_b(h_rst_b)
+    );
 
     assign clk = fastclk;
-    
-
-//    reg         gsr0;
-//    reg         gsr1;
-//    reg         gsr2;
-//    always @(posedge clk)
-//        begin
-//           gsr0 <= !p_rst_b;
-//           gsr1 <= gsr0;
-//           gsr2 <= gsr1 && !gsr0;
-//        end
-//
-//    STARTUP_SPARTAN6 startup_inst (
-//        .CFGCLK(),
-//        .CFGMCLK(),
-//        .EOS(),
-//        .CLK(),
-//        .GSR(gsr2),
-//        .GTS(),
-//        .KEYCLEARB()
-//      );
 
     M32632 cpu (
 
@@ -152,10 +135,8 @@ module LX9CoPro32016 (
     assign IO_Q = ram_enable    ? ram_dout :
                   rom_enable    ? rom_dout :
                   tube_enable   ? {p_data_out, p_data_out, p_data_out, p_data_out} :
+                  config_enable ? 32'b0 :
                   32'b0;
-
-   //               config_enable ? 32'b0 :
-   //               32'hAAAAAAAA;
 
     // Memory Map during booting
     // 000000-FFFFFF ROM (32KB, repeating)
@@ -173,31 +154,12 @@ module LX9CoPro32016 (
     assign tube_enable   = (IO_RD | IO_WR) & (!bootmode & (IO_A[23: 4] == 20'hFFFFF));
     assign config_enable = (IO_RD)         & (!bootmode & (IO_A[23: 4] == 20'hF9000));
 
-//    // For Udo's CPU Test Program
-//    assign rom_enable    = (IO_RD)         & (IO_A[23:13] == 11'b00000000000);
-//    assign ram_enable    = (IO_RD | IO_WR) & (IO_A[23:13] != 11'b00000000000);
-//    assign tube_enable   = 0;
-//    assign config_enable = 0;
-
     // Internal ROM 8Kx32 bits
-
     tuberom_32016 rom(
         .clk(clk),
         .addr(IO_A[14:2]),
         .data(rom_dout)
     );
-
-    // External RAM
-    // in spite of the naming, these are all active low
-
-    //assign ram_ub_b = 1'b0;
-    //assign ram_lb_b = 1'b0;
-    //assign ram_cs   = !(ram_enable);
-    //assign ram_oe   = !(ram_enable & IO_RD);
-    //assign ram_wr   = !(ram_enable & IO_WR);
-    //assign ram_addr = IO_A[20:2];
-    //assign ram_dout = ram_data;
-    //assign ram_data = (ram_enable & IO_WR) ? IO_DI : 32'bz;
 
     // Tube
     assign p_data_in = IO_A[1] ? IO_DI[23:16] : IO_DI[7:0];
@@ -229,26 +191,26 @@ module LX9CoPro32016 (
             rst_reg  <= p_rst_b;
             nmi_reg  <= p_nmi_b;
             irq_reg  <= p_irq_b;
-            rd_rdy   <= IO_RD & ~rd_rdy;
+            rom_rdy  <= IO_RD & rom_enable & ~rom_rdy;
             if (!rst_reg)
                 bootmode <= 1'b1;
             else if (IO_RD & (IO_A[23:18] == 6'b111100))
                 bootmode <= 1'b0;
         end
 
-    assign IO_READY = ram_enable ? ram_rdy :
-                      (rom_enable | (tube_enable & (IO_A[3:1] != 3'b101)))  ? (IO_WR | rd_rdy) :
-                      (IO_WR | IO_RD);
+    assign IO_READY = ram_enable ? ram_rdy           :  // Ram controlled by state machine
+                      rom_enable ? (IO_WR | rom_rdy) :  // Rom has 1 cycle rs latency
+                                   (IO_WR | IO_RD);     // Everying else is immediate
 
-//  LOAD doesn't work in this version, because reads take two cycles 
-//  assign IO_READY = ram_enable ? ram_rdy : (IO_WR | rd_rdy);
-
+    // Note, this signal not actually connected to the tube connector on the PCB
     assign h_irq_b  = 1;
-
 
     //----------------------------------------------------------------------------
     // State Machine machine performing read-modify-write cycles
     //----------------------------------------------------------------------------
+
+    // External RAM signals
+    // in spite of the naming, these are all active low
 
     parameter rd_latency          = 1;    // 0 .. 7, must be odd or m32632 messes up
     parameter wr_latency          = 1;    // 0 .. 7
@@ -263,13 +225,14 @@ module LX9CoPro32016 (
 
     reg [2:0]  state;
     reg        ram_rdy;
+    reg        rom_rdy;
 
     // Latency countdown
     reg [2:0]  lcount;
 
     // Tri-State-Driver
     reg [31:0] wdat;
-    reg        wdat_oe;  
+    reg        wdat_oe;
     assign ram_data = wdat_oe ? wdat : 32'bz;
 
     // Merged data for byte enables writes
@@ -277,7 +240,7 @@ module LX9CoPro32016 (
                               (IO_BE[2] ? IO_DI[23:16] : ram_data[23:16]),
                               (IO_BE[1] ? IO_DI[15: 8] : ram_data[15: 8]),
                               (IO_BE[0] ? IO_DI[ 7: 0] : ram_data[ 7: 0])};
-   
+
     always @(posedge clk) begin
         if (~rst_reg) begin
             state   <= s_idle;
@@ -367,7 +330,7 @@ module LX9CoPro32016 (
             s_done: begin
                 ram_rdy    <= 0;
                 state      <= s_idle;
-            end            
+            end
             endcase
         end
     end
@@ -378,26 +341,38 @@ module LX9CoPro32016 (
 
     // default to hi-impedence, to avoid conflicts with
     // a Raspberry Pi connected to the test connector
+    assign test = 8'bZ;
 
-    assign fetchc = IO_RD & (status == 4'b1000);
-    assign fetchd = IO_RD & (status == 4'b1010);
+    //----------------------------------------------------------------------------
+    // Test setups for debugging
+    //----------------------------------------------------------------------------
 
-//    assign trig[5] = fetchc & (IO_A[23:0] == 24'h000000);
-//    assign trig[4] = fetchc & (IO_A[23:0] == 24'h000A60);
-//    assign trig[3] = fetchc & (IO_A[23:0] == 24'h001C70);
-//    assign trig[2] = fetchc & (IO_A[23:0] == 24'h001CA8);
-//    assign trig[1] = fetchc & (IO_A[23:0] == 24'h001CA9);
-//    assign trig[0] = fetchc & (IO_A[23:0] == 24'h001CB8);
-//    assign test = sw[3] ? {rst_reg, fetchc, IO_A[17:12]} :
-//                  sw[2] ? {rst_reg, fetchc, IO_A[11:6]} :
-//                  sw[1] ? {rst_reg, fetchc, IO_A[5:0]} :
-//                  sw[0] ? {rst_reg, fetchc, trig[5:0]} :
-//                          {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
+    // // For Udo's CPU Test Program
+    // assign rom_enable    = (IO_RD)         & (IO_A[23:13] == 11'b00000000000);
+    // assign ram_enable    = (IO_RD | IO_WR) & (IO_A[23:13] != 11'b00000000000);
+    // assign tube_enable   = 0;
+    // assign config_enable = 0;
 
-    assign test = sw[3] ? {rst_reg, fetchc, fetchd, bootmode,  status} :
-                  sw[2] ? {rst_reg, fetchc, fetchd, IO_A[14:10]} :
-                  sw[1] ? {rst_reg, ram_enable, IO_RD, IO_WR, ram_cs, ram_oe, ram_wr, ram_rdy} :
-                  sw[0] ? {rst_reg, tube_enable, p_cs_b, p_wr_b, p_data_in[3:0]} :
-                          {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
+    // wire [7:0]  trig;
+    // wire fetchc;
+    // wire fetchd;
+    // assign fetchc = IO_RD & (status == 4'b1000);
+    // assign fetchd = IO_RD & (status == 4'b1010);
+    // assign trig[5] = fetchc & (IO_A[23:0] == 24'h000000);
+    // assign trig[4] = fetchc & (IO_A[23:0] == 24'h000A60);
+    // assign trig[3] = fetchc & (IO_A[23:0] == 24'h001C70);
+    // assign trig[2] = fetchc & (IO_A[23:0] == 24'h001CA8);
+    // assign trig[1] = fetchc & (IO_A[23:0] == 24'h001CA9);
+    // assign trig[0] = fetchc & (IO_A[23:0] == 24'h001CB8);
+    // assign test = sw[3] ? {rst_reg, fetchc, IO_A[17:12]} :
+    //               sw[2] ? {rst_reg, fetchc, IO_A[11:6]} :
+    //               sw[1] ? {rst_reg, fetchc, IO_A[5:0]} :
+    //               sw[0] ? {rst_reg, fetchc, trig[5:0]} :
+    //                       {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
+    // assign test = sw[3] ? {rst_reg, fetchc, fetchd, bootmode,  status} :
+    //               sw[2] ? {rst_reg, fetchc, fetchd, IO_A[14:10]} :
+    //               sw[1] ? {rst_reg, ram_enable, IO_RD, IO_WR, ram_cs, ram_oe, ram_wr, ram_rdy} :
+    //               sw[0] ? {rst_reg, tube_enable, p_cs_b, p_wr_b, p_data_in[3:0]} :
+    //                       {p_irq_b, p_nmi_b, bootmode, IO_RD, IO_WR, ram_enable, rom_enable, tube_enable};
 
 endmodule
