@@ -214,13 +214,13 @@ begin
     -- Original: Acorn TUBE 65C102 Co-Processor
     -- Updated:  Acorn TUBE 32Mhz 65C102 Co-Pro
     
-    digit1 <= x"33" when sw_out(1 downto 0) = "00" else
-              x"31" when sw_out(1 downto 0) = "01" else
+    digit1 <= x"33" when sw_out(1 downto 0) = "11" else
+              x"31" when sw_out(1 downto 0) = "10" else
               x"30"; 
 
-    digit2 <= x"32" when sw_out(1 downto 0) = "00" else
-              x"36" when sw_out(1 downto 0) = "01" else
-              x"38" when sw_out(1 downto 0) = "10" else
+    digit2 <= x"32" when sw_out(1 downto 0) = "11" else
+              x"36" when sw_out(1 downto 0) = "10" else
+              x"38" when sw_out(1 downto 0) = "01" else
               x"34";
     
     ram_cs_b <= '0' when p_cs_b = '1' and rom_cs_b = '1' else '1';
@@ -304,13 +304,13 @@ begin
         if rising_edge(clk_cpu) then
             clken_counter <= clken_counter + 1;
             case "00" & sw_out(1 downto 0) is
-               when x"0"   =>
-                   cpu_clken     <= clken_counter(0);
-               when x"1"   =>
-                   cpu_clken     <= clken_counter(1) and clken_counter(0);
-               when x"2"   =>
-                   cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
                when x"3"   =>
+                   cpu_clken     <= clken_counter(0);
+               when x"2"   =>
+                   cpu_clken     <= clken_counter(1) and clken_counter(0);
+               when x"1"   =>
+                   cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
+               when x"0"   =>
                    cpu_clken     <= clken_counter(3) and clken_counter(2) and clken_counter(1) and clken_counter(0);
                when others =>
                    cpu_clken     <= clken_counter(0);
