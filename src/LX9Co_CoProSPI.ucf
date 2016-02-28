@@ -60,9 +60,9 @@ NET "ram_data<4>"  LOC = "P5"   | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 
 NET "ram_data<5>"  LOC = "P2"   | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
 NET "ram_data<6>"  LOC = "P1"   | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
 NET "ram_data<7>"  LOC = "P143" | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
-NET "p_spi_ssel"   LOC = "P83"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
-NET "p_spi_sck"    LOC = "P82"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
-NET "p_spi_mosi"   LOC = "P81"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
+NET "p_spi_ssel"   LOC = "P83"  | IOSTANDARD = LVCMOS33 | PULLDOWN;
+NET "p_spi_sck"    LOC = "P82"  | IOSTANDARD = LVCMOS33 ;
+NET "p_spi_mosi"   LOC = "P81"  | IOSTANDARD = LVCMOS33 ;
 NET "p_spi_miso"   LOC = "P80"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
 NET "p_irq_b"      LOC = "P79"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
 NET "p_nmi_b"      LOC = "P78"  | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 2 ;
