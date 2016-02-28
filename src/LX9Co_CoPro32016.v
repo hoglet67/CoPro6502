@@ -66,7 +66,7 @@ module LX9CoPro32016 (
     ICAP_config inst_ICAP_config (
         .fastclk(fastclk),
         .sw_in  (sw),
-        .sw_out (sw_out),
+        .sw_out (),
         .h_addr (h_addr),
         .h_cs_b (h_cs_b),
         .h_data (h_data),
