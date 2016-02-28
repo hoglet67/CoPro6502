@@ -48,6 +48,11 @@ architecture BEHAVIORAL of LX9CoProSPI is
 
     signal h_data_in : std_logic_vector(7 downto 0);
     signal h_data_out : std_logic_vector(7 downto 0);
+    signal spi_attached : std_logic := '0';
+    signal h_rst_b1 : std_logic;
+    signal h_rst_b2 : std_logic;
+    signal h_rst_b3 : std_logic;
+    signal h_phi2_b : std_logic;
     
 begin
 
@@ -66,9 +71,11 @@ begin
         h_rdnw  => h_rdnw,
         h_rst_b => h_rst_b 
     );
+    
+    h_phi2_b <= not h_phi2;
 
     inst_CoProSPI : entity work.CoProSPI port map (
-        h_clk        => not h_phi2,
+        h_clk        => h_phi2_b,
         h_cs_b       => h_cs_b,
         h_rdnw       => h_rdnw,
         h_addr       => h_addr,
@@ -96,8 +103,26 @@ begin
     );
 
     h_data_in <= h_data;
-    h_data    <= h_data_out when h_rdnw = '1' else (others => 'Z');
-                  
+    h_data    <= h_data_out when spi_attached = '1' and h_cs_b = '0' and h_rdnw = '1' and h_phi2 = '1' else
+                 x"FE"      when spi_attached = '0' and h_cs_b = '0' and h_rdnw = '1' and h_phi2 = '1' else
+                 (others => 'Z');
+
+--------------------------------------------------------
+-- SPI / Null mode selection
+--------------------------------------------------------
+
+    process(fastclk)
+    begin
+        if rising_edge(fastclk) then
+            h_rst_b1 <= h_rst_b;
+            h_rst_b2 <= h_rst_b1;
+            h_rst_b3 <= h_rst_b2;
+            if h_rst_b3 = '0' and h_rst_b2 = '1' then
+                spi_attached <= p_spi_ssel;
+            end if;
+        end if;
+    end process;
+    
 --------------------------------------------------------
 -- external Ram unused
 --------------------------------------------------------
@@ -112,7 +137,7 @@ begin
 --------------------------------------------------------
 -- test signals
 --------------------------------------------------------
-    p_test <= h_rst_b;
+    p_test <= spi_attached;
 
 end BEHAVIORAL;
 

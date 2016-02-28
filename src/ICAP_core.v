@@ -330,21 +330,22 @@ module ICAP_core
                case (design_num)
                  5'b10000: icap_din    = 16'h0000;
                  5'b00000: icap_din    = 16'h4000;
-                 5'b00001: icap_din    = 16'h8000;
-                 5'b00010: icap_din    = 16'hC000;
-                 5'b00011: icap_din    = 16'h0000;
-                 5'b00100: icap_din    = 16'h4000;
-                 5'b00101: icap_din    = 16'h8000;
-                 5'b00111: icap_din    = 16'h0000;
-                 5'b01000: icap_din    = 16'h8000;
-                 5'b01001: icap_din    = 16'h8000;
+                 5'b00001: icap_din    = 16'h4000;
+                 5'b00010: icap_din    = 16'h4000;
+                 5'b00011: icap_din    = 16'h4000;
+                 5'b00100: icap_din    = 16'h8000;
+                 5'b00101: icap_din    = 16'hC000;
+                 5'b00110: icap_din    = 16'hC000;
+                 5'b00111: icap_din    = 16'hC000;
+                 5'b01000: icap_din    = 16'h0000;
+                 5'b01001: icap_din    = 16'h4000;
                  5'b01010: icap_din    = 16'h8000;
-                 5'b01011: icap_din    = 16'h8000;
-                 5'b01100: icap_din    = 16'hC000;
-                 5'b01101: icap_din    = 16'hC000;
-                 5'b01110: icap_din    = 16'hC000;
+                 5'b01011: icap_din    = 16'hC000;
+                 5'b01100: icap_din    = 16'h0000;
+                 5'b01101: icap_din    = 16'h4000;
+                 5'b01110: icap_din    = 16'h8000; // The Null Co Processor
                  5'b01111: icap_din    = 16'hC000;
-                 default:  icap_din    = 16'h4000;
+                 default:  icap_din    = 16'h8000; // The Null Co Processor
                endcase
 
             end
@@ -366,21 +367,22 @@ module ICAP_core
                case (design_num)
                  5'b10000: icap_din    = 16'h0300;
                  5'b00000: icap_din    = 16'h0305;
-                 5'b00001: icap_din    = 16'h030a;
-                 5'b00010: icap_din    = 16'h030f;
-                 5'b00011: icap_din    = 16'h0315;
-                 5'b00100: icap_din    = 16'h031a;
-                 5'b00101: icap_din    = 16'h0334;
-                 5'b00111: icap_din    = 16'h032a;
-                 5'b01000: icap_din    = 16'h031f;
-                 5'b01001: icap_din    = 16'h031f;
+                 5'b00001: icap_din    = 16'h0305;
+                 5'b00010: icap_din    = 16'h0305;
+                 5'b00011: icap_din    = 16'h0305;
+                 5'b00100: icap_din    = 16'h030a;
+                 5'b00101: icap_din    = 16'h030f;
+                 5'b00110: icap_din    = 16'h030f;
+                 5'b00111: icap_din    = 16'h030f;
+                 5'b01000: icap_din    = 16'h0315;
+                 5'b01001: icap_din    = 16'h031a;
                  5'b01010: icap_din    = 16'h031f;
-                 5'b01011: icap_din    = 16'h031f;
-                 5'b01100: icap_din    = 16'h0324;
-                 5'b01101: icap_din    = 16'h0324;
-                 5'b01110: icap_din    = 16'h0324;
+                 5'b01011: icap_din    = 16'h0324;
+                 5'b01100: icap_din    = 16'h032a;
+                 5'b01101: icap_din    = 16'h032f;
+                 5'b01110: icap_din    = 16'h0334; // The Null/SPI Co Processor
                  5'b01111: icap_din    = 16'h0339;
-                 default:  icap_din    = 16'h032f; // The Null Co Processor
+                 default:  icap_din    = 16'h0334; // The Null/SPI Co Processor
                endcase
 
             end

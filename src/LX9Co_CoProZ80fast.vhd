@@ -215,17 +215,17 @@ begin
     -- Original: Acorn TUBE Z80 64k 1.21
     -- Updated:  Acorn TUBE Z80 112 Mhz   
 
-    digit1 <= x"31" when sw_out(1 downto 0) = "00" else
+    digit1 <= x"31" when sw_out(1 downto 0) = "11" else
               x"06"; 
 
-    digit2 <= x"31" when sw_out(1 downto 0) = "00" else
-              x"35" when sw_out(1 downto 0) = "01" else
-              x"33" when sw_out(1 downto 0) = "10" else
+    digit2 <= x"31" when sw_out(1 downto 0) = "11" else
+              x"35" when sw_out(1 downto 0) = "10" else
+              x"33" when sw_out(1 downto 0) = "01" else
               x"31";
               
-    digit3 <= x"32" when sw_out(1 downto 0) = "00" else
-              x"36" when sw_out(1 downto 0) = "01" else
-              x"32" when sw_out(1 downto 0) = "10" else
+    digit3 <= x"32" when sw_out(1 downto 0) = "11" else
+              x"36" when sw_out(1 downto 0) = "10" else
+              x"32" when sw_out(1 downto 0) = "01" else
               x"36";
     
     ram_cs_b <= '0' when cpu_mreq_n = '0' and rom_cs_b = '1' else '1';
@@ -307,19 +307,19 @@ begin
     begin
         if rising_edge(cpu_clk) then
             case "00" & sw_out(1 downto 0) is
-               when x"0"   =>
+               when x"3"   =>
                    if (clken_counter = 1) then
                        clken_counter <= (others => '0');
                    else
                        clken_counter <= clken_counter + 1;
                    end if;
-               when x"1"   =>
+               when x"2"   =>
                    if (clken_counter = 3) then
                        clken_counter <= (others => '0');
                    else
                        clken_counter <= clken_counter + 1;
                    end if;
-               when x"2"   =>
+               when x"1"   =>
                    if (clken_counter = 6) then
                        clken_counter <= (others => '0');
                    else
