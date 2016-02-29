@@ -27,6 +27,7 @@ module LX9CoPro32016 (
 );
 
     wire        clk;
+    wire        nclk;
     reg         rst_reg;
     reg         nmi_reg;
     reg         irq_reg;
@@ -76,6 +77,7 @@ module LX9CoPro32016 (
     );
 
     assign clk = fastclk;
+    assign nclk = ~fastclk;
 
     M32632 cpu (
 
@@ -156,7 +158,7 @@ module LX9CoPro32016 (
 
     // Internal ROM 8Kx32 bits
     tuberom_32016 rom(
-        .clk(clk),
+        .clk(nclk),
         .addr(IO_A[14:2]),
         .data(rom_dout)
     );
@@ -191,7 +193,6 @@ module LX9CoPro32016 (
             rst_reg  <= p_rst_b;
             nmi_reg  <= p_nmi_b;
             irq_reg  <= p_irq_b;
-            rom_rdy  <= IO_RD & rom_enable & ~rom_rdy;
             if (!rst_reg)
                 bootmode <= 1'b1;
             else if (IO_RD & (IO_A[23:18] == 6'b111100))
@@ -199,7 +200,6 @@ module LX9CoPro32016 (
         end
 
     assign IO_READY = ram_enable ? ram_rdy           :  // Ram controlled by state machine
-                      rom_enable ? (IO_WR | rom_rdy) :  // Rom has 1 cycle rs latency
                                    (IO_WR | IO_RD);     // Everying else is immediate
 
     // Note, this signal not actually connected to the tube connector on the PCB
@@ -225,7 +225,6 @@ module LX9CoPro32016 (
 
     reg [2:0]  state;
     reg        ram_rdy;
-    reg        rom_rdy;
 
     // Latency countdown
     reg [2:0]  lcount;
