@@ -26,8 +26,8 @@ module LX9CoPro32016 (
     inout  [31:0] ram_data
 );
 
-    wire        clk;
-    wire        nclk;
+    reg         clk;
+    reg         nclk;
     reg         rst_reg;
     reg         nmi_reg;
     reg         irq_reg;
@@ -64,26 +64,77 @@ module LX9CoPro32016 (
     wire [3:0]  status;
     wire [7:0]  statsigs;
 
-    ICAP_config inst_ICAP_config (
-        .fastclk(fastclk),
-        .sw_in  (sw),
-        .sw_out (),
-        .h_addr (h_addr),
-        .h_cs_b (h_cs_b),
-        .h_data (h_data),
-        .h_phi2 (h_phi2),
-        .h_rdnw (h_rdnw),
-        .h_rst_b(h_rst_b)
-    );
+    //----------------------------------------------------------------------------
+    // State Machine machine generating a program counter trace on the test port
+    //----------------------------------------------------------------------------
 
-    assign clk = fastclk;
-    assign nclk = ~fastclk;
+    parameter p_clock_0 = 0;
+    parameter p_clock_1 = 1;
+    parameter p_debug   = 2;
 
+    wire [31:0] pc;
+    reg  [31:0] pc_last;
+    reg  [31:0] pc_sr;
+    reg   [7:0] debug;
+    reg   [5:0] debug_ctr;
+    reg   [1:0] pstate = p_clock_0;
+   
+   
+    always @(posedge fastclk) begin
+       case (pstate)
+
+         p_clock_0: begin
+            pstate <= p_clock_1;
+            clk    <= 1;
+            nclk   <= 0;
+         end
+         
+         p_clock_1: begin
+            if (p_rst_b == 1'b0 || pc == pc_last || pc[23:20] == 4'b1111) begin
+               pstate <= p_clock_0;
+               clk    <= 0;
+               nclk   <= 1;
+            end else begin
+               pstate <= p_debug;
+               debug_ctr <= 0;   
+               pc_sr <= pc;
+            end
+            pc_last <= pc;               
+         end
+         
+         p_debug: begin
+            debug <= {debug_ctr[3], ((debug_ctr[5:4] == 2'b00) ? 1'b1 : 1'b0), pc_sr[23:18]};
+            if (debug_ctr == 6'b111111) begin
+               pstate <= p_clock_0;
+               clk    <= 0;
+               nclk   <= 1;
+            end else begin
+               debug_ctr <= debug_ctr + 1;
+               if (debug_ctr[3:0] == 4'b1111) begin
+                  pc_sr[23:0] <= {pc_sr[17:0], 6'b000000};
+               end
+            end
+         end
+       endcase
+    end
+              
+//    ICAP_config inst_ICAP_config (
+//        .fastclk(fastclk),
+//        .sw_in  (sw),
+//        .sw_out (),
+//        .h_addr (h_addr),
+//        .h_cs_b (h_cs_b),
+//        .h_data (h_data),
+//        .h_phi2 (h_phi2),
+//        .h_rdnw (h_rdnw),
+//        .h_rst_b(h_rst_b)
+//    );
+   
     M32632 cpu (
 
         // ++++++++++ Basic Signals
         .BCLK(clk),                 // input
-        .MCLK(~clk),                // input
+        .MCLK(nclk),                // input
         .WRCFG(1'b1),               // input
         .BRESET(rst_reg),           // input
         .NMI_N(nmi_reg),            // input
@@ -131,7 +182,10 @@ module LX9CoPro32016 (
         .COP_OP(),                  // output
         .COP_OUT(),                 // output
         .COP_DONE(1'b0),            // input
-        .COP_IN(64'b0)              // input
+        .COP_IN(64'b0),             // input
+
+        // ++++++++ Monitoring
+        .PC_OUT(pc)                 // output
     );
 
     assign IO_Q = ram_enable    ? ram_dout :
@@ -340,7 +394,7 @@ module LX9CoPro32016 (
 
     // default to hi-impedence, to avoid conflicts with
     // a Raspberry Pi connected to the test connector
-    assign test = 8'bZ;
+    assign test = debug;
 
     //----------------------------------------------------------------------------
     // Test setups for debugging

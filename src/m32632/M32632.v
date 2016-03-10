@@ -43,7 +43,7 @@ module M32632( BCLK, MCLK, WRCFG, BRESET, NMI_N, INT_N, STATUS, ILO, STATSIGS,
 			   ENDRAM, IC_MDONE, DC_MDONE, ENWR, WAMUX, WADDR, DRAM_Q, DWCTRL, IWCTRL,
 			   IC_ACC, IDRAM_ADR, DC_ACC, DC_WR, DRAM_ADR, DRAM_DI,
 			   HOLD, HLDA, FILLRAM, DMA_AA,
-			   COP_GO, COP_OP, COP_OUT, COP_DONE, COP_IN );
+			   COP_GO, COP_OP, COP_OUT, COP_DONE, COP_IN , PC_OUT);
 
 // ++++++++++ Basic Signals
 input			BCLK;	// Basic Clock for everything
@@ -91,6 +91,8 @@ output	[23:0]	COP_OP;
 output [127:0]	COP_OUT;
 input			COP_DONE;
 input	[63:0]	COP_IN;
+// +++++ Monitoring
+output	[31:0]	PC_OUT;
 
 wire			ACC_DONE;
 wire	 [5:0]	ACC_STAT;
@@ -174,6 +176,8 @@ wire	 [1:0]	PTE_STAT;
 wire			DBG_HIT;
 wire	[40:2]	DBG_IN;
 
+   assign PC_OUT = PC_ARCHI;
+   
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //            The Data Cache
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
