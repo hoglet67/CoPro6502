@@ -74,12 +74,12 @@ module LX9CoPro32016 (
 
     wire [31:0] pc;
     reg  [31:0] pc_last;
-    reg  [31:0] pc_sr;
+    reg  [29:0] debug_sr;
     reg   [7:0] debug;
-    reg   [5:0] debug_ctr;
+    reg   [6:0] debug_ctr;
     reg   [1:0] pstate = p_clock_0;
-   
-   
+    reg         IO_WR_last;
+
     always @(posedge fastclk) begin
        case (pstate)
 
@@ -88,36 +88,46 @@ module LX9CoPro32016 (
             clk    <= 1;
             nclk   <= 0;
          end
-         
+
          p_clock_1: begin
-            if (p_rst_b == 1'b0 || pc == pc_last || pc[23:20] == 4'b1111) begin
+            if (p_rst_b == 1'b0 || pc[23:20] == 4'b1111) begin
                pstate <= p_clock_0;
                clk    <= 0;
                nclk   <= 1;
-            end else begin
+            end else if (pc != pc_last) begin
                pstate <= p_debug;
-               debug_ctr <= 0;   
-               pc_sr <= pc;
+               debug_ctr <= 0;
+               debug_sr <= { 6'b000000, pc[23:0] };
+            end else if (IO_WR == 1'b1 && IO_WR_last == 1'b0) begin
+               pstate <= p_debug;
+               debug_ctr <= 0;
+               debug_sr <= { 2'b10, IO_BE, IO_A[23:0] } ;
+            end else begin
+               pstate <= p_clock_0;
+               clk    <= 0;
+               nclk   <= 1;
             end
-            pc_last <= pc;               
+            pc_last <= pc;
+            IO_WR_last <= IO_WR;
          end
-         
+
          p_debug: begin
-            debug <= {debug_ctr[3], ((debug_ctr[5:4] == 2'b00) ? 1'b1 : 1'b0), pc_sr[23:18]};
-            if (debug_ctr == 6'b111111) begin
+            debug <= {debug_ctr[3], ((debug_ctr[6:4] == 3'b000) ? 1'b1 : 1'b0), debug_sr[29:24]};
+            if (debug_ctr == 7'b1001111) begin
                pstate <= p_clock_0;
                clk    <= 0;
                nclk   <= 1;
             end else begin
                debug_ctr <= debug_ctr + 1;
                if (debug_ctr[3:0] == 4'b1111) begin
-                  pc_sr[23:0] <= {pc_sr[17:0], 6'b000000};
+                  debug_sr[29:0] <= {debug_sr[23:0], 6'b000000};
                end
             end
          end
+
        endcase
     end
-              
+
 //    ICAP_config inst_ICAP_config (
 //        .fastclk(fastclk),
 //        .sw_in  (sw),
@@ -129,7 +139,7 @@ module LX9CoPro32016 (
 //        .h_rdnw (h_rdnw),
 //        .h_rst_b(h_rst_b)
 //    );
-   
+
     M32632 cpu (
 
         // ++++++++++ Basic Signals
