@@ -74,9 +74,9 @@ module LX9CoPro32016 (
 
     wire [31:0] pc;
     reg  [31:0] pc_last;
-    reg  [29:0] debug_sr;
+    reg  [65:0] debug_sr;
     reg   [7:0] debug;
-    reg   [6:0] debug_ctr;
+    reg   [7:0] debug_ctr;
     reg   [1:0] pstate = p_clock_0;
     reg         IO_WR_last;
 
@@ -96,12 +96,12 @@ module LX9CoPro32016 (
                nclk   <= 1;
             end else if (pc != pc_last) begin
                pstate <= p_debug;
-               debug_ctr <= 0;
-               debug_sr <= { 6'b000000, pc[23:0] };
+               debug_ctr <= 8'b01100000;   // Count 6..10 ==  5x6 == 30 bits
+               debug_sr <= { pc[23:0], 42'b0};
             end else if (IO_WR == 1'b1 && IO_WR_last == 1'b0) begin
                pstate <= p_debug;
-               debug_ctr <= 0;
-               debug_sr <= { 2'b10, IO_BE, IO_A[23:0] } ;
+               debug_ctr <= 8'b00000000;   // Count 0..10 == 11x6 = 66 bits
+               debug_sr <= { 4'b0, IO_A[23:0], IO_DI, 2'b10, IO_BE } ;
             end else begin
                pstate <= p_clock_0;
                clk    <= 0;
@@ -112,15 +112,15 @@ module LX9CoPro32016 (
          end
 
          p_debug: begin
-            debug <= {debug_ctr[3], ((debug_ctr[6:4] == 3'b000) ? 1'b1 : 1'b0), debug_sr[29:24]};
-            if (debug_ctr == 7'b1001111) begin
+            debug <= {debug_ctr[3], ((debug_ctr[7:4] == 4'b1010) ? 1'b1 : 1'b0), debug_sr[65:60]};
+            if (debug_ctr == 8'b10101111) begin
                pstate <= p_clock_0;
                clk    <= 0;
                nclk   <= 1;
             end else begin
                debug_ctr <= debug_ctr + 1;
                if (debug_ctr[3:0] == 4'b1111) begin
-                  debug_sr[29:0] <= {debug_sr[23:0], 6'b000000};
+                  debug_sr[65:0] <= {debug_sr[59:0], 6'b000000};
                end
             end
          end
