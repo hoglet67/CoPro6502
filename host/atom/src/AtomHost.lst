@@ -1,0 +1,3298 @@
+ca65 V2.13.9 - (C) Copyright 1998-2011 Ullrich von Bassewitz
+Main file   : AtomHost.asm
+Current file: AtomHost.asm
+
+000000r 1               ;;;  AtomHost/src
+000000r 1               ;;; Source for Atom Tube Host
+000000r 1               ;;; J.G.Harston and D.M.Banks
+000000r 1               
+000000r 1                       load     = $3000        ; Load address of the host code
+000000r 1               
+000000r 1                       atmhdr   = 1            ; Whether to include an ARM header (form AtoMMC2)
+000000r 1               
+000000r 1                       atommc   = 1            ; Whether to include a local copy of AtomMMC2 load/save
+000000r 1               
+000000r 1                       debug_r1 = 0            ; Whether to include debugging of R1 commands
+000000r 1                       debug_r2 = 0            ; Whether to include debugging of R2 commands
+000000r 1                       debug_r4 = 0            ; Whether to include debugging of R4 commands
+000000r 1               
+000000r 1                       debug_osw_7f = 0        ; Whether to include debugging of OSWORD 7F commands
+000000r 1                       debug_osw_ff = 0        ; Whether to include debugging of OSWORD FF commands
+000000r 1               
+000000r 1                       debug_sddos = 0         ; Whether to include debugging of SDDOS data blocks
+000000r 1               
+000000r 1                       debug_unsupp = 0        ; Whether to include debugging of unsupported osbyte/osword commands
+000000r 1               
+000000r 1                       buffered_kbd = 1        ; Whether to include a buffered keyboard routine
+000000r 1               
+000000r 1                       LangStart = $4000       ; start of the language in host memory
+000000r 1                       LangEnd   = $8000       ; end of the language in host memory
+000000r 1               
+000000r 1               .include "macros.asm"
+000000r 2               ;=================================================================
+000000r 2               ; macro definitions for AtoMMC
+000000r 2               ; Collected macros from all files into a single file
+000000r 2               ;=================================================================
+000000r 2               ;
+000000r 2               ; 2013-10-09 converted some of the macro calls to jsr calls where
+000000r 2               ; appropriate. -- PHS
+000000r 2               ;
+000000r 2               
+000000r 2               .macro FNADDR addr
+000000r 2                  .byte >addr, <addr
+000000r 2               .endmacro
+000000r 2               
+000000r 2               .macro readportFAST port
+000000r 2               .ifdef AVR
+000000r 2               	jsr	WaitUntilWritten
+000000r 2               .endif
+000000r 2               	lda	port
+000000r 2               .endmacro
+000000r 2               
+000000r 2               .macro writeportFAST port
+000000r 2                   sta port
+000000r 2               .ifdef AVR
+000000r 2               	jsr WaitUntilRead
+000000r 2               .endif
+000000r 2               .endmacro
+000000r 2               
+000000r 2               ; Note SLOWCMD used to take a port number, but since ALL calls used APORT_CMD
+000000r 2               ; it is more code size efficient to convert it to a subroutine call, that always
+000000r 2               ; uses ACMD_PORT.
+000000r 2               .macro SLOWCMD
+000000r 2               	jsr	SLOWCMD_SUB
+000000r 2               .endmacro
+000000r 2               
+000000r 2               .macro SLOWCMDI command
+000000r 2               	lda	#command
+000000r 2               	SLOWCMD
+000000r 2               .endmacro
+000000r 2               
+000000r 2               ; Fast command, command port write followed by interwrite delay on PIC,
+000000r 2               ; Simply an alias for SLOWCMD on AVR.
+000000r 2               .macro FASTCMD
+000000r 2               .ifndef AVR
+000000r 2               	writeportFAST	ACMD_REG
+000000r 2               	jsr				interwritedelay
+000000r 2               	lda				ACMD_REG
+000000r 2               .else
+000000r 2               	SLOWCMD
+000000r 2               .endif
+000000r 2               .endmacro
+000000r 2               
+000000r 2               ; Immediate version of fastcmd
+000000r 2               .macro FASTCMDI	command
+000000r 2               	lda				#command
+000000r 2               	FASTCMD
+000000r 2               .endmacro
+000000r 2               
+000000r 2               
+000000r 2               ;.macro PREPPUTTOB407
+000000r 2               ;   jsr	PREPPUTTOB407_SUB
+000000r 2               ;.endmacro
+000000r 2               
+000000r 2               .macro SETRWPTR addr
+000000r 2                  lda #<addr
+000000r 2                  sta RWPTR
+000000r 2                  lda #>addr
+000000r 2                  sta RWPTR+1
+000000r 2               .endmacro
+000000r 2               
+000000r 2               
+000000r 2               ; Subroutines for macros in util.asm
+000000r 2               
+000000r 2               
+000000r 1               .include "atmmc2def.asm"
+000000r 2               ; /*
+000000r 2               ; atmmmc2def.h Symbolic defines for AtoMMC2
+000000r 2               
+000000r 2               ; 2011-05-25, Phill Harvey-Smith.
+000000r 2               
+000000r 2               ; OS overrides
+000000r 2               ;
+000000r 2               TOP         =$0d
+000000r 2               PAGE        =$12
+000000r 2               ARITHWK     =$23
+000000r 2               
+000000r 2               ; these need to be in ZP
+000000r 2               ;
+000000r 2               RWPTR       =$ac         ; W - data target vector
+000000r 2               ZPTW        =$ae         ; [3] - general use temp vector, used by vechexs, RS, WS
+000000r 2               
+000000r 2               LFNPTR      =$c9         ; W -pointer to filename (usually $140)
+000000r 2               LLOAD       =$cb         ; W - load address
+000000r 2               LEXEC       =$cd         ; W - execution address
+000000r 2               LLENGTH     =$cf         ; W - byte length
+000000r 2               
+000000r 2               SFNPTR      =$c9         ; W -pointer to filename (usually $140)
+000000r 2               SLOAD       =$cb         ; W - reload address
+000000r 2               SEXEC       =$cd         ; W - execute
+000000r 2               SSTART      =$cf         ; W - data start
+000000r 2               SEND        =$d1         ; W - data end + 1
+000000r 2               
+000000r 2               CRC         =$c9         ; 3 bytes in ZP - should be ok as this addr only used for load/save??
+000000r 2               
+000000r 2               RDCCNT      =$c9         ; B - bytes in pool - ie ready to be read from file
+000000r 2               RDCLEN      =$ca         ; W - length of file supplying characters
+000000r 2               
+000000r 2               tmp_ptr3    =$D5
+000000r 2               tmp_ptr5    =$D6
+000000r 2               tmp_ptr6    =$D7
+000000r 2               
+000000r 2               MONFLAG     =$ea         ; 0 = messages on, ff = off
+000000r 2               
+000000r 2               NAME       =$140         ; sits astride the BASIC input buffer and string processing area.
+000000r 2               
+000000r 2               IRQVEC     =$204         ; we patch these (maybe more ;l)
+000000r 2               COMVEC     =$206
+000000r 2               RDCVEC     =$20a
+000000r 2               LODVEC     =$20c
+000000r 2               SAVVEC     =$20e
+000000r 2               
+000000r 2               ; DOS scratch RAM 3CA-3FC. As the AtoMMC interface effectively precludes the use of DOS..
+000000r 2               ;
+000000r 2               FKIDX      =$3ca         ; B - fake key index
+000000r 2               RWLEN      =$3cb         ; W - count of bytes to write
+000000r 2               FILTER     =$3cd         ; B - dir walk filter
+000000r 2               
+000000r 2               
+000000r 2               ; FN       ADDR
+000000r 2               ;
+000000r 2               OSWRCH     =$fff4
+000000r 2               OSRDCH     =$ffe3
+000000r 2               OSCRLF     =$ffed
+000000r 2               COSSYN     =$fa7d
+000000r 2               COSPOST    =$fa76
+000000r 2               RDADDR     =$fa65
+000000r 2               CHKNAME    =$f84f
+000000r 2               SKIPSPC    =$f876
+000000r 2               RDOPTAD    =$f893
+000000r 2               BADNAME    =$f86c
+000000r 2               WSXFER2    =$f85C
+000000r 2               COPYNAME   =$f818
+000000r 2               HEXOUT     =$f802
+000000r 2               HEXOUTS    =$f7fa
+000000r 2               STROUT     =$f7d1
+000000r 2               
+000000r 2               ; I/O register base
+000000r 2               ;
+000000r 2               
+000000r 2               .ifdef ALTADDR
+000000r 2               AREG_BASE			= $b408
+000000r 2               .else
+000000r 2               AREG_BASE			= $b400
+000000r 2               .endif
+000000r 2               
+000000r 2               ACMD_REG			= AREG_BASE+CMD_REG
+000000r 2               ALATCH_REG                      = AREG_BASE+LATCH_REG
+000000r 2               AREAD_DATA_REG                  = AREG_BASE+READ_DATA_REG
+000000r 2               AWRITE_DATA_REG                 = AREG_BASE+WRITE_DATA_REG
+000000r 2               ASTATUS_REG			= AREG_BASE+STATUS_REG
+000000r 2               
+000000r 2               ; // Register definitions, these are offsets from 0xB400 on the Atom side.
+000000r 2               
+000000r 2               CMD_REG                         =   $00
+000000r 2               LATCH_REG                       =   $01
+000000r 2               READ_DATA_REG                   =   $02
+000000r 2               WRITE_DATA_REG                  =   $03
+000000r 2               STATUS_REG                      =   $04
+000000r 2               
+000000r 2               ; // DIR_CMD_REG commands
+000000r 2               CMD_DIR_OPEN                    =   $00
+000000r 2               CMD_DIR_READ                    =   $01
+000000r 2               CMD_DIR_CWD                     =   $02
+000000r 2               CMD_DIR_GETCWD                  =   $03
+000000r 2               CMD_DIR_MKDIR                   =   $04
+000000r 2               CMD_DIR_RMDIR                   =   $05
+000000r 2               
+000000r 2               ; // CMD_REG_COMMANDS
+000000r 2               CMD_FILE_CLOSE                  =   $10
+000000r 2               CMD_FILE_OPEN_READ              =   $11
+000000r 2               CMD_FILE_OPEN_IMG               =   $12
+000000r 2               CMD_FILE_OPEN_WRITE             =   $13
+000000r 2               CMD_FILE_DELETE                 =   $14
+000000r 2               CMD_FILE_GETINFO                =   $15
+000000r 2               
+000000r 2               CMD_INIT_READ                   =   $20
+000000r 2               CMD_INIT_WRITE                  =   $21
+000000r 2               CMD_READ_BYTES                  =   $22
+000000r 2               CMD_WRITE_BYTES                 =   $23
+000000r 2               
+000000r 2               ; // READ_DATA_REG "commands"
+000000r 2               
+000000r 2               ; // EXEC_PACKET_REG "commands"
+000000r 2               CMD_EXEC_PACKET                 =   $3F
+000000r 2               
+000000r 2               ; // SDOS_LBA_REG commands
+000000r 2               CMD_LOAD_PARAM                  =   $40
+000000r 2               CMD_GET_IMG_STATUS              =   $41
+000000r 2               CMD_GET_IMG_NAME                =   $42
+000000r 2               CMD_READ_IMG_SEC                =   $43
+000000r 2               CMD_WRITE_IMG_SEC               =   $44
+000000r 2               CMD_SER_IMG_INFO                =   $45
+000000r 2               CMD_VALID_IMG_NAMES             =   $46
+000000r 2               CMD_IMG_UNMOUNT                 =   $47
+000000r 2               
+000000r 2               ; // UTIL_CMD_REG commands
+000000r 2               CMD_GET_CARD_TYPE               =   $80
+000000r 2               CMD_GET_PORT_DDR                =   $A0
+000000r 2               CMD_SET_PORT_DDR                =   $A1
+000000r 2               CMD_READ_PORT                   =   $A2
+000000r 2               CMD_WRITE_PORT                  =   $A3
+000000r 2               CMD_GET_FW_VER                  =   $E0
+000000r 2               CMD_GET_BL_VER                  =   $E1
+000000r 2               CMD_GET_CFG_BYTE                =   $F0
+000000r 2               CMD_SET_CFG_BYTE                =   $F1
+000000r 2               CMD_READ_AUX                    =   $FD
+000000r 2               CMD_GET_HEARTBEAT               =   $FE
+000000r 2               
+000000r 2               
+000000r 2               ; // Status codes
+000000r 2               STATUS_OK                       =   $3F
+000000r 2               STATUS_COMPLETE                 =   $40
+000000r 2               STATUS_BUSY                     =   $80
+000000r 2               
+000000r 2               ERROR_MASK                      =   $3F
+000000r 2               
+000000r 2               ; // To be or'd with STATUS_COMPLETE
+000000r 2               ERROR_NO_DATA                   =   $08
+000000r 2               ERROR_INVALID_DRIVE             =   $09
+000000r 2               ERROR_READ_ONLY                 =   $0A
+000000r 2               ERROR_ALREADY_MOUNT             =   $0A
+000000r 2               
+000000r 2               ; // STATUS_REG bit masks
+000000r 2               ; //
+000000r 2               ; // MMC_MCU_BUSY set by a write to CMD_REG by the Atom, cleared by a write by the MCU
+000000r 2               ; // MMC_MCU_READ set by a write by the Atom (to any reg), cleared by a read by the MCU
+000000r 2               ; // MCU_MMC_WROTE set by a write by the MCU cleared by a read by the Atom (any reg except status).
+000000r 2               ; //
+000000r 2               MMC_MCU_BUSY                    =   $01
+000000r 2               MMC_MCU_READ                    =   $02
+000000r 2               MMC_MCU_WROTE                   =   $04
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 1               
+000000r 1               
+000000r 1               ;;; MOS entry addresses
+000000r 1               ;;; -------------------
+000000r 1                       OSSHUT   = $FFCB
+000000r 1                       OSFIND   = $FFCE
+000000r 1                       OSBPUT   = $FFD1
+000000r 1                       OSBGET   = $FFD4
+000000r 1                       OSSTAR   = $FFD7
+000000r 1                       OSRDAR   = $FFDA
+000000r 1                       OSSAVE   = $FFDD
+000000r 1                       OSLOAD   = $FFE0
+000000r 1                       OSECHO   = $FFE6
+000000r 1                       OSASCI   = $FFE9
+000000r 1                       OSNEWL   = $FFED
+000000r 1                       OSWRCR   = $FFF2
+000000r 1                       OSCLI    = $FFF7
+000000r 1               
+000000r 1                       ;; These are already defined in atmmc2def.asm
+000000r 1                       ;; OSRDCH   = $FFE3
+000000r 1                       ;; OSWRCH   = $FFF4
+000000r 1                       ;; HEXOUT   = $F802
+000000r 1                       ;; STROUT   = $F7D1
+000000r 1               
+000000r 1               ;;; Atom OS addresses
+000000r 1                       ERRPTR    = $D5
+000000r 1               
+000000r 1               
+000000r 1               ;;; Vectors
+000000r 1               ;;; -------
+000000r 1                       NMIV     = $200
+000000r 1                       BRKV     = $202
+000000r 1                       IRQ1V    = $204
+000000r 1                       CLIV     = $206
+000000r 1                       WRCHV    = $208
+000000r 1                       RDCHV    = $20A
+000000r 1                       LOADV    = $20C
+000000r 1                       SAVEV    = $20E
+000000r 1                       RDARV    = $210
+000000r 1                       STARV    = $212
+000000r 1                       BGETV    = $214
+000000r 1                       BPUTV    = $216
+000000r 1                       FINDV    = $218
+000000r 1                       SHUTV    = $21A
+000000r 1               
+000000r 1               ;;; System: $0E21 - keypress, b7=1 if nothing pressed
+000000r 1               ;;; Atom:   $B001 - b5=0 if Escape pressed
+000000r 1               
+000000r 1               ;;;I/O addresses
+000000r 1               ;;;-------------
+000000r 1               
+000000r 1                       GODIL    = $BDE0
+000000r 1                       GodilModeExtension = GODIL + 0
+000000r 1                       GodilVersion = GODIL + 15
+000000r 1               
+000000r 1               
+000000r 1                       TubeIO   = $BEE0
+000000r 1               
+000000r 1                       TubeS1=TubeIO+0         ; VDU
+000000r 1                       TubeR1=TubeIO+1
+000000r 1                       TubeS2=TubeIO+2         ; Command
+000000r 1                       TubeR2=TubeIO+3
+000000r 1                       TubeS3=TubeIO+4         ; DATA
+000000r 1                       TubeR3=TubeIO+5
+000000r 1                       TubeS4=TubeIO+6         ; Interrupts
+000000r 1                       TubeR4=TubeIO+7
+000000r 1               
+000000r 1               ;;; VIA Addresses
+000000r 1                       ViaBase       = $B800
+000000r 1                       ViaT1CounterL = ViaBase + 4
+000000r 1                       ViaT1CounterH = ViaBase + 5
+000000r 1                       ViaACR        = ViaBase + 11
+000000r 1                       ViaIER        = ViaBase + 14
+000000r 1               
+000000r 1               ;;; Workspace in zero page
+000000r 1               ;;; ----------------------
+000000r 1               
+000000r 1                       TubeCtrl   = $60        ; Control block for MOS calls
+000000r 1                       TubeSrc    = $72        ; Pointer to Tube transfer block
+000000r 1                       TubeStatus = $74        ; Tube status
+000000r 1                       TubeOwner  = $75        ; Tube owner
+000000r 1                       R2Cmd      = $76        ; Computed address of R2 Command Handler
+000000r 1                       LangFlag   = $78
+000000r 1                       EscapeFlag = $79
+000000r 1                       GodilFlag  = $7A
+000000r 1               .if (buffered_kbd = 1)
+000000r 1                       KeyBuf     = $7B        ; one character keyboard buffer
+000000r 1                       KeyFlag    = $7C        ; non-zero indicates key still held down
+000000r 1               .endif
+000000r 1                       AtomCmd    = $c9        ; used by osfile; this could be anywhere
+000000r 1                       AtomStr    = $140       ; used by osfile; atommc assumes 140
+000000r 1               
+000000r 1                       TubeFlag   = $3CF       ; tube enabled flag, set by atom tube host
+000000r 1                       TubeEna    = $5A        ; tube enable magic value
+000000r 1               
+000000r 1               ;;; Optional 22-byte ATM Header
+000000r 1               ;;; --------------------------
+000000r 1               
+000000r 1               
+000000r 1               .if (atmhdr = 1)
+000000r 1               AtmHeader:
+000000r 1               	.SEGMENT "HEADER"
+000000r 1  54 55 42 45          .byte    "TUBE"
+000004r 1  00 00 00 00          .word    0,0,0,0,0,0
+000008r 1  00 00 00 00  
+00000Cr 1  00 00 00 00  
+000010r 1  rr rr                .word    StartAddr
+000012r 1  rr rr                .word    StartAddr
+000014r 1  25 0C                .word    EndAddr - StartAddr
+000016r 1               .endif
+000016r 1               
+000016r 1               	.SEGMENT "CODE"
+000000r 1               
+000000r 1               StartAddr:
+000000r 1               
+000000r 1               ;;; Main Entry Point Block
+000000r 1               ;;; ----------------------
+000000r 1               
+000000r 1               L0400:
+000000r 1  4C rr rr             JMP TubeStartup         ; Copy Language and Start Tube system
+000003r 1               L0403:
+000003r 1  4C rr rr             JMP EscapeCopy          ; Copy Escape state across Tube
+000006r 1               L0406:
+000006r 1  4C rr rr             JMP TubeClaimTransferRelease
+000009r 1               L0409:
+000009r 1  4C rr rr             JMP TubeError
+00000Cr 1               
+00000Cr 1               ;;; Start up the Atom Tube system
+00000Cr 1               ;;; ----------------------------
+00000Cr 1               
+00000Cr 1               TubeStartup:
+00000Cr 1  A9 00                LDA #$00                ; non zero means transfer language
+00000Er 1  85 78                STA LangFlag
+000010r 1  A9 00                LDA #$00                ; B5 tracks escape key, B6 tracks escape state
+000012r 1  85 79                STA EscapeFlag
+000014r 1               .if (buffered_kbd = 1)
+000014r 1  85 7B                STA KeyBuf              ; the ASCII value, or zero if a key wasn't pressed
+000016r 1  A9 80                LDA #$80
+000018r 1  85 7C        	STA KeyFlag             ; non zero if the key is still held down, decremented at 100Hz for REPT
+00001Ar 1               .endif
+00001Ar 1  A9 5A                LDA #TubeEna            ; Enable tube transfers in AtoMMC
+00001Cr 1  8D CF 03             STA TubeFlag
+00001Fr 1  AD EF BD             LDA GodilVersion        ; Test GODIL version is 1x
+000022r 1  29 F0                AND #$F0
+000024r 1  C9 10                CMP #$10
+000026r 1  D0 09                BNE NoGodil
+000028r 1  AD E0 BD             LDA GodilModeExtension  ; Test GODIL 80x40 mode
+00002Br 1  10 04                BPL NoGodil
+00002Dr 1  A9 80                LDA #$80		; Allow lower case characters to be output
+00002Fr 1  D0 02                BNE UpdateGodilFlag
+000031r 1               NoGodil:
+000031r 1  A9 00                LDA #$00
+000033r 1               UpdateGodilFlag:
+000033r 1  85 7A                STA GodilFlag
+000035r 1  A9 0C                LDA #12
+000037r 1  20 rr rr             JSR AtomWRCH            ; Clear screen, ready for startup banner
+00003Ar 1  20 rr rr             JSR ViaInit             ; Initialize 50Hz interrupts
+00003Dr 1  A9 C0                LDA #$C0
+00003Fr 1  8D E0 BE             STA TubeS1              ; Clear all Tube Regs
+000042r 1  A9 40                LDA #$40
+000044r 1  8D E0 BE             STA TubeS1
+000047r 1  A9 A0                LDA #$A0
+000049r 1  8D E0 BE             STA TubeS1              ; Reset client
+00004Cr 1  A9 20                LDA #$20
+00004Er 1  8D E0 BE             STA TubeS1
+000051r 1               StartupLp1:
+000051r 1  2C E0 BE             BIT TubeS1
+000054r 1  10 FB                BPL StartupLp1          ; Loop until VDU data present
+000056r 1  AD E1 BE             LDA TubeR1
+000059r 1  F0 06                BEQ Startup2            ; Get it, if CHR$0, finished
+00005Br 1  20 rr rr             JSR AtomWRCH
+00005Er 1  4C rr rr             JMP StartupLp1          ; Print character, loop for more
+000061r 1               Startup2:
+000061r 1  A9 rr                LDA #<TubeBRK
+000063r 1  8D 02 02             STA BRKV+0              ; Claim BRKV
+000066r 1  A9 rr                LDA #>TubeBRK
+000068r 1  8D 03 02             STA BRKV+1
+00006Br 1               
+00006Br 1               .if (atommc = 1)
+00006Br 1  A9 rr                LDA #<osloadcode        ; Claim OSLOAD
+00006Dr 1  8D 0C 02             STA LOADV
+000070r 1  A9 rr                LDA #>osloadcode
+000072r 1  8D 0D 02             STA LOADV+1
+000075r 1  A9 rr                LDA #<ossavecode        ; Claim OSSAVE
+000077r 1  8D 0E 02             STA SAVEV
+00007Ar 1  A9 rr                LDA #>ossavecode
+00007Cr 1  8D 0F 02             STA SAVEV+1
+00007Fr 1               .endif
+00007Fr 1  A9 8E                LDA #$8E
+000081r 1  8D E0 BE             STA TubeS1              ; Enable NMI on R1, IRQ on R4, IRQ on R1
+000084r 1  20 rr rr             JSR TubeFree            ; Set Tube 'free' and no owner
+000087r 1               
+000087r 1  A5 78                LDA LangFlag            ; Skip language transfer if flag 0
+000089r 1  F0 09                BEQ Startup3
+00008Br 1               
+00008Br 1  38                   SEC                     ; Transfer the language
+00008Cr 1  20 rr rr             JSR L0400
+00008Fr 1               
+00008Fr 1  A9 80                LDA #$80
+000091r 1  4C rr rr             JMP TubeSendIdle        ;
+000094r 1               
+000094r 1               Startup3:
+000094r 1  4C rr rr             JMP TubeSendAck         ; Send $7f ack and enter idle loop
+000097r 1               
+000097r 1               
+000097r 1               ;;; Tube Transfer/Claim/Release
+000097r 1               ;;; ---------------------------
+000097r 1               
+000097r 1               TubeClaimTransferRelease:
+000097r 1  C9 80                CMP #$80                ; Claim/Release/Action via Tube
+000099r 1  90 2B                BCC TubeTransfer        ; If <$80, data transfer action
+00009Br 1  C9 C0                CMP #$C0                ; Is it claim or release?
+00009Dr 1  B0 1A                BCS TubeClaim           ; $C0-$FF - jump to claim Tube
+00009Fr 1  09 40                ORA #$40                ; Ensure release ID same as claim ID
+0000A1r 1  C5 75                CMP TubeOwner           ; Is the the same as the claim ID?
+0000A3r 1  D0 20                BNE TubeExit            ; No, exit
+0000A5r 1               
+0000A5r 1               TubeRelease:
+0000A5r 1  08                   PHP                     ; Save IRQ state
+0000A6r 1  78                   SEI                     ; Disable IRQs
+0000A7r 1  A9 05                LDA #$05                ; Send $05 to R4 to interupt CoPro
+0000A9r 1  20 rr rr             JSR TubeSendR4
+0000ACr 1  A5 75                LDA TubeOwner           ; Send Tube ID to notify a Tube release
+0000AEr 1  20 rr rr             JSR TubeSendR4
+0000B1r 1               .if (debug_r4 = 1)
+0000B1r 1                       JSR DebugNewline
+0000B1r 1               .endif
+0000B1r 1  28                   PLP                     ; Get IRQ state back
+0000B2r 1               
+0000B2r 1                       ;; Clear Tube status and owner
+0000B2r 1               TubeFree:
+0000B2r 1  A9 80                LDA #$80
+0000B4r 1  85 75                STA TubeOwner           ; Set Tube ID to 'unclaimed'
+0000B6r 1  85 74                STA TubeStatus          ; Set Tube status to 'free'
+0000B8r 1  60                   RTS
+0000B9r 1               
+0000B9r 1               ;;; Claim Tube
+0000B9r 1               ;;; ----------
+0000B9r 1               
+0000B9r 1               TubeClaim:
+0000B9r 1  06 74                ASL TubeStatus          ; Is Tube free?
+0000BBr 1  B0 06                BCS TubeClaim1          ; Yes, jump to claim it
+0000BDr 1  C5 75                CMP TubeOwner           ; Is Tube ID same as claimer?
+0000BFr 1  F0 04                BEQ TubeExit            ; Yes, exit as we already own it
+0000C1r 1  18                   CLC                     ; Signal 'can't claim Tube'
+0000C2r 1  60                   RTS                     ; And exit
+0000C3r 1               
+0000C3r 1               TubeClaim1:
+0000C3r 1  85 75                STA TubeOwner           ; Store Tube ID
+0000C5r 1               
+0000C5r 1               TubeExit:
+0000C5r 1  60                   RTS
+0000C6r 1               
+0000C6r 1               ;;; Tube data transfer
+0000C6r 1               ;;; ------------------
+0000C6r 1               
+0000C6r 1               TubeTransfer:
+0000C6r 1  08                   PHP                     ; Save IRQ status
+0000C7r 1  78                   SEI                     ; Disable IRQs
+0000C8r 1  84 73                STY TubeSrc + 1         ; Store pointer to control block
+0000CAr 1  86 72                STX TubeSrc             ; Send action code to R4 to
+0000CCr 1  20 rr rr             JSR TubeSendR4          ; interrupt CoPro
+0000CFr 1  AA                   TAX                     ; Save action code in X
+0000D0r 1  A0 03                LDY #$03                ; Prepare to send 4 byte control block
+0000D2r 1  A5 75                LDA TubeOwner           ; Send Tube ID via R4, interupting
+0000D4r 1  20 rr rr             JSR TubeSendR4          ; CoPro
+0000D7r 1               
+0000D7r 1               TubeTransfer1:
+0000D7r 1  B1 72                LDA (TubeSrc),Y         ; Get byte from Tube control block
+0000D9r 1  20 rr rr             JSR TubeSendR4          ; Send via R4
+0000DCr 1  88                   DEY
+0000DDr 1  10 F8                BPL TubeTransfer1       ; Loop for whole block
+0000DFr 1  A0 18                LDY #$18
+0000E1r 1  8C E0 BE             STY TubeS1              ; Disable FIFO on R3, and NMI on R3 by default
+0000E4r 1  BD rr rr             LDA TransferFlags,X     ; Get Tube I/O setting according to
+0000E7r 1  8D E0 BE             STA TubeS1              ; action code and set Tube
+0000EAr 1  4A                   LSR A
+0000EBr 1  4A                   LSR A                   ; Move b1 to Carry (b1 set = Copro->I/O)
+0000ECr 1  90 06                BCC TubeTransfer2       ; If no pre-delay needed, jump past
+0000EEr 1  2C E5 BE             BIT TubeR3              ; Read R3 twice to delay & empty FIFO
+0000F1r 1  2C E5 BE             BIT TubeR3
+0000F4r 1               
+0000F4r 1               TubeTransfer2:
+0000F4r 1  20 rr rr             JSR TubeSendR4          ; Send flag via R4 to synchronise
+0000F7r 1               
+0000F7r 1               TubeTransfer3:
+0000F7r 1  2C E6 BE             BIT TubeS4              ; Check R4 status
+0000FAr 1  50 FB                BVC TubeTransfer3       ; Loop until data has left R4
+0000FCr 1  B0 0D                BCS TubeTransfer5       ; Carry still indicates direction
+0000FEr 1  E0 04                CPX #$04                ; Is action 'execute code'?
+000100r 1  D0 11                BNE TubeTransfer6       ; No, jump to finish
+000102r 1               
+000102r 1               TubeTransfer4:
+000102r 1  20 rr rr             JSR TubeRelease         ; Release Tube
+000105r 1  20 rr rr             JSR TubeSendR2          ; Send $80 via R2
+000108r 1  4C rr rr             JMP TubeIdleStartup     ; Jump to Tube Idle loop
+00010Br 1               
+00010Br 1               TubeTransfer5:
+00010Br 1  4A                   LSR A                   ; Move Tube I/O setting b2 into Carry (b2 set = NMI required)
+00010Cr 1  90 05                BCC TubeTransfer6       ; It was clear, jump to exit
+00010Er 1  A0 88                LDY #$88                ; Set Tube I/O to NMI on R3
+000110r 1  8C E0 BE             STY TubeS1
+000113r 1               
+000113r 1               TubeTransfer6:
+000113r 1  28                   PLP                     ; Restore IRQ status
+000114r 1  60                   RTS                     ; And exit
+000115r 1               
+000115r 1               ;;; Copy language across Tube
+000115r 1               ;;; -------------------------
+000115r 1               ;;;     On entry, A=1 - enter language, CLC=Break, SEC=OSBYTE 142
+000115r 1               ;;;               A=0 - no language found at Break
+000115r 1               
+000115r 1               LanguageStartup:
+000115r 1               
+000115r 1  58                   CLI                     ; Enable IRQs
+000116r 1  B0 05                BCS LanguageEnter       ; Branch if selected with *fx142
+000118r 1  D0 03                BNE TestLastBreak       ; A<>0, jump to enter language
+00011Ar 1  4C rr rr             JMP TubeSendAck         ; A=0, jump to enter Tube Idle loop
+00011Dr 1               
+00011Dr 1               ;;; Language entered at BREAK
+00011Dr 1               ;;; -------------------------
+00011Dr 1               
+00011Dr 1               TestLastBreak:
+00011Dr 1               
+00011Dr 1               ;;; The Atom does not have different break types
+00011Dr 1               ;;; So always handles a for hard bread
+00011Dr 1               
+00011Dr 1               ;;;     LDX $028D               ; Get last break type
+00011Dr 1               ;;;     BEQ TubeTransfer4       ; If Soft Break, release Tube, send $80
+00011Dr 1                                               ; via R2 and enter Idle loop
+00011Dr 1               
+00011Dr 1               ;;; The current language is not copied across the Tube on soft Break, only on
+00011Dr 1               ;;; Power-On Break and Hard Break, or when entered explicitly with OSBYTE 142
+00011Dr 1               
+00011Dr 1               ;;; Language entered with OSBYTE 142, or on Hard Break
+00011Dr 1               ;;; --------------------------------------------------
+00011Dr 1               
+00011Dr 1               LanguageEnter:
+00011Dr 1  A9 FF                LDA #$FF
+00011Fr 1  20 rr rr             JSR L0406               ; Claim Tube with ID=$3F
+000122r 1  90 F9                BCC LanguageEnter       ; Loop until Tube available
+000124r 1  20 rr rr             JSR FindLanguageAddr    ; Find address to copy language to
+000127r 1               
+000127r 1               ;;; Send language ROM via Tube 256 bytes at a time
+000127r 1               ;;; ----------------------------------------------
+000127r 1               
+000127r 1               TransferLanguage:
+000127r 1  08                   PHP                     ; Save IRQ status
+000128r 1  78                   SEI                     ; Disable IRQs
+000129r 1  A9 07                LDA #$07                ; Start I/O->CoPro transfer 256 bytes
+00012Br 1  20 rr rr             JSR StartTransfer       ; Use Tube address at TubeAddr
+00012Er 1  A0 00                LDY #$00
+000130r 1  84 60                STY TubeCtrl            ; Start copying from $8000
+000132r 1               
+000132r 1               TransferBlock:
+000132r 1  B1 60                LDA (TubeCtrl),Y        ; Get byte from ROM
+000134r 1  8D E5 BE             STA TubeR3              ; Send to CoPro via R3
+000137r 1  EA                   NOP                     ; Delay for a while
+000138r 1  EA                   NOP
+000139r 1  EA                   NOP
+00013Ar 1  C8                   INY
+00013Br 1  D0 F5                BNE TransferBlock       ; Loop for 256 bytes
+00013Dr 1  28                   PLP                     ; Restore IRQs
+00013Er 1  EE rr rr             INC TubeAddr + 1        ; Update Tube address
+000141r 1  D0 08                BNE TransferIncSrc
+000143r 1  EE rr rr             INC TubeAddr + 2
+000146r 1  D0 03                BNE TransferIncSrc
+000148r 1  EE rr rr             INC TubeAddr + 3
+00014Br 1               
+00014Br 1               TransferIncSrc:
+00014Br 1  E6 61                INC TubeCtrl + 1        ; Update source address
+00014Dr 1  A5 61                LDA TubeCtrl + 1        ; Check b6 of source high byte
+00014Fr 1  C9 80                CMP #>LangEnd
+000151r 1  90 D4                BCC TransferLanguage    ; Loop until end of language
+000153r 1  20 rr rr             JSR FindLanguageAddr    ; Find start address language copied to
+000156r 1  A9 04                LDA #$04                ; Execute code in CoPro, finished by
+000158r 1                                               ; sending $80 to Copro in R2
+000158r 1               
+000158r 1               ;;; Start a Tube transfer with address block at $0053
+000158r 1               ;;; -------------------------------------------------
+000158r 1               
+000158r 1               StartTransfer:
+000158r 1  A0 rr                LDY #>TubeAddr
+00015Ar 1  A2 rr                LDX #<TubeAddr          ; Point to Tube control block
+00015Cr 1  4C rr rr             JMP L0406               ; Jump to do a data transfer
+00015Fr 1               
+00015Fr 1               ;;; Set Tube address to destination to copy language to
+00015Fr 1               ;;; ---------------------------------------------------
+00015Fr 1               ;;; Also sets source address at $00/$01 to $80xx
+00015Fr 1               
+00015Fr 1               FindLanguageAddr:
+00015Fr 1  A9 80                LDA #$80
+000161r 1  8D rr rr             STA TubeAddr + 1        ; Set Tube address to $xxxx80xx
+000164r 1  A9 40                LDA #>LangStart
+000166r 1  85 61                STA TubeCtrl + 1        ; Set source address to language
+000168r 1  A9 20                LDA #$20
+00016Ar 1  2D 06 40             AND LangStart + 6        ; Check relocation bit in ROM type
+00016Dr 1  A8                   TAY                     ; If no relocation address, A=0, Y=0
+00016Er 1  8C rr rr             STY TubeAddr            ; Set Tube address to $xxxx8000
+000171r 1  F0 1B                BEQ FindLanguageAddr2   ; Jump forward with no relocation
+000173r 1               
+000173r 1  AE 07 40             LDX LangStart + 7        ; Get offset to ROM copyright
+000176r 1               FindLanguageAddr1:
+000176r 1  E8                   INX
+000177r 1  BD 00 40             LDA LangStart, X         ; Skip past copyright message
+00017Ar 1  D0 FA                BNE FindLanguageAddr1   ; Loop until terminating zero byte
+00017Cr 1  BD 01 40             LDA LangStart + 1, X     ; Get relocation address from after
+00017Fr 1  8D rr rr             STA TubeAddr            ; copyright message
+000182r 1  BD 02 40             LDA LangStart + 2, X
+000185r 1  8D rr rr             STA TubeAddr + 1
+000188r 1  BC 03 40             LDY LangStart + 3, X     ; Get two high bytes to Y and A
+00018Br 1  BD 04 40             LDA LangStart + 4, X
+00018Er 1               
+00018Er 1               ;;; Set Tube address high bytes
+00018Er 1               ;;; ---------------------------
+00018Er 1               
+00018Er 1               FindLanguageAddr2:
+00018Er 1  8D rr rr             STA TubeAddr + 3        ; Set Tube address high bytes
+000191r 1  8C rr rr             STY TubeAddr + 2
+000194r 1  60                   RTS
+000195r 1               
+000195r 1               ;;; Tube data transfer flags
+000195r 1               ;;; ------------------------
+000195r 1               
+000195r 1               TransferFlags:
+000195r 1  86                   .byte $86                ; CoPro->I/O bytes
+000196r 1  88                   .byte $88                ; I/O->CoPro bytes
+000197r 1  96                   .byte $96                ; CoPro->I/O words
+000198r 1  98                   .byte $98                ; I/O->CoPro words
+000199r 1  18                   .byte $18                ; Set Execute Address in CoPro
+00019Ar 1  18                   .byte $18                ; Release Tube
+00019Br 1  82                   .byte $82                ; CoPro->I/O 256 bytes
+00019Cr 1  18                   .byte $18                ; I/O->CoPro 256 bytes
+00019Dr 1               
+00019Dr 1               ;;; pointers to R2 commands
+00019Dr 1               ;;; -----------------------
+00019Dr 1               
+00019Dr 1               R2CmdHandlers:
+00019Dr 1  rr rr                .word rdch               ; A=00
+00019Fr 1  rr rr                .word clii               ; A=02
+0001A1r 1  rr rr                .word bytelo             ; A=04
+0001A3r 1  rr rr                .word bytehi             ; A=06
+0001A5r 1  rr rr                .word word               ; A=08
+0001A7r 1  rr rr                .word rdline             ; A=0A
+0001A9r 1  rr rr                .word args               ; A=0C
+0001ABr 1  rr rr                .word bget               ; A=0E
+0001ADr 1  rr rr                .word bput               ; A=10
+0001AFr 1  rr rr                .word find               ; A=12
+0001B1r 1  rr rr                .word file               ; A=14
+0001B3r 1  rr rr                .word gbpb               ; A=16
+0001B5r 1               
+0001B5r 1               
+0001B5r 1               ;;; BRK handler
+0001B5r 1               ;;; -----------
+0001B5r 1               
+0001B5r 1               TubeBRK:
+0001B5r 1  A9 rr                LDA #<TubeHostError     ; Default error messsage
+0001B7r 1  85 D5                STA ERRPTR
+0001B9r 1  A9 rr                LDA #>TubeHostError
+0001BBr 1  85 D6                STA ERRPTR+1
+0001BDr 1  A2 FF                LDX #$FF                ; Error number 255
+0001BFr 1               
+0001BFr 1               TubeError:
+0001BFr 1  A9 FF                LDA #$FF
+0001C1r 1  20 rr rr             JSR TubeSendR4
+0001C4r 1  AD E3 BE             LDA TubeR2              ; Get ACK byte from CoPro
+0001C7r 1               .if (debug_r2 = 1)
+0001C7r 1                       JSR DebugHexOut
+0001C7r 1               .endif
+0001C7r 1  A9 00                LDA #$00
+0001C9r 1  20 rr rr             JSR TubeSendR2          ; Send $00 to R2 to specify ERROR
+0001CCr 1  A8                   TAY
+0001CDr 1  8A                   TXA                     ; Get the error number
+0001CEr 1  20 rr rr             JSR TubeSendR2          ; Send via R2
+0001D1r 1               TubeErrorLp:
+0001D1r 1  B1 D5                LDA (ERRPTR),Y
+0001D3r 1  20 rr rr             JSR TubeSendR2          ; Send via R2
+0001D6r 1  C8                   INY
+0001D7r 1  AA                   TAX
+0001D8r 1  D0 F7                BNE TubeErrorLp         ; Loop until terminating $00 sent
+0001DAr 1               
+0001DAr 1               ;;; Tube Idle startup
+0001DAr 1               ;;; -----------------
+0001DAr 1               
+0001DAr 1               TubeIdleStartup:
+0001DAr 1                       ;; Clear stack, enable IRQs
+0001DAr 1  A2 FF                LDX #$FF
+0001DCr 1  9A                   TXS
+0001DDr 1  58                   CLI
+0001DEr 1  D0 00                BNE TubeIdleLoop
+0001E0r 1               
+0001E0r 1               ;;;  Tube idle loop
+0001E0r 1               ;;;  --------------
+0001E0r 1               
+0001E0r 1               TubeIdle:
+0001E0r 1               .if (debug_r2 = 1)
+0001E0r 1                       JSR DebugNewline
+0001E0r 1               .endif
+0001E0r 1               TubeIdleLoop:
+0001E0r 1  20 rr rr             JSR EscapeCheck
+0001E3r 1  2C E0 BE             BIT TubeS1
+0001E6r 1  10 06                BPL TubeIdle2           ; Nothing in VDU port, jump to check Command port
+0001E8r 1               TubeWRCH:
+0001E8r 1  AD E1 BE             LDA TubeR1
+0001EBr 1  20 rr rr             JSR AtomWRCH            ; Get character and send to OSWRCH
+0001EEr 1               TubeIdle2:
+0001EEr 1  2C E2 BE             BIT TubeS2
+0001F1r 1  10 ED                BPL TubeIdleLoop        ; Nothing in Command port, loop back
+0001F3r 1  2C E0 BE             BIT TubeS1
+0001F6r 1  30 F0                BMI TubeWRCH            ; Check VDU port again
+0001F8r 1  AE E3 BE             LDX TubeR2              ; Get command
+0001FBr 1               .if (debug_r2 = 1)
+0001FBr 1                       JSR DebugNewline
+0001FBr 1                       TXA
+0001FBr 1                       JSR DebugHexOut
+0001FBr 1               .endif
+0001FBr 1  BD rr rr             LDA R2CmdHandlers, X    ; Read command handler
+0001FEr 1  85 76                STA R2Cmd
+000200r 1  BD rr rr             LDA R2CmdHandlers + 1, X
+000203r 1  85 77                STA R2Cmd + 1
+000205r 1  6C 76 00             JMP (R2Cmd)             ; index into jump table
+000208r 1               
+000208r 1               TubeAddr:
+000208r 1  00 00 80 00          .dword $00800000
+00020Cr 1               
+00020Cr 1               
+00020Cr 1               
+00020Cr 1               ;;; *****************
+00020Cr 1               ;;; TUBE MOS ROUTINES
+00020Cr 1               ;;; *****************
+00020Cr 1               
+00020Cr 1               ;;; CHARACTER I/O CALLS
+00020Cr 1               ;;; ===================
+00020Cr 1               
+00020Cr 1               ;;; OSRDCH
+00020Cr 1               ;;; ------
+00020Cr 1               rdch:
+00020Cr 1  20 rr rr             JSR AtomRDCH            ; Wait for a character
+00020Fr 1               SendCarryA:
+00020Fr 1  6A                   ROR A
+000210r 1  20 rr rr             JSR TubeSendR2          ; Move Carry into b7 and send it
+000213r 1  2A                   ROL A
+000214r 1  4C rr rr             JMP TubeSendIdle        ; Restore A and send it, return to idle loop
+000217r 1               
+000217r 1               ;;; WORD0 - Read a line
+000217r 1               ;;; -------------------
+000217r 1               rdline:
+000217r 1  A2 05                LDX #$05
+000219r 1  20 rr rr             JSR TubeWaitBlock       ; Fetch 5-byte control block
+00021Cr 1                       ;;
+00021Cr 1                       ;; We have to do a RDLINE manually, as Atom doesn't provide it
+00021Cr 1                       ;;
+00021Cr 1  A0 00                LDY #0
+00021Er 1               RdLineLp1:
+00021Er 1  20 rr rr             JSR AtomRDCH
+000221r 1  B0 34                BCS RdLineEsc           ; Escape pressed, exit
+000223r 1  C9 7F                CMP #127
+000225r 1  D0 0B                BNE RdLineChar
+000227r 1  C0 00                CPY #0
+000229r 1  F0 F3                BEQ RdLineLp1           ; Nothing to delete
+00022Br 1  20 rr rr             JSR AtomWRCH
+00022Er 1  88                   DEY
+00022Fr 1  4C rr rr             JMP RdLineLp1           ; Delete one character
+000232r 1               RdLineChar:
+000232r 1  99 00 01             STA $100,Y              ; Store in string buffer
+000235r 1  C9 0D                CMP #13
+000237r 1  F0 06                BEQ RdLineCR            ; Repeat until <cr>
+000239r 1  20 rr rr             JSR AtomWRCH
+00023Cr 1  C8                   INY
+00023Dr 1  D0 DF                BNE RdLineLp1           ; Echo character, loop for more
+00023Fr 1               RdLineCR:
+00023Fr 1  20 ED FF             JSR OSNEWL              ; Print <newline>
+000242r 1  A9 7F                LDA #$7F
+000244r 1  20 rr rr             JSR TubeSendR2          ; Send $7F via R2 to indicate no Escape
+000247r 1  A0 00                LDY #0                  ; Point to start of string buffer
+000249r 1               RdLineLp2:
+000249r 1  B9 00 01             LDA $0100,Y
+00024Cr 1  20 rr rr             JSR TubeSendR2          ; Send byte via R2
+00024Fr 1  C8                   INY
+000250r 1  C9 0D                CMP #13
+000252r 1  D0 F5                BNE RdLineLp2           ; Loop until <cr> sent
+000254r 1  4C rr rr             JMP TubeIdle
+000257r 1               RdLineEsc:
+000257r 1  A9 FF                LDA #$FF
+000259r 1  4C rr rr             JMP TubeSendIdle        ; Return $FF for Escape, return to Tube idle loop
+00025Cr 1               
+00025Cr 1               
+00025Cr 1               bytelo:
+00025Cr 1  20 rr rr             JSR TubeWaitR2
+00025Fr 1  AA                   TAX
+000260r 1  20 rr rr             JSR TubeWaitR2
+000263r 1               
+000263r 1  C9 7E                CMP #$7E
+000265r 1  F0 05                BEQ osbyte7e
+000267r 1               
+000267r 1               ;;; Log an unsupported OSBYTE
+000267r 1               .if (debug_unsupp = 1)
+000267r 1                       PHA
+000267r 1                       TXA
+000267r 1                       PHA
+000267r 1                       JSR STROUT
+000267r 1                       .byte "UNSUPPORTED OSBYTE X="
+000267r 1                       NOP
+000267r 1                       PLA
+000267r 1                       JSR HEXOUT
+000267r 1                       JSR STROUT
+000267r 1                       .byte "; A="
+000267r 1                       NOP
+000267r 1                       PLA
+000267r 1                       JSR HEXOUT
+000267r 1                       JSR OSNEWL
+000267r 1               .endif
+000267r 1               
+000267r 1  A9 00                LDA #0
+000269r 1  4C rr rr             JMP TubeSendIdle
+00026Cr 1               
+00026Cr 1               osbyte7e:                       ; OSBYTE 7e = Ack detection of escape condition
+00026Cr 1  20 rr rr             JSR EscapeClear
+00026Fr 1  A9 FF                LDA #$ff
+000271r 1  4C rr rr             JMP TubeSendIdle        ; ff = escape condition cleared
+000274r 1               
+000274r 1               bytehi:
+000274r 1  20 rr rr             JSR TubeWaitR2          ; Fetch 3-byte control block X Y A
+000277r 1  AA                   TAX
+000278r 1  20 rr rr             JSR TubeWaitR2
+00027Br 1  A8                   TAY
+00027Cr 1  20 rr rr             JSR TubeWaitR2
+00027Fr 1               
+00027Fr 1  C9 98                CMP #$98
+000281r 1  F0 13                BEQ osbyte98
+000283r 1  C9 B1                CMP #$B1
+000285r 1  F0 04                BEQ osbyteB1
+000287r 1  C9 D8                CMP #$D8
+000289r 1  F0 00                BEQ osbyteD8
+00028Br 1               
+00028Br 1               ;;; Log an unsupported OSBYTE
+00028Br 1               .if (debug_unsupp = 1)
+00028Br 1                       PHA
+00028Br 1                       TXA
+00028Br 1                       PHA
+00028Br 1                       TYA
+00028Br 1                       PHA
+00028Br 1                       JSR STROUT
+00028Br 1                       .byte "UNSUPPORTED OSBYTE Y="
+00028Br 1                       NOP
+00028Br 1                       PLA
+00028Br 1                       JSR HEXOUT
+00028Br 1                       JSR STROUT
+00028Br 1                       .byte "; X="
+00028Br 1                       NOP
+00028Br 1                       PLA
+00028Br 1                       JSR HEXOUT
+00028Br 1                       JSR STROUT
+00028Br 1                       .byte "; A="
+00028Br 1                       NOP
+00028Br 1                       PLA
+00028Br 1                       JSR HEXOUT
+00028Br 1                       JSR OSNEWL
+00028Br 1               .endif
+00028Br 1               
+00028Br 1               osbyteB1:
+00028Br 1               osbyteD8:
+00028Br 1               
+00028Br 1  A9 00                LDA #0                  ; Return Cy Y X
+00028Dr 1  20 rr rr             JSR TubeSendR2
+000290r 1  20 rr rr             JSR TubeSendR2
+000293r 1  4C rr rr             JMP TubeSendIdle
+000296r 1               
+000296r 1               osbyte98:
+000296r 1               .if (buffered_kbd = 1)
+000296r 1  20 rr rr             JSR PollKeyboard
+000299r 1  A5 7B                LDA KeyBuf
+00029Br 1  D0 04                BNE osbyte98_full
+00029Dr 1               osbyte98_empty:
+00029Dr 1  A9 FF                LDA #$ff                ; Cy=1 (Empty)
+00029Fr 1  D0 02                BNE osbyte98_send
+0002A1r 1               osbyte98_full:
+0002A1r 1  A9 00                LDA #$00                ; Cy=0 (Not empty)
+0002A3r 1               osbyte98_send:
+0002A3r 1               .else
+0002A3r 1                       LDA #$ff                ; Cy=1 (Empty)
+0002A3r 1               .endif
+0002A3r 1  20 rr rr             JSR TubeSendR2
+0002A6r 1  98                   TYA                     ; Y preserved
+0002A7r 1  20 rr rr             JSR TubeSendR2
+0002AAr 1  8A                   TXA                     ; X preserved
+0002ABr 1  4C rr rr             JMP TubeSendIdle
+0002AEr 1               
+0002AEr 1               word:
+0002AEr 1  20 rr rr             JSR TubeWaitR2          ; Get A
+0002B1r 1  48                   PHA                     ; Stack the osword number
+0002B2r 1  20 rr rr             JSR TubeWaitR2          ; Get in-length
+0002B5r 1  AA                   TAX
+0002B6r 1  20 rr rr             JSR TubeWaitBlock
+0002B9r 1  20 rr rr             JSR TubeWaitR2          ; Get out-length
+0002BCr 1  AA                   TAX
+0002BDr 1  68                   PLA                     ; Restore osword number
+0002BEr 1  C9 01                CMP #$01                ; Read System Clock
+0002C0r 1  F0 1A                BEQ word01ReadSys
+0002C2r 1  C9 02                CMP #$02                ; Write System Clock
+0002C4r 1  F0 23                BEQ word02WriteSys
+0002C6r 1  C9 05                CMP #$05
+0002C8r 1  F0 2C                BEQ word05ReadMem       ; Read host memory
+0002CAr 1  C9 06                CMP #$06
+0002CCr 1  F0 34                BEQ word06WriteMem      ; Write host memory
+0002CEr 1  C9 7F                CMP #$7F
+0002D0r 1  F0 3C                BEQ word7Fdisk          ; 8271 command level disk access
+0002D2r 1  C9 FF                CMP #$FF
+0002D4r 1  F0 3F                BEQ wordFFtransfer      ; host/parasite data transfer
+0002D6r 1               
+0002D6r 1               ;;; Log an unsupported OSWORD
+0002D6r 1               .if (debug_unsupp = 1)
+0002D6r 1                       PHA
+0002D6r 1                       JSR STROUT
+0002D6r 1                       .byte "UNSUPPORTED OSWORD A="
+0002D6r 1                       NOP
+0002D6r 1                       PLA
+0002D6r 1                       JSR HEXOUT
+0002D6r 1                       JSR OSNEWL
+0002D6r 1               .endif
+0002D6r 1               
+0002D6r 1               ;;; Default OSWORD HANDLER
+0002D6r 1               wordSendBlock:
+0002D6r 1  20 rr rr             JSR TubeSendBlock       ; length of block in X
+0002D9r 1  4C rr rr             JMP TubeIdle
+0002DCr 1               
+0002DCr 1               ;;; OSWORD A=1 Read System Clock
+0002DCr 1               word01ReadSys:
+0002DCr 1  A0 04                LDY #4                  ; Copy the 5 byte time value
+0002DEr 1               word01ReadSysLoop:              ; to the Tube Control block
+0002DEr 1  B9 rr rr             LDA ViaTime, Y
+0002E1r 1  99 60 00             STA TubeCtrl, Y
+0002E4r 1  88                   DEY
+0002E5r 1  10 F7                BPL word01ReadSysLoop
+0002E7r 1  30 ED                BMI wordSendBlock
+0002E9r 1               
+0002E9r 1               ;;; OSWORD A=2 Write System Clock
+0002E9r 1               word02WriteSys:
+0002E9r 1  A0 04                LDY #4                  ; Copy the 5 byte time value
+0002EBr 1               word02WriteSysLoop:             ; to the Via Time
+0002EBr 1  B9 60 00             LDA TubeCtrl, Y
+0002EEr 1  99 rr rr             STA ViaTime, Y
+0002F1r 1  88                   DEY
+0002F2r 1  10 F7                BPL word02WriteSysLoop
+0002F4r 1  30 E0                BMI wordSendBlock
+0002F6r 1               
+0002F6r 1               ;;; OSWORD A=5 Read Host Memory
+0002F6r 1               word05ReadMem:
+0002F6r 1  A0 00                LDY #0
+0002F8r 1  B1 60                LDA (TubeCtrl), Y       ; Address in bytes 0,1 of control block
+0002FAr 1  A0 04                LDY #4
+0002FCr 1  99 60 00             STA TubeCtrl, Y         ; Store result in byte 4 of control block
+0002FFr 1  4C rr rr             JMP wordSendBlock
+000302r 1               
+000302r 1               ;;; OSWORD A=6 Write Host Memory
+000302r 1               word06WriteMem:
+000302r 1  A0 04                LDY #4
+000304r 1  B9 60 00             LDA TubeCtrl, Y
+000307r 1  A0 00                LDY #0
+000309r 1  91 60                STA (TubeCtrl), Y
+00030Br 1  4C rr rr             JMP wordSendBlock
+00030Er 1               
+00030Er 1               ;;; OSWORD A=7F 8271 Command based disk access
+00030Er 1               word7Fdisk:
+00030Er 1  20 rr rr             JSR osword7f
+000311r 1  A2 10                LDX #$10
+000313r 1  D0 C1                BNE wordSendBlock
+000315r 1               
+000315r 1               ;;; OSWORD A=FF Host/Parasite data transfer
+000315r 1               wordFFtransfer:
+000315r 1  A2 60                LDX #<TubeCtrl
+000317r 1  A0 00                LDY #>TubeCtrl
+000319r 1  20 rr rr             JSR oswordff
+00031Cr 1  A2 01                LDX #$01
+00031Er 1  D0 B6                BNE wordSendBlock
+000320r 1               
+000320r 1               ;;; OSCLI
+000320r 1               ;;; =====
+000320r 1               clii:
+000320r 1               
+000320r 1  20 rr rr             JSR ReadString          ; Read string to $0100
+000323r 1               
+000323r 1  A2 FF                LDX #$FF
+000325r 1               cliskip:
+000325r 1  E8                   INX
+000326r 1  BD 00 01             LDA $100, X             ; Skip leading spaces or stars
+000329r 1  C9 20                CMP #$20
+00032Br 1  F0 F8                BEQ cliskip
+00032Dr 1  C9 2A                CMP #$2A
+00032Fr 1  F0 F4                BEQ cliskip
+000331r 1               
+000331r 1  C9 0D                CMP #$0D                ; Test for a zero-length string
+000333r 1  F0 11                BEQ TubeSendAck         ; Skip it
+000335r 1               
+000335r 1  A0 00                LDY #0
+000337r 1               clicopy:
+000337r 1  BD 00 01             LDA $100, X
+00033Ar 1  99 00 01             STA $100, Y
+00033Dr 1  E8                   INX
+00033Er 1  C8                   INY
+00033Fr 1  C9 0D                CMP #$0D
+000341r 1  D0 F4                BNE clicopy
+000343r 1               
+000343r 1  20 F7 FF             JSR OSCLI               ; Execute it
+000346r 1               
+000346r 1                       ;; If the command returns here, the CoPro will get $7F as an acknowledgement
+000346r 1                       ;; The CoPro also gets sent a $7F byte if there is no language available on
+000346r 1                       ;; Break If calling OSCLI results in code being run in the CoPro or a language
+000346r 1                       ;; being copied over and entered, the CoPro will get an $80 acknowledgement
+000346r 1                       ;; elsewhere
+000346r 1               
+000346r 1                       ;; Will have to hook into Atom's OSLOAD and OSSAVE to intercept *DELETEACS and *DELETEBGET
+000346r 1                       ;; commands to redirect to manual implementations
+000346r 1               
+000346r 1               ;;; Send $7F acknowledgement byte via R2 and return to idle loop
+000346r 1               ;;; ------------------------------------------------------------
+000346r 1               TubeSendAck:
+000346r 1  A9 7F                LDA #$7F                ; Send $7F to CoPro
+000348r 1               
+000348r 1               ;;; Send byte in A via R2 and return to Tube idle loop
+000348r 1               ;;; --------------------------------------------------
+000348r 1               TubeSendIdle:
+000348r 1  2C E2 BE             BIT TubeS2
+00034Br 1  50 FB                BVC TubeSendIdle        ; Loop until Command port free
+00034Dr 1  8D E3 BE             STA TubeR2
+000350r 1               .if (debug_r2 = 1)
+000350r 1                       JSR DebugHexOut
+000350r 1               .endif
+000350r 1  4C rr rr             JMP TubeIdle            ; Send byte and jump to Tube idle loop
+000353r 1               
+000353r 1               
+000353r 1               ;;; FILING LOADATNTEM CALLS
+000353r 1               ;;; ===================
+000353r 1               
+000353r 1               ;;; OSBPUT
+000353r 1               ;;; ------
+000353r 1               bput:
+000353r 1  20 rr rr             JSR TubeWaitR2
+000356r 1  A8                   TAY                     ; Wait for a handle
+000357r 1  20 rr rr             JSR TubeWaitR2          ; Wait for a data byte
+00035Ar 1  20 D1 FF             JSR OSBPUT              ; Write to file
+00035Dr 1  4C rr rr             JMP TubeSendAck         ; Send $7F ack, return to idle loop
+000360r 1               
+000360r 1               ;;; OSBGET
+000360r 1               ;;; ------
+000360r 1               bget:
+000360r 1  20 rr rr             JSR TubeWaitR2
+000363r 1  A8                   TAY                     ; Wait for a handle
+000364r 1  20 D4 FF             JSR OSBGET              ; Read from file
+000367r 1  4C rr rr             JMP SendCarryA          ; Send Carry and A, return to idle loop
+00036Ar 1               
+00036Ar 1               ;;; OSFIND
+00036Ar 1               ;;; ------
+00036Ar 1               find:
+00036Ar 1  20 rr rr             JSR TubeWaitR2
+00036Dr 1  F0 13                BEQ close               ; Zero - jump to do CLOSE
+00036Fr 1  48                   PHA
+000370r 1  20 rr rr             JSR ReadString
+000373r 1  68                   PLA
+000374r 1                       ;; Get filename string via R2
+000374r 1                       ;;
+000374r 1                       ;; Atom OSFIND needs
+000374r 1               
+000374r 1                       ;; X=>zero page, (X+0,1)=>filename
+000374r 1                       ;; CS=OPENIN, CC=OPENOUT
+000374r 1                       ;;
+000374r 1  86 60                STX TubeCtrl+0          ; Store address of filename
+000376r 1  84 61                STY TubeCtrl+1
+000378r 1  A2 60                LDX #TubeCtrl           ; X=>address of filename
+00037Ar 1  0A                   ASL A
+00037Br 1  0A                   ASL A                   ; Move b6 into Cy, CS=OPENIN, CC=OPENOUT
+00037Cr 1  20 CE FF             JSR OSFIND              ; Do the OPEN
+00037Fr 1  4C rr rr             JMP TubeSendIdle        ; Send handle back, return to idle loop
+000382r 1               
+000382r 1               ;;; CLOSE
+000382r 1               ;;; -----
+000382r 1               close:
+000382r 1  20 rr rr             JSR TubeWaitR2
+000385r 1  A8                   TAY                     ; Wait for a handle
+000386r 1  20 CB FF             JSR OSSHUT              ; Do the CLOSE
+000389r 1  4C rr rr             JMP TubeSendAck         ; Send $7F ack and jump to idle loop
+00038Cr 1               
+00038Cr 1               ;;; OSARGS
+00038Cr 1               ;;; ------
+00038Cr 1               args:
+00038Cr 1  20 rr rr             JSR TubeWaitR2
+00038Fr 1  A8                   TAY                     ; Wait for a handle
+000390r 1  A2 04                LDX #$04
+000392r 1  20 rr rr             JSR TubeWaitBlock       ; Fetch 4-byte data block
+000395r 1  20 rr rr             JSR TubeWaitR2          ; Wait for action; ;;; Atom needs
+000398r 1               ;;;
+000398r 1               ;;;OSRDAR #FFDA Read file's arguments
+000398r 1               ;;;On entry,  X=>zero page location
+000398r 1               ;;;           Y=handle
+000398r 1               ;;;           A=0 - read PTR
+000398r 1               ;;;           A=1 - read EXT
+000398r 1               ;;;           A=2 - read allocation
+000398r 1               ;;;On exit,   X+0-X+3 = returned argument
+000398r 1               ;;;           A,X,Y preserved
+000398r 1               ;;;
+000398r 1               ;;;
+000398r 1               ;;;OSSTAR #FFD7 Set file's arguments
+000398r 1               ;;;On entry,  X=>zero page location
+000398r 1               ;;;           Y=handle
+000398r 1               ;;;           A=0 - write PTR
+000398r 1               ;;;           X+0-X+3 = argument
+000398r 1               ;;;On exit,   A,X,Y preserved;  JSR TubeSendR2             ; Send result back
+000398r 1  A2 04                LDX #4
+00039Ar 1  20 rr rr             JSR TubeSendBlock       ; Send 4-byte data black
+00039Dr 1  4C rr rr             JMP TubeIdle
+0003A0r 1               
+0003A0r 1               
+0003A0r 1               ;;; OSGBPB
+0003A0r 1               ;;; ------
+0003A0r 1               ;;; OSGBPB   R2 <== &16 block A
+0003A0r 1               ;;;          R2 ==> block Cy A
+0003A0r 1               
+0003A0r 1               gbpb:
+0003A0r 1  A2 0D                LDX #$0D                ; Block length
+0003A2r 1  20 rr rr             JSR TubeWaitBlock
+0003A5r 1  20 rr rr             JSR TubeWaitR2          ; Get A
+0003A8r 1  48                   PHA
+0003A9r 1  A2 0D                LDX #$0D                ; Block length
+0003ABr 1  20 rr rr             JSR TubeSendBlock       ; Send block
+0003AEr 1  A9 00                LDA #$00
+0003B0r 1  20 rr rr             JSR TubeSendR2          ; Send Cy
+0003B3r 1  68                   PLA
+0003B4r 1  20 rr rr             JSR TubeSendR2          ; Send A
+0003B7r 1  4C rr rr             JMP TubeIdle
+0003BAr 1               
+0003BAr 1               
+0003BAr 1               ;;; OSFILE
+0003BAr 1               ;;; ------
+0003BAr 1               ;;; OSFILE   R2 <== &14 block string &0D A
+0003BAr 1               ;;;          R2 ==> A block
+0003BAr 1               
+0003BAr 1               ;;; Block
+0003BAr 1               ;;;     0..3 Load Address
+0003BAr 1               ;;;     4..7 Exec Address
+0003BAr 1               ;;;     8..B Start Address
+0003BAr 1               ;;;     C..F End Address
+0003BAr 1               
+0003BAr 1               file:
+0003BAr 1  A2 10                LDX #$10                ; Block length
+0003BCr 1  20 rr rr             JSR TubeWaitBlock
+0003BFr 1  A2 00                LDX #$00
+0003C1r 1               fileString:
+0003C1r 1  20 rr rr             JSR TubeWaitR2          ; Get String
+0003C4r 1  9D 40 01             STA AtomStr, X
+0003C7r 1  E8                   INX
+0003C8r 1  C9 0D                CMP #$0D
+0003CAr 1  D0 F5                BNE fileString
+0003CCr 1  20 rr rr             JSR TubeWaitR2          ; Get A
+0003CFr 1  C9 00                CMP #$00
+0003D1r 1  F0 26                BEQ filesave
+0003D3r 1  C9 FF                CMP #$FF
+0003D5r 1  F0 0D                BEQ fileload
+0003D7r 1               
+0003D7r 1               fileResponse:
+0003D7r 1  A9 01                LDA #$01                ; Send object type 01 "File Found"
+0003D9r 1  20 rr rr             JSR TubeSendR2
+0003DCr 1  A2 10                LDX #$10                ; Block length
+0003DEr 1  20 rr rr             JSR TubeSendBlock       ; Send block
+0003E1r 1  4C rr rr             JMP TubeIdle
+0003E4r 1               
+0003E4r 1                       ;; Map to OSLOAD
+0003E4r 1                       ;;
+0003E4r 1                       ;; Entry: 0,X = LSB File name string address
+0003E4r 1                       ;;        1,X = MSB File name string address
+0003E4r 1                       ;;        2,X = LSB Data dump start address
+0003E4r 1                       ;;        3,X = MSB Data dump start address
+0003E4r 1                       ;;        4,X : If bit 7 is clear, then the file's own start address is to be used
+0003E4r 1               
+0003E4r 1               fileload:
+0003E4r 1  20 rr rr             JSR fileinit
+0003E7r 1  A9 80                LDA #$80                ; use block's load address
+0003E9r 1  A6 64                LDX TubeCtrl + 4        ; if zero, use block's load address
+0003EBr 1  F0 02                BEQ fileload1
+0003EDr 1  A9 00                LDA #$00                ; use file's load address
+0003EFr 1               fileload1:
+0003EFr 1  85 CD                STA AtomCmd + 4
+0003F1r 1  A2 C9                LDX #AtomCmd
+0003F3r 1  20 E0 FF             JSR OSLOAD
+0003F6r 1  4C rr rr             JMP fileResponse
+0003F9r 1               
+0003F9r 1                       ;; Map to OSSAVE
+0003F9r 1                       ;;
+0003F9r 1                       ;; Entry: 0,X = LSB File name string address
+0003F9r 1                       ;;        1,X = MSB File name string address
+0003F9r 1                       ;;        2,X = LSB Data Reload address
+0003F9r 1                       ;;        3,X = MSB Data Reload address
+0003F9r 1                       ;;        4,X = LSB Data Execution address
+0003F9r 1                       ;;        5,X = MSB Data Execution address
+0003F9r 1                       ;;        6,X = LSB Data start address
+0003F9r 1                       ;;        7,X = MSB Data start address
+0003F9r 1                       ;;        8,X = LSB Data end address + 1
+0003F9r 1                       ;;        9,X = MSB Data end address + 1
+0003F9r 1               
+0003F9r 1               filesave:
+0003F9r 1  20 rr rr             JSR fileinit
+0003FCr 1  A2 C9                LDX #AtomCmd
+0003FEr 1  20 DD FF             JSR OSSAVE
+000401r 1  4C rr rr             JMP fileResponse
+000404r 1               
+000404r 1               fileinit:
+000404r 1  A9 40                LDA #<AtomStr
+000406r 1  85 C9                STA AtomCmd
+000408r 1  A9 01                LDA #>AtomStr
+00040Ar 1  85 CA                STA AtomCmd + 1
+00040Cr 1  A2 00                LDX #$00
+00040Er 1  A0 02                LDY #$02
+000410r 1               fileinitlp:
+000410r 1  B5 60                LDA TubeCtrl, X         ; Copy bits 0..7 of address
+000412r 1  99 C9 00             STA AtomCmd, Y
+000415r 1  E8                   INX
+000416r 1  C8                   INY
+000417r 1  B5 60                LDA TubeCtrl, X         ; Copy bits 8..15 of address
+000419r 1  99 C9 00             STA AtomCmd, Y
+00041Cr 1  E8                   INX
+00041Dr 1  C8                   INY
+00041Er 1  E8                   INX                     ; Skip bits 16..23 of address
+00041Fr 1  E8                   INX                     ; Skip bits 24..31 of address
+000420r 1  E0 10                CPX #$10
+000422r 1  D0 EC                BNE fileinitlp
+000424r 1  60                   RTS
+000425r 1               
+000425r 1               ;;; TUBE COMMAND TRANSFERS
+000425r 1               ;;; **********************
+000425r 1               
+000425r 1               ;;; Read a string via R2 into string buffer at $0100
+000425r 1               ;;; ------------------------------------------------
+000425r 1               ReadString:
+000425r 1  A0 00                LDY #$00
+000427r 1               ReadStrLp:
+000427r 1  20 rr rr             JSR TubeWaitR2
+00042Ar 1  99 00 01             STA $0100,Y             ; Wait for byte and store in string buffer
+00042Dr 1  C8                   INY
+00042Er 1  F0 04                BEQ ReadStrFull         ; Buffer full, end loop
+000430r 1  C9 0D                CMP #$0D
+000432r 1  D0 F3                BNE ReadStrLp           ; Loop until <cr> received
+000434r 1               ReadStrFull:
+000434r 1  A2 00                LDX #0
+000436r 1  A0 01                LDY #1
+000438r 1  60                   RTS                     ; Return XY pointing to $0100
+000439r 1               
+000439r 1               ;;; Get control block to TubeCtrl, X
+000439r 1               ;;; --------------------------------
+000439r 1               TubeWaitBlock:
+000439r 1  CA                   DEX
+00043Ar 1  30 08                BMI TubeWaitBlockExit
+00043Cr 1  20 rr rr             JSR TubeWaitR2
+00043Fr 1  95 60                STA TubeCtrl, X
+000441r 1  4C rr rr             JMP TubeWaitBlock
+000444r 1               TubeWaitBlockExit:
+000444r 1  60                   RTS
+000445r 1               
+000445r 1               ;;; Get X and A from Tube R2
+000445r 1               ;;; ------------------------
+000445r 1               TubeWaitXA:
+000445r 1  20 rr rr             JSR TubeWaitR2
+000448r 1  AA                   TAX
+000449r 1               
+000449r 1               ;;; Wait for data from Tube R2
+000449r 1               ;;; --------------------------
+000449r 1               TubeWaitR2:
+000449r 1  2C E2 BE             BIT TubeS2
+00044Cr 1  10 FB                BPL TubeWaitR2          ; Loop until data present
+00044Er 1  AD E3 BE             LDA TubeR2
+000451r 1               .if (debug_r2 = 1)
+000451r 1                       JSR DebugHexOut
+000451r 1               .endif
+000451r 1  60                   RTS                     ; Get byte
+000452r 1               
+000452r 1               
+000452r 1               ;;; Send control block from TubeCtrl, X
+000452r 1               ;;; -----------------------------------
+000452r 1               TubeSendBlock:
+000452r 1  CA                   DEX
+000453r 1  30 08                BMI TubeSendBlockExit
+000455r 1  B5 60                LDA TubeCtrl, X
+000457r 1  20 rr rr             JSR TubeSendR2
+00045Ar 1  4C rr rr             JMP TubeSendBlock
+00045Dr 1               TubeSendBlockExit:
+00045Dr 1  60                   RTS
+00045Er 1               
+00045Er 1               ;;; Send byte in A via Tube R1
+00045Er 1               ;;; --------------------------
+00045Er 1               TubeSendR1:
+00045Er 1  2C E0 BE             BIT TubeS1
+000461r 1  50 FB                BVC TubeSendR1          ; Loop until port free
+000463r 1  8D E1 BE             STA TubeR1
+000466r 1               .if (debug_r1 = 1)
+000466r 1                       JSR DebugHexOut
+000466r 1               .endif
+000466r 1  60                   RTS
+000467r 1               
+000467r 1               ;;; Send byte in A via Tube R2
+000467r 1               ;;; --------------------------
+000467r 1               TubeSendR2:
+000467r 1  2C E2 BE             BIT TubeS2
+00046Ar 1  50 FB                BVC TubeSendR2          ; Loop until port free
+00046Cr 1  8D E3 BE             STA TubeR2
+00046Fr 1               .if (debug_r2 = 1)
+00046Fr 1                       JSR DebugHexOut
+00046Fr 1               .endif
+00046Fr 1  60                   RTS
+000470r 1               
+000470r 1               
+000470r 1               ;;; Send byte in A via Tube R4
+000470r 1               ;;; --------------------------
+000470r 1               TubeSendR4:
+000470r 1  2C E6 BE             BIT TubeS4
+000473r 1  50 FB                BVC TubeSendR4          ; Loop until port free
+000475r 1  8D E7 BE             STA TubeR4
+000478r 1               .if (debug_r4 = 1)
+000478r 1                       JSR DebugHexOut
+000478r 1               .endif
+000478r 1  60                   RTS                     ; Send byte
+000479r 1               
+000479r 1               ;;; Copy Escape state across Tube
+000479r 1               ;;; -----------------------------
+000479r 1               
+000479r 1               EscapeSet:
+000479r 1  A5 79                LDA EscapeFlag
+00047Br 1  09 40                ORA #$40
+00047Dr 1  D0 04                BNE EscapeUpdate
+00047Fr 1               
+00047Fr 1               EscapeClear:
+00047Fr 1  A5 79                LDA EscapeFlag
+000481r 1  29 BF                AND #$BF
+000483r 1               
+000483r 1               EscapeUpdate:
+000483r 1  85 79                STA EscapeFlag
+000485r 1               
+000485r 1               EscapeCopy:
+000485r 1  A5 79                LDA EscapeFlag
+000487r 1  29 40                AND #$40                ; Bit 6 is the escape state
+000489r 1  09 80                ORA #$80                ; Bit 7 must be set
+00048Br 1  4C rr rr             JMP TubeSendR1
+00048Er 1               
+00048Er 1               
+00048Er 1               EscapeCheck:
+00048Er 1  AD 01 B0             LDA $B001               ; Read keyboard hardware
+000491r 1  45 79                EOR EscapeFlag
+000493r 1  29 20                AND #$20
+000495r 1  D0 0B                BNE EscapeReturn        ; No Change
+000497r 1               
+000497r 1  A5 79                LDA EscapeFlag          ; Update the escape key state in B5
+000499r 1  49 20                EOR #$20
+00049Br 1  85 79                STA EscapeFlag
+00049Dr 1               
+00049Dr 1  38                   SEC
+00049Er 1  29 20                AND #$20                ; Is the change the key being pressed?
+0004A0r 1  D0 D7                BNE EscapeSet           ; If so, set the escape condition
+0004A2r 1               
+0004A2r 1               EscapeReturn:
+0004A2r 1  18                   CLC
+0004A3r 1  60                   RTS
+0004A4r 1               
+0004A4r 1               
+0004A4r 1               TubeHostError:
+0004A4r 1  48 4F 53 54          .byte "HOST ERROR"
+0004A8r 1  20 45 52 52  
+0004ACr 1  4F 52        
+0004AEr 1  00                   BRK
+0004AFr 1               
+0004AFr 1               ;;; ***************************
+0004AFr 1               ;;; INTERFACE TO ATOM MOS CALLS
+0004AFr 1               ;;; ***************************
+0004AFr 1               
+0004AFr 1               ;;; Interface to Atom OSRDCH
+0004AFr 1               ;;; ------------------------
+0004AFr 1               AtomRDCH:
+0004AFr 1  A5 79                LDA EscapeFlag
+0004B1r 1  29 DF                AND #$DF
+0004B3r 1  85 79                STA EscapeFlag
+0004B5r 1               .if (buffered_kbd = 1)
+0004B5r 1               AtomRDCH1:
+0004B5r 1  20 rr rr             JSR PollKeyboard
+0004B8r 1  A5 7B                LDA KeyBuf              ; wait for the ISR to deposit a key press
+0004BAr 1  F0 F9                BEQ AtomRDCH1
+0004BCr 1  48                   PHA
+0004BDr 1  A9 00                LDA #$00                ; swallow the key press
+0004BFr 1  85 7B                STA KeyBuf
+0004C1r 1               .else
+0004C1r 1                       JSR OSRDCH
+0004C1r 1                       PHA
+0004C1r 1               .endif
+0004C1r 1  20 rr rr             JSR EscapeCheck
+0004C4r 1  68                   PLA
+0004C5r 1  60                   RTS
+0004C6r 1               
+0004C6r 1               
+0004C6r 1               
+0004C6r 1               .if (buffered_kbd = 1)
+0004C6r 1               ;;; Polls the keyboard in a non-blocking fashion
+0004C6r 1               ;;; On return KeyBuf will return the key pressed, or zero if no key pressed
+0004C6r 1               ;;; If the caller consumes the key press, then they should zero KeyBuf
+0004C6r 1               ;;;
+0004C6r 1               
+0004C6r 1               PollKeyboard:
+0004C6r 1  48                   PHA
+0004C7r 1  8A                   TXA
+0004C8r 1  48                   PHA
+0004C9r 1  98                   TYA
+0004CAr 1  48                   PHA
+0004CBr 1  20 71 FE             JSR $FE71               ; scan the keyboard
+0004CEr 1               
+0004CEr 1  A5 7C                LDA KeyFlag
+0004D0r 1  F0 06                BEQ PollFlagClear
+0004D2r 1               
+0004D2r 1  90 13                BCC PollExit            ; key still pressed
+0004D4r 1               
+0004D4r 1  A9 00                LDA #$00
+0004D6r 1  85 7C                STA KeyFlag             ; update flag to indicate key released
+0004D8r 1               
+0004D8r 1               PollFlagClear:
+0004D8r 1  B0 0D                BCS PollExit            ; no key pressed
+0004DAr 1               
+0004DAr 1  A5 7B                LDA KeyBuf              ; is the keyboard buffer already full
+0004DCr 1  D0 09                BNE PollExit
+0004DEr 1               
+0004DEr 1  20 rr rr             JSR ConvertKey          ; Convert to ASCII
+0004E1r 1  85 7B                STA KeyBuf              ; store in the one character keyboard buffer
+0004E3r 1  A9 0A        	LDA #10
+0004E5r 1  85 7C        	STA KeyFlag             ; Set the KeyFlag
+0004E7r 1               
+0004E7r 1               PollExit:
+0004E7r 1  68                   PLA
+0004E8r 1  A8                   TAY
+0004E9r 1  68                   PLA
+0004EAr 1  AA                   TAX
+0004EBr 1  68                   PLA
+0004ECr 1  60                   RTS
+0004EDr 1               
+0004EDr 1               ConvertKey:
+0004EDr 1  C0 05                CPY #$05                ; Lock key
+0004EFr 1  F0 0C                BEQ ConvertLock
+0004F1r 1  C0 06                CPY #$06                ; LR Cursor
+0004F3r 1  F0 11                BEQ ConvertCursor
+0004F5r 1  C0 07                CPY #$07                ; UD Cursor
+0004F7r 1  F0 0D                BEQ ConvertCursor
+0004F9r 1  08                   PHP                     ; To maintain a balances stack
+0004FAr 1  4C B1 FE             JMP $FEB1               ; Allow the AtomOS to handle the conversion
+0004FDr 1               
+0004FDr 1               ConvertLock:
+0004FDr 1  A5 E7                LDA $E7                 ; Get the lock flag
+0004FFr 1  49 60                EOR #$60                ; ..toggle it
+000501r 1  85 E7                STA $E7                 ; ..and restore it
+000503r 1  A9 00                LDA #$00                ; don't return an actual keypress
+000505r 1  60                   RTS
+000506r 1               
+000506r 1               ConvertCursor:
+000506r 1  98                   TYA
+000507r 1  29 05                AND #$05                ; LR=4 DU=5
+000509r 1  2E 01 B0             ROL $B001               ; C=0 if shift pressed
+00050Cr 1  2A                   ROL A                   ; L=8 R=9 D=10 U=11
+00050Dr 1  20 rr rr             JSR AtomWRCH
+000510r 1  A9 00                LDA #$00                ; don't return an actual keypress
+000512r 1  60                   RTS
+000513r 1               
+000513r 1               .endif
+000513r 1               
+000513r 1               
+000513r 1               
+000513r 1               ;;; Interface to Atom OSWRCH
+000513r 1               ;;; ------------------------
+000513r 1               AtomWRCH:
+000513r 1  24 7A                BIT GodilFlag           ; Check if running in 80x40 mode
+000515r 1  30 06                BMI AtomWRCH1
+000517r 1  C9 60                CMP #$60                ; Mask lower case
+000519r 1  90 02                BCC AtomWRCH1
+00051Br 1  29 DF                AND #$DF
+00051Dr 1               AtomWRCH1:
+00051Dr 1  4C F4 FF             JMP OSWRCH
+000520r 1               
+000520r 1               ViaInit:
+000520r 1  A9 rr                LDA #<ViaISR            ; Setup the interrupt handler
+000522r 1  8D 04 02             STA IRQ1V
+000525r 1  A9 rr                LDA #>ViaISR
+000527r 1  8D 05 02             STA IRQ1V+1
+00052Ar 1  A9 00                LDA #$00                ; Clear the timer
+00052Cr 1  8D rr rr             STA ViaTime
+00052Fr 1  8D rr rr             STA ViaTime + 1
+000532r 1  8D rr rr             STA ViaTime + 2
+000535r 1  8D rr rr             STA ViaTime + 3
+000538r 1  8D rr rr             STA ViaTime + 4
+00053Br 1  A9 0F                LDA #<9999              ; 10ms timer interrupts
+00053Dr 1  8D 04 B8             STA ViaT1CounterL
+000540r 1  A9 27                LDA #>9999
+000542r 1  8D 05 B8             STA ViaT1CounterH
+000545r 1  A9 40                LDA #$40                ; Enable T1 continuous interrupts
+000547r 1  8D 0B B8             STA ViaACR              ; Disable everything else
+00054Ar 1  A9 7F                LDA #$7F                ; Disable all interrupts
+00054Cr 1  8D 0E B8             STA ViaIER
+00054Fr 1  A9 C0                LDA #$C0                ; Enable T1 interrupts
+000551r 1  8D 0E B8             STA ViaIER
+000554r 1  60                   RTS
+000555r 1               
+000555r 1               ViaISR:
+000555r 1  AD 04 B8             LDA ViaT1CounterL       ; Clear the interrupts flag
+000558r 1  EE rr rr             INC ViaTime
+00055Br 1  D0 12                BNE ViaRept
+00055Dr 1  EE rr rr             INC ViaTime + 1
+000560r 1  D0 0D                BNE ViaRept
+000562r 1  EE rr rr             INC ViaTime + 2
+000565r 1  D0 08                BNE ViaRept
+000567r 1  EE rr rr             INC ViaTime + 3
+00056Ar 1  D0 03                BNE ViaRept
+00056Cr 1  EE rr rr             INC ViaTime + 4
+00056Fr 1               
+00056Fr 1               ViaRept:
+00056Fr 1  2C 02 B0     	BIT $B002		; test the repeat key
+000572r 1  70 06        	BVS ViaExit
+000574r 1  A5 7C        	LDA KeyFlag		; decrement the key flag if non-zero
+000576r 1  F0 02        	BEQ ViaExit
+000578r 1  C6 7C        	DEC KeyFlag
+00057Ar 1               
+00057Ar 1               ViaExit:
+00057Ar 1  68                   PLA                     ; the Atom stacks A for us
+00057Br 1  40                   RTI
+00057Cr 1               
+00057Cr 1               ViaTime:
+00057Cr 1  00 00 00 00          .byte 0,0,0,0,0
+000580r 1  00           
+000581r 1               
+000581r 1               
+000581r 1               ;;; Debugging output, avoid trashing A
+000581r 1               ;;;
+000581r 1               
+000581r 1               DebugNewline:
+000581r 1  08                   PHP
+000582r 1  48                   PHA
+000583r 1  20 ED FF             JSR OSNEWL
+000586r 1  68                   PLA
+000587r 1  28                   PLP
+000588r 1  60                   RTS
+000589r 1               
+000589r 1               DebugHexOut:
+000589r 1  08                   PHP
+00058Ar 1  48                   PHA
+00058Br 1  20 02 F8             JSR HEXOUT
+00058Er 1  68                   PLA
+00058Fr 1  28                   PLP
+000590r 1  60                   RTS
+000591r 1               
+000591r 1               .if (atommc = 1)
+000591r 1               .include "tube.asm"
+000591r 2               ;;; 	TubeR3       = $BEE6
+000591r 2               ;;; 	TubeCtrl     = $60
+000591r 2               ;;; 	L0406        = $4006		; Tube claim/transfer/release
+000591r 2               ;;; 	L0409        = $4009		; Tube error
+000591r 2               
+000591r 2               ;;;     TubeFlag     = $3CF		; tube enabled flag, set by atom tube host
+000591r 2               ;;;     TubeEna      = $5A		; tube enable magic value
+000591r 2                       TubeClientId = $DD		; client ID for AtoMMC2 used in tube protocol
+000591r 2               
+000591r 2               ;;; Tube Handling
+000591r 2               
+000591r 2               ;;; tube_claim_wrapper
+000591r 2               ;;;
+000591r 2               ;;; Check if tube enabled, and if so claim and setup data transfer
+000591r 2               ;;; X = where to read transfer address, in zero page
+000591r 2               ;;; Y = transfer type
+000591r 2               ;;;     00 = parasite to host (i.e. save)
+000591r 2               ;;;     01 = host to parasite (i.e. load)
+000591r 2               ;;;
+000591r 2               tube_claim_wrapper:
+000591r 2               
+000591r 2                       ;; Check if the Tube has been enabled
+000591r 2  AD CF 03             LDA TubeFlag
+000594r 2  C9 5A                CMP #TubeEna
+000596r 2  D0 27                BNE tube_disabled
+000598r 2               
+000598r 2                       ;; Claim Tube
+000598r 2  A9 DD                LDA #TubeClientId
+00059Ar 2  20 rr rr             JSR L0406
+00059Dr 2               
+00059Dr 2                       ;; Setup Data Transfer
+00059Dr 2  B5 00                LDA 0, X
+00059Fr 2  85 60                STA TubeCtrl
+0005A1r 2  B5 01                LDA 1, X
+0005A3r 2  85 61                STA TubeCtrl + 1
+0005A5r 2  A9 00                LDA #$00
+0005A7r 2  85 62                STA TubeCtrl + 2
+0005A9r 2  85 63                STA TubeCtrl + 3
+0005ABr 2  98           		TYA
+0005ACr 2  A2 60                LDX #<TubeCtrl
+0005AEr 2  A0 00                LDY #>TubeCtrl
+0005B0r 2  4C rr rr             JMP L0406
+0005B3r 2               
+0005B3r 2               tube_release_wrapper:
+0005B3r 2                       ;; Check if the Tube has been enabled
+0005B3r 2  AD CF 03             LDA TubeFlag
+0005B6r 2  C9 5A                CMP #TubeEna
+0005B8r 2  D0 05                BNE tube_disabled
+0005BAr 2               
+0005BAr 2                       ;; Release Tube
+0005BAr 2  A9 9D                LDA #TubeClientId - $40
+0005BCr 2  4C rr rr             JMP L0406
+0005BFr 2               
+0005BFr 2               tube_disabled:
+0005BFr 2  60                   RTS
+0005C0r 2               
+0005C0r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0005C0r 2               ;
+0005C0r 2               ; Read a block of data from file to the Tube
+0005C0r 2               ;
+0005C0r 2               ; a = number of bytes to read (0 = 256)
+0005C0r 2               ;
+0005C0r 2               tube_read_block:
+0005C0r 2  AE CF 03             LDX TubeFlag
+0005C3r 2  E0 5A                CPX #TubeEna
+0005C5r 2  F0 03                BEQ @tube_enabled
+0005C7r 2  4C rr rr             JMP read_block              	; Fall back to old code if tube is disabled
+0005CAr 2               
+0005CAr 2               @tube_enabled:
+0005CAr 2  20 rr rr     	JSR read_block_shared
+0005CDr 2               @loop:
+0005CDr 2  AD 02 B4             readportFAST AREAD_DATA_REG 	; then read it
+0005D0r 2  8D E5 BE             STA  TubeR3                 	; write to the tube data transfer register
+0005D3r 2  CA                   DEX
+0005D4r 2  D0 F7                BNE  @loop
+0005D6r 2  60                   RTS
+0005D7r 2               
+0005D7r 2               
+0005D7r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0005D7r 2               ;
+0005D7r 2               ; write a block of data from the Tube to a file
+0005D7r 2               ;
+0005D7r 2               ; a = block length (0=256)
+0005D7r 2               ;
+0005D7r 2               tube_write_block:
+0005D7r 2  AE CF 03             LDX TubeFlag
+0005DAr 2  E0 5A                CPX #TubeEna
+0005DCr 2  F0 03                BEQ @tube_enabled
+0005DEr 2  4C rr rr             JMP write_block                 ; Fall back to old code if tube is disabled
+0005E1r 2               
+0005E1r 2               @tube_enabled:
+0005E1r 2  AA                   TAX                     		; save away the block size
+0005E2r 2  48                   PHA
+0005E3r 2  20 rr rr             JSR prepare_write_data  		; take it
+0005E6r 2               @loop:
+0005E6r 2  AD E5 BE             LDA TubeR3						; read data from the tube data transfer register
+0005E9r 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+0005ECr 2  CA                   DEX
+0005EDr 2  D0 F7                BNE @loop
+0005EFr 2  4C rr rr     	JMP write_block_shared
+0005F2r 2               
+0005F2r 1               .include "file.asm"
+0005F2r 2               open_file_read:
+0005F2r 2  A9 11           lda #CMD_FILE_OPEN_READ
+0005F4r 2  20 rr rr        jsr open_file
+0005F7r 2  4C rr rr        jmp expect64orless
+0005FAr 2               
+0005FAr 2               open_file_write:
+0005FAr 2  A9 13        	lda #CMD_FILE_OPEN_WRITE
+0005FCr 2               
+0005FCr 2               ; Falls through to
+0005FCr 2               
+0005FCr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0005FCr 2               ;
+0005FCr 2               ; Open file
+0005FCr 2               ;
+0005FCr 2               ; $140 = name
+0005FCr 2               ; a = read/write $01 = read, $11 = write
+0005FCr 2               ;
+0005FCr 2               open_file:
+0005FCr 2  48              pha
+0005FDr 2               
+0005FDr 2  20 rr rr        jsr   send_name
+000600r 2  68              pla
+000601r 2  20 rr rr        SLOWCMD
+000604r 2  60              rts
+000605r 2               
+000605r 2               send_name:
+000605r 2  20 rr rr        jsr	prepare_write_data
+000608r 2               
+000608r 2  A2 00           ldx  #0
+00060Ar 2  F0 04           beq  @pumpname
+00060Cr 2               
+00060Cr 2               @nextchar:
+00060Cr 2  8D 03 B4        writeportFAST  AWRITE_DATA_REG	; $b407
+00060Fr 2  E8              inx
+000610r 2               
+000610r 2               @pumpname:
+000610r 2  BD 40 01        lda  NAME,x              ; write filename to filename buffer
+000613r 2  C9 0D           cmp  #$0d
+000615r 2  D0 F5           bne  @nextchar
+000617r 2               
+000617r 2  A9 00           lda  #0                  ; terminate the string
+000619r 2  8D 03 B4        writeportFAST  	AWRITE_DATA_REG	; $b407
+00061Cr 2  4C rr rr        jmp  			interwritedelay
+00061Fr 2               
+00061Fr 2               
+00061Fr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00061Fr 2               ;
+00061Fr 2               ; Get 1st 22 bytes of file to $140
+00061Fr 2               ;
+00061Fr 2               ; leave the LOAD address in RAM alone if LEXEC is FF.
+00061Fr 2               ;
+00061Fr 2               read_info:
+00061Fr 2                   ; read the file header to $140
+00061Fr 2               
+00061Fr 2  A9 40 85 AC      SETRWPTR NAME
+000623r 2  A9 01 85 AD  
+000627r 2               
+000627r 2  A9 16            lda  #22
+000629r 2  20 rr rr         jsr  read_block
+00062Cr 2               
+00062Cr 2  A0 05            ldy  #5                  ; index of msb of length
+00062Er 2  A2 03            ldx  #3                  ; set up to copy 4 bytes - exec & length
+000630r 2               
+000630r 2  24 CD            bit  LEXEC               ; if bit 7 is set on entry we don't overwrite
+000632r 2  30 02            bmi  @copyfileinfo    ; the load address
+000634r 2               
+000634r 2  A2 05            ldx  #5                  ; otherwise copy 6 bytes including load
+000636r 2               
+000636r 2               @copyfileinfo:
+000636r 2  B9 50 01         lda  $150,y
+000639r 2  99 CB 00         sta  LLOAD,y
+00063Cr 2  88               dey
+00063Dr 2  CA               dex
+00063Er 2  10 F6            bpl  @copyfileinfo
+000640r 2               
+000640r 2  60               rts
+000641r 2               
+000641r 2               
+000641r 2               
+000641r 2               
+000641r 2               
+000641r 2               
+000641r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000641r 2               ;
+000641r 2               ;  Read file
+000641r 2               ;
+000641r 2               ; (LLOAD) = memory target
+000641r 2               ; LLENGTH = bytes to read
+000641r 2               ;
+000641r 2               
+000641r 2               read_file_read:
+000641r 2  A9 00            lda  #0
+000643r 2  20 rr rr         jsr  read_file_adapter
+000646r 2               
+000646r 2  E6 CC            inc  LLOAD+1
+000648r 2  C6 D0            dec  LLENGTH+1
+00064Ar 2               
+00064Ar 2               read_file:
+00064Ar 2  A5 D0            lda  LLENGTH+1           ; any pages left?
+00064Cr 2  D0 F3            bne  read_file_read
+00064Er 2               
+00064Er 2  A5 CF            lda  LLENGTH             ; any stragglers?
+000650r 2  F0 10            beq  @alldone
+000652r 2               
+000652r 2  20 rr rr         jsr  read_file_adapter
+000655r 2               
+000655r 2  A5 CB            lda  LLOAD               ; final adjustment to write pointer
+000657r 2  18               clc
+000658r 2  65 CF            adc  LLENGTH
+00065Ar 2  85 CB            sta  LLOAD
+00065Cr 2  90 02            bcc  @zerolen
+00065Er 2               
+00065Er 2  E6 CC            inc  LLOAD+1
+000660r 2               
+000660r 2               @zerolen:
+000660r 2  86 CF            stx  LLENGTH             ; zero out the length
+000662r 2               
+000662r 2               @alldone:
+000662r 2  4C rr rr     	jmp 	closefile
+000665r 2               ;   lda   #CMD_FILE_CLOSE       ; close file
+000665r 2               ;   SLOWCMD
+000665r 2               ;    jmp  expect64orless
+000665r 2               
+000665r 2               
+000665r 2               
+000665r 2               
+000665r 2               read_file_adapter:
+000665r 2                   ; enter with a = bytes to read (0=256)
+000665r 2               
+000665r 2  48               pha
+000666r 2               
+000666r 2  A5 CB            lda  LLOAD
+000668r 2  85 AC            sta  RWPTR
+00066Ar 2  A5 CC            lda  LLOAD+1
+00066Cr 2  85 AD            sta  RWPTR+1
+00066Er 2               
+00066Er 2  68               pla
+00066Fr 2               
+00066Fr 2                   ; @@TUBE@@
+00066Fr 2  4C rr rr         JMP tube_read_block
+000672r 2               
+000672r 2               
+000672r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000672r 2               ;
+000672r 2               ; Read data to memory
+000672r 2               ;
+000672r 2               ; a = number of bytes to read (0 = 256)
+000672r 2               ; (RWPTR) points to target
+000672r 2               ;
+000672r 2               ; @@TUBE@@ Refactored to allow code sharing with tube_read_block
+000672r 2               read_block:
+000672r 2  20 rr rr         jsr read_block_shared
+000675r 2  A0 00            ldy  #0
+000677r 2               @loop:
+000677r 2  AD 02 B4         readportFAST	AREAD_DATA_REG	; then read it
+00067Ar 2  91 AC            sta  (RWPTR),y
+00067Cr 2  C8               iny
+00067Dr 2  CA               dex
+00067Er 2  D0 F7            bne  @loop
+000680r 2  60               rts
+000681r 2               
+000681r 2               read_block_shared:
+000681r 2  AA               tax
+000682r 2               	; ask PIC for (A) bytes of data (0=256)
+000682r 2  8D 01 B4     	writeportFAST	ALATCH_REG	; set ammount to read
+000685r 2  20 rr rr     	jsr				interwritedelay
+000688r 2  A9 22 20 rr  	SLOWCMDI 		CMD_READ_BYTES		; set command
+00068Cr 2  rr           
+00068Dr 2  20 rr rr         jsr  expect64orless
+000690r 2  4C rr rr         jmp	prepare_read_data				; tell pic to release the data we just read
+000693r 2               
+000693r 2               
+000693r 2               
+000693r 2               
+000693r 2               
+000693r 2               
+000693r 2               
+000693r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000693r 2               ;
+000693r 2               ; put 1st 22 bytes of data to open file
+000693r 2               ;
+000693r 2               ; file needs to be open at this point
+000693r 2               ;
+000693r 2               write_info:
+000693r 2  A9 40 85 AC     SETRWPTR NAME
+000697r 2  A9 01 85 AD  
+00069Br 2  A9 16            lda  #22
+00069Dr 2  4C rr rr         jmp  write_block
+0006A0r 2               
+0006A0r 2               
+0006A0r 2               
+0006A0r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0006A0r 2               ;
+0006A0r 2               ; Write data to open file
+0006A0r 2               ;
+0006A0r 2               ; SSTART = address to write from
+0006A0r 2               ; SEND   = final address + 1
+0006A0r 2               ;
+0006A0r 2               write_file_fullpageloop:
+0006A0r 2  A9 00            lda  #0                  ; 1 page
+0006A2r 2  20 rr rr         jsr  write_file_adapter
+0006A5r 2               
+0006A5r 2  E6 D0            inc  SSTART+1
+0006A7r 2               
+0006A7r 2               write_file:
+0006A7r 2  A5 D0            lda  SSTART+1
+0006A9r 2  C5 D2            cmp  SEND+1
+0006ABr 2  D0 F3            bne  write_file_fullpageloop
+0006ADr 2               
+0006ADr 2  A5 D1            lda  SEND                ; any stragglers to write?
+0006AFr 2  C5 CF            cmp  SSTART
+0006B1r 2  F0 06            beq  closefile
+0006B3r 2               
+0006B3r 2  38               sec                      ; calc remaining bytes
+0006B4r 2  E5 CF            sbc  SSTART
+0006B6r 2  20 rr rr         jsr  write_file_adapter
+0006B9r 2               
+0006B9r 2               closefile:
+0006B9r 2  A9 10 20 rr      SLOWCMDI	CMD_FILE_CLOSE     ; close the file
+0006BDr 2  rr           
+0006BEr 2  4C rr rr         jmp  		expect64orless
+0006C1r 2               
+0006C1r 2               
+0006C1r 2               ; adapter - falls through to write_block
+0006C1r 2               ;
+0006C1r 2               write_file_adapter:
+0006C1r 2  A4 CF            ldy  SSTART
+0006C3r 2  84 AC            sty  RWPTR
+0006C5r 2  A4 D0            ldy  SSTART+1
+0006C7r 2  84 AD            sty  RWPTR+1
+0006C9r 2               
+0006C9r 2                   ; @@TUBE@@
+0006C9r 2  4C rr rr         JMP tube_write_block
+0006CCr 2               
+0006CCr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0006CCr 2               ;
+0006CCr 2               ; write a block of data
+0006CCr 2               ;
+0006CCr 2               ; a = block length (0=256)
+0006CCr 2               ; (RWPTR) = source
+0006CCr 2               ;
+0006CCr 2               ; @@TUBE@@ Refactored to allow code sharing with tube_write_block
+0006CCr 2               write_block:
+0006CCr 2  AA               tax                     ; save away the block size
+0006CDr 2  48               pha
+0006CEr 2               
+0006CEr 2  20 rr rr         jsr	prepare_write_data	; take it
+0006D1r 2               
+0006D1r 2  A0 00            ldy  #0
+0006D3r 2               
+0006D3r 2               @loop:
+0006D3r 2  B1 AC            lda  			(RWPTR),y           ; upload data
+0006D5r 2  8D 03 B4         writeportFAST	AWRITE_DATA_REG
+0006D8r 2  C8               iny
+0006D9r 2  CA               dex
+0006DAr 2  D0 F7            bne 			@loop
+0006DCr 2               
+0006DCr 2               write_block_shared:
+0006DCr 2  68               pla                     	; write block command
+0006DDr 2  8D 01 B4     	writeportFAST	ALATCH_REG	; ammount to write
+0006E0r 2  20 rr rr     	jsr				interwritedelay
+0006E3r 2  A9 23 20 rr  	SLOWCMDI 		CMD_WRITE_BYTES	; give command to write
+0006E7r 2  rr           
+0006E8r 2  4C rr rr         jmp  			expect64orless
+0006EBr 2               
+0006EBr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0006EBr 2               ;
+0006EBr 2               ; delete a file
+0006EBr 2               ;
+0006EBr 2               ; file to be deleted must be opened with open_read
+0006EBr 2               ;
+0006EBr 2               delete_file:
+0006EBr 2  A9 14 20 rr     SLOWCMDI		CMD_FILE_DELETE
+0006EFr 2  rr           
+0006F0r 2  4C rr rr        jmp   		expect64orless
+0006F3r 2               
+0006F3r 1               .include "load.asm"
+0006F3r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0006F3r 2               ;
+0006F3r 2               ; *LOAD [filename] ([address])
+0006F3r 2               ;
+0006F3r 2               ; Loads specified file to memory. If reload address is specified then this will be
+0006F3r 2               ; used in preference to the reload address stored in the file's metadata.
+0006F3r 2               ;
+0006F3r 2               STARLOAD:
+0006F3r 2  20 rr rr         jsr  read_filename       ; copy filename into $140
+0006F6r 2  20 44 F8         jsr  $f844               ; set $c9\a = $140, set x = $c9
+0006F9r 2  4C 5B F9         jmp  $f95b               ; *LOAD+3
+0006FCr 2               
+0006FCr 2               
+0006FCr 2               
+0006FCr 2               
+0006FCr 2               
+0006FCr 2               ; LODVEC entry point
+0006FCr 2               ;
+0006FCr 2               ; 0,x = file parameter block
+0006FCr 2               ;
+0006FCr 2               ; 0,x = file name string address
+0006FCr 2               ; 2,x = data dump start address
+0006FCr 2               ; 4,x  if bit 7 is clear, then the file's own start address is to be used
+0006FCr 2               ;
+0006FCr 2               osloadcode:
+0006FCr 2                   ; transfer control block to $c9 (LFNPTR) onward and check name
+0006FCr 2                   ;
+0006FCr 2  20 4F F8         jsr  CHKNAME
+0006FFr 2               
+0006FFr 2  20 rr rr     	jsr	open_file_read
+000702r 2  20 rr rr         jsr  read_info
+000705r 2               
+000705r 2                   ; @@TUBE@@
+000705r 2                   ; Test if the tube is enabled, then claim and initiate transfer
+000705r 2  A2 CB            ldx #LLOAD               ; block containing transfer address
+000707r 2  A0 01            ldy #1                   ; transfer type
+000709r 2  20 rr rr         jsr tube_claim_wrapper
+00070Cr 2               
+00070Cr 2  24 EA            bit  MONFLAG             ; 0 = mon, ff = nomon
+00070Er 2  30 06            bmi  @noprint
+000710r 2               
+000710r 2  20 rr rr         jsr  print_fileinfo
+000713r 2  20 ED FF         jsr  OSCRLF
+000716r 2               
+000716r 2               @noprint:
+000716r 2  20 rr rr         jsr read_file
+000719r 2               
+000719r 2                   ; @@TUBE@@
+000719r 2                   ; Test if the tube is enabled, then release
+000719r 2  4C rr rr         jmp tube_release_wrapper
+00071Cr 2               
+00071Cr 2               
+00071Cr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00071Cr 2               ;
+00071Cr 2               ; *RLOAD [filename] [address]
+00071Cr 2               ;
+00071Cr 2               ; Load specified file to memory starting at the specified address. The file's FAT
+00071Cr 2               ; file system length is used, and any ATM metadata is read as part of the file.
+00071Cr 2               ;
+00071Cr 2               ;STARRLOAD:
+00071Cr 2               ;   jsr   read_filename        ; copy filename into $140
+00071Cr 2               ;   jsr   $f844                ; set $c9\a = $140, set x = $c9
+00071Cr 2               ;
+00071Cr 2               ;   ldx   #$cb                 ; Point to the vector at #CB, #CC
+00071Cr 2               ;   jsr   RDOPTAD              ; ..and interpret the load address to store it here
+00071Cr 2               ;   beq   rlerr                ; ..can't interpret load address - error
+00071Cr 2               ;
+00071Cr 2               ;   jsr   COSPOST              ; Do COS interpreter post test
+00071Cr 2               ;   ldx   #$c9                 ; File data starts at #C9
+00071Cr 2               ;
+00071Cr 2               ;   jsr   CHKNAME
+00071Cr 2               ;   jsr	open_file_read
+00071Cr 2               ;
+00071Cr 2               ;   SETRWPTR NAME              ; get the FAT file size - ignore any ATM headers
+00071Cr 2               ;
+00071Cr 2               ;   SLOWCMDI 	CMD_FILE_GETINFO
+00071Cr 2               ;
+00071Cr 2               ;   ldx   #13
+00071Cr 2               ;   jsr   read_data_buffer
+00071Cr 2               ;
+00071Cr 2               ;   lda   NAME                 ; fat file length
+00071Cr 2               ;   sta   LLENGTH
+00071Cr 2               ;   lda   NAME+1
+00071Cr 2               ;   sta   LLENGTH+1
+00071Cr 2               ;
+00071Cr 2               ;   jmp   read_file
+00071Cr 2               ;
+00071Cr 2               ;rlerr:
+00071Cr 2               ;   jmp   COSSYN
+00071Cr 2               ;
+00071Cr 2               ;
+00071Cr 2               ;nomemerr:
+00071Cr 2               ;   REPERROR noramstr
+00071Cr 2               ;
+00071Cr 2               ;
+00071Cr 2               ;noramstr:
+00071Cr 2               ;   .byte "NO RAM"
+00071Cr 2               ;   nop
+00071Cr 2               
+00071Cr 2               
+00071Cr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00071Cr 2               ;
+00071Cr 2               ; *ROMLOAD [filename]
+00071Cr 2               ;
+00071Cr 2               ; Requires RAMOTH RamRom board with firmware giving read access to the option latch.
+00071Cr 2               ; Ensures 4k bank at $7000 is present in memory map then loads the specified file
+00071Cr 2               ; there. Sets utility ROM to bank 0 (redundant, possibly) pages $70 to $a0 and
+00071Cr 2               ; waits for break.
+00071Cr 2               ;
+00071Cr 2               STARROMLOAD:
+00071Cr 2               ;   lda   $bffd                ; map $7000-$7fff to $7000 - needs ramrom with latest CPLD code
+00071Cr 2               ;   and   #$fe
+00071Cr 2               
+00071Cr 2               ;   lda #0
+00071Cr 2               ;
+00071Cr 2               ;   sta   $bffe                ; ensure there's RAM at 7000
+00071Cr 2                ;  ora   #1                   ; for 'selectrom' code later
+00071Cr 2                ;  sta   $cc
+00071Cr 2               ;
+00071Cr 2               ;   lda   #$55
+00071Cr 2               ;   sta   $7000
+00071Cr 2               ;   cmp   $7000
+00071Cr 2               ;   bne   nomemerr
+00071Cr 2               ;   asl   a
+00071Cr 2               ;   sta   $7000
+00071Cr 2               ;   cmp   $7000
+00071Cr 2               ;   bne   nomemerr
+00071Cr 2               ;
+00071Cr 2               ;   jsr   read_filename        ; copy filename into $140
+00071Cr 2               ;   jsr   $f844                ; set $c9\a = $140, set x = $c9
+00071Cr 2               ;
+00071Cr 2               ;   jsr   CHKNAME
+00071Cr 2               ;   jsr	open_file_read
+00071Cr 2               ;
+00071Cr 2               ;   lda   #0
+00071Cr 2               ;   sta   LLOAD
+00071Cr 2               ;   sta   LLENGTH
+00071Cr 2               ;
+00071Cr 2               ;   sta   $cb
+00071Cr 2               ;
+00071Cr 2               ;   lda   #$10
+00071Cr 2               ;   sta   LLENGTH+1
+00071Cr 2               ;   lda   #$70
+00071Cr 2               ;   sta   LLOAD+1
+00071Cr 2               ;
+00071Cr 2               ;   jsr   read_file
+00071Cr 2               ;
+00071Cr 2                  ; cb = rom num for bfff
+00071Cr 2                  ; cc = option latch at bffe
+00071Cr 2                  ;
+00071Cr 2               ;   jmp   selectrom
+00071Cr 2               
+00071Cr 1               .include "save.asm"
+00071Cr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00071Cr 2               ;
+00071Cr 2               ; STARSAVE
+00071Cr 2               ;
+00071Cr 2               ; Parses filename then resumes execution of the BIOS' save routine.
+00071Cr 2               ;
+00071Cr 2               STARSAVE:
+00071Cr 2  20 rr rr        jsr  read_filename       ; copy filename into $140
+00071Fr 2  20 44 F8        jsr  $f844               ; set $c9\a = $140, set x = $c9
+000722r 2  4C BE FA        jmp  $fabe               ; scan parameters and jmp through SAVVEC
+000725r 2               
+000725r 2               
+000725r 2               
+000725r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000725r 2               ;
+000725r 2               ; SAVVEC
+000725r 2               ;
+000725r 2               ; 0,x = file parameter block
+000725r 2               ;
+000725r 2               ; 0,x = file name string address
+000725r 2               ; 2,x = data reload address
+000725r 2               ; 4,x = data execution address
+000725r 2               ; 6,x = data start address
+000725r 2               ; 8,x = data end address + 1
+000725r 2               ;
+000725r 2               ossavecode:
+000725r 2  20 4F F8        jsr  $f84f               ; copy data block at $00,x to COS workspace at $c9
+000728r 2               
+000728r 2  20 rr rr        jsr	open_file_write     ; returns with any error in A
+00072Br 2               
+00072Br 2  29 3F           and   #$3f
+00072Dr 2  F0 1D           beq   @continue
+00072Fr 2               
+00072Fr 2  C9 08           cmp   #$08              ; FILE EXISTS
+000731r 2  F0 03           beq   @askover
+000733r 2               
+000733r 2  4C rr rr        jmp   expect64orless    ; other kind of error
+000736r 2               
+000736r 2               @askover:
+000736r 2  20 rr rr        jsr   overwrite
+000739r 2               
+000739r 2  48              pha
+00073Ar 2  20 ED FF        jsr   OSCRLF
+00073Dr 2  68              pla
+00073Er 2  C9 59           cmp   #'Y'
+000740r 2  F0 01           beq   @preparetocont
+000742r 2               
+000742r 2  60              rts
+000743r 2               
+000743r 2               @preparetocont:
+000743r 2  20 rr rr        jsr	delete_file
+000746r 2               
+000746r 2  20 rr rr        jsr	open_file_write
+000749r 2  20 rr rr        jsr   expect64orless
+00074Cr 2               
+00074Cr 2               @continue:
+00074Cr 2               
+00074Cr 2                  ; @@TUBE@@
+00074Cr 2                  ; Test if the tube is enabled, then claim and initiate transfer
+00074Cr 2  A2 CB           ldx #SLOAD            ; block containing transfer address
+00074Er 2  A0 00           ldy #0                ; transfer type
+000750r 2  20 rr rr        jsr tube_claim_wrapper
+000753r 2               
+000753r 2  A5 CB           lda   SLOAD           ; tag the file info onto the end of the filename data
+000755r 2  8D 50 01        sta   $150
+000758r 2  A5 CC           lda   SLOAD+1
+00075Ar 2  8D 51 01        sta   $151
+00075Dr 2  A5 CD           lda   SEXEC
+00075Fr 2  8D 52 01        sta   $152
+000762r 2  A5 CE           lda   SEXEC+1
+000764r 2  8D 53 01        sta   $153
+000767r 2  38              sec
+000768r 2  A5 D2           lda   SEND+1
+00076Ar 2  E5 D0           sbc   SSTART+1
+00076Cr 2  8D 55 01        sta   $155
+00076Fr 2  A5 D1           lda   SEND
+000771r 2  E5 CF           sbc   SSTART
+000773r 2  8D 54 01        sta   $154
+000776r 2               
+000776r 2  A2 FF           ldx   #$ff          ; zero out any data after the name at $140
+000778r 2               
+000778r 2               @mungename:
+000778r 2  E8              inx
+000779r 2  BD 40 01        lda   NAME,x
+00077Cr 2  C9 0D           cmp   #$0d
+00077Er 2  D0 F8           bne   @mungename
+000780r 2               
+000780r 2  A9 00           lda   #0
+000782r 2               
+000782r 2               @munge2:
+000782r 2  9D 40 01        sta   NAME,x
+000785r 2  E8              inx
+000786r 2  E0 10           cpx   #16
+000788r 2  D0 F8           bne   @munge2
+00078Ar 2               
+00078Ar 2  20 rr rr        jsr   write_info         ; write the ATM header
+00078Dr 2               
+00078Dr 2  20 rr rr        jsr   write_file         ; save the main body of data
+000790r 2               
+000790r 2                  ; @@TUBE@@
+000790r 2                  ; Test if the tube is enabled, then release
+000790r 2  20 rr rr        jsr tube_release_wrapper
+000793r 2               
+000793r 2               ; Don't need to call CLOSE_FILE here as write_file calls it.
+000793r 2               ;   CLOSE_FILE
+000793r 2               
+000793r 2  24 EA           bit   MONFLAG             ; 0 = mon, ff = nomon
+000795r 2  30 0D           bmi   @noprint
+000797r 2               
+000797r 2  A2 05           ldx   #5
+000799r 2               
+000799r 2               @cpydata:
+000799r 2  BD 50 01        lda   $150,x
+00079Cr 2  95 CB           sta   LLOAD,x
+00079Er 2  CA              dex
+00079Fr 2  10 F8           bpl   @cpydata
+0007A1r 2               
+0007A1r 2  20 rr rr        jsr   print_fileinfo
+0007A4r 2               
+0007A4r 2               @noprint:
+0007A4r 2  4C ED FF        jmp   OSCRLF
+0007A7r 2               
+0007A7r 2               
+0007A7r 2               
+0007A7r 2               
+0007A7r 2               
+0007A7r 2               overwrite:
+0007A7r 2  20 D1 F7        jsr   STROUT
+0007AAr 2  4F 56 45 52     .byte "OVERWRITE (Y):"
+0007AEr 2  57 52 49 54  
+0007B2r 2  45 20 28 59  
+0007B8r 2  EA              nop
+0007B9r 2               
+0007B9r 2  20 E3 FF        jsr   OSRDCH
+0007BCr 2  4C F4 FF        jmp   OSWRCH
+0007BFr 2               
+0007BFr 1               .endif
+0007BFr 1               
+0007BFr 1               .include "util.asm"
+0007BFr 2               ;
+0007BFr 2               ; renamed some subs as follows :
+0007BFr 2               ; PREPGETFRB406_SUB	to prepare_read_data
+0007BFr 2               ; PREPPUTTOB407_SUB to prepare_write_data
+0007BFr 2               ;	-- PHS 2013-10-09
+0007BFr 2               
+0007BFr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0007BFr 2               ;
+0007BFr 2               ; Short delay
+0007BFr 2               ;
+0007BFr 2               ; Enough to intersperse 2 writes to the FATPIC.
+0007BFr 2               ;
+0007BFr 2               interwritedelay:
+0007BFr 2               .ifndef AVR
+0007BFr 2               ;   lda  #4
+0007BFr 2  A9 08        	lda	#8
+0007C1r 2  38              sec
+0007C2r 2               
+0007C2r 2               @loop:
+0007C2r 2  E9 01           sbc  #1
+0007C4r 2  D0 FC           bne  @loop
+0007C6r 2               .endif
+0007C6r 2  60              rts
+0007C7r 2               
+0007C7r 2               ; subroutines for macros in macro.inc
+0007C7r 2               SLOWCMD_SUB:
+0007C7r 2  8D 00 B4        writeportFAST ACMD_REG
+0007CAr 2               .ifndef AVR
+0007CAr 2               SlowLoop:
+0007CAr 2               
+0007CAr 2  A9 00        	lda #0
+0007CCr 2  38           	sec
+0007CDr 2               SLOWCMD_DELAY_LOOP:
+0007CDr 2  E9 01        	sbc #1
+0007CFr 2  D0 FC        	bne SLOWCMD_DELAY_LOOP
+0007D1r 2               
+0007D1r 2  AD 00 B4        lda ACMD_REG
+0007D4r 2  30 F4           bmi SlowLoop
+0007D6r 2               .else
+0007D6r 2               	jsr	WaitWhileBusy	; Keep waiting until not busy
+0007D6r 2               	lda	ACMD_REG		; get status for client
+0007D6r 2               .endif
+0007D6r 2  60           	rts
+0007D7r 2               
+0007D7r 2               prepare_read_data:
+0007D7r 2  A9 20           lda 				#CMD_INIT_READ
+0007D9r 2  8D 00 B4        writeportFAST 	ACMD_REG
+0007DCr 2  4C rr rr        jmp 				interwritedelay
+0007DFr 2               
+0007DFr 2               prepare_write_data:
+0007DFr 2  A9 21           lda 				#CMD_INIT_WRITE
+0007E1r 2  8D 00 B4        writeportFAST 	ACMD_REG
+0007E4r 2  4C rr rr        jmp 				interwritedelay
+0007E7r 2               
+0007E7r 2               
+0007E7r 2               .ifdef AVR
+0007E7r 2               WaitUntilRead:
+0007E7r 2               	lda		ASTATUS_REG			; Read status reg
+0007E7r 2               	and		#MMC_MCU_READ		; Been read yet ?
+0007E7r 2               	bne		WaitUntilRead		; nope keep waiting
+0007E7r 2               	rts
+0007E7r 2               
+0007E7r 2               WaitUntilWritten:
+0007E7r 2               	lda		ASTATUS_REG			; Read status reg
+0007E7r 2               	and		#MMC_MCU_WROTE		; Been written yet ?
+0007E7r 2               	beq		WaitUntilWritten	; nope keep waiting
+0007E7r 2               	rts
+0007E7r 2               
+0007E7r 2               WaitWhileBusy:
+0007E7r 2               	lda		ASTATUS_REG			; Read status reg
+0007E7r 2               	and		#MMC_MCU_BUSY		; MCU still busy ?
+0007E7r 2               	bne		WaitWhileBusy		; yes keep waiting
+0007E7r 2               	rts
+0007E7r 2               .endif
+0007E7r 2               
+0007E7r 2               
+0007E7r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0007E7r 2               ;
+0007E7r 2               ; Read an asciiz string to name buffer at $140
+0007E7r 2               ;
+0007E7r 2               ; on exit y = character count not including terminating 0
+0007E7r 2               ;
+0007E7r 2               ;	bug: this will keep reading until it hits a 0, if there is not one, it will
+0007E7r 2               ;		 keep going forever......
+0007E7r 2               getasciizstringto140:
+0007E7r 2  20 rr rr        jsr				prepare_read_data
+0007EAr 2               
+0007EAr 2  A0 FF           ldy  			#$ff
+0007ECr 2               
+0007ECr 2               @loop:
+0007ECr 2  C8              iny
+0007EDr 2  AD 02 B4        readportFAST 	AREAD_DATA_REG	; $b406
+0007F0r 2  99 40 01        sta  			NAME,y
+0007F3r 2  D0 F7           bne  			@loop
+0007F5r 2               
+0007F5r 2  60              rts
+0007F6r 2               
+0007F6r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0007F6r 2               ;
+0007F6r 2               ; Read data to memory from the pic's buffer
+0007F6r 2               ;
+0007F6r 2               ; data may be from another source other than file, ie getfileinfo
+0007F6r 2               ; x = number of bytes to read (0 = 256)
+0007F6r 2               ; (RWPTR) points to store
+0007F6r 2               ;
+0007F6r 2               read_data_buffer:
+0007F6r 2  20 rr rr        jsr	prepare_read_data
+0007F9r 2               
+0007F9r 2  A0 00           ldy  #0
+0007FBr 2               
+0007FBr 2               @loop:
+0007FBr 2  AD 02 B4        readportFAST 	AREAD_DATA_REG	; $b406
+0007FEr 2  91 AC           sta  (RWPTR),y
+000800r 2  C8              iny
+000801r 2  CA              dex
+000802r 2  D0 F7           bne @loop
+000804r 2               
+000804r 2  60              rts
+000805r 2               
+000805r 2               
+000805r 2               
+000805r 2               
+000805r 2               
+000805r 2               
+000805r 2               
+000805r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000805r 2               ;
+000805r 2               ; Perform slow command initialisation and expect a return code <= 64
+000805r 2               ;
+000805r 2               expect64orless:
+000805r 2  C9 41           cmp  #STATUS_COMPLETE+1
+000807r 2  B0 29           bcs  reportDiskFailure
+000809r 2  60              rts
+00080Ar 2               
+00080Ar 2               
+00080Ar 2               
+00080Ar 2               
+00080Ar 2               
+00080Ar 2               
+00080Ar 2               
+00080Ar 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00080Ar 2               ;
+00080Ar 2               ; Disable/Enable interface IRQ
+00080Ar 2               ;
+00080Ar 2               ifdi:
+00080Ar 2  20 rr rr        jsr   getcb
+00080Dr 2  29 DF           and   #$DF              ; remove bit 6
+00080Fr 2  4C rr rr        jmp   putcb
+000812r 2               
+000812r 2               ifen:
+000812r 2  20 rr rr        jsr   getcb
+000815r 2  09 20           ora   #$20              ; set bit 6
+000817r 2  4C rr rr        jmp   putcb
+00081Ar 2               
+00081Ar 2               
+00081Ar 2               
+00081Ar 2               
+00081Ar 2               getcb:
+00081Ar 2  A9 F0 8D 00  	FASTCMDI		CMD_GET_CFG_BYTE      ; retreive config byte
+00081Er 2  B4 20 rr rr  
+000822r 2  AD 00 B4     
+000825r 2  60              rts
+000826r 2               
+000826r 2               
+000826r 2               putcb:
+000826r 2  8D 01 B4        writeportFAST	ALATCH_REG		; $b40e  ; latch the value
+000829r 2  20 rr rr        jsr   			interwritedelay
+00082Cr 2               
+00082Cr 2  A9 F1           lda   			#CMD_SET_CFG_BYTE      ; write latched val as config byte. irqs are now off
+00082Er 2  8D 00 B4        writeportFAST	ACMD_REG
+000831r 2  60              rts
+000832r 2               
+000832r 2               
+000832r 2               
+000832r 2               
+000832r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000832r 2               ;
+000832r 2               ; report a file system error
+000832r 2               ;
+000832r 2               reportDiskFailure:
+000832r 2  29 3F           and   #ERROR_MASK
+000834r 2  AA              tax                     ; error code into x
+000835r 2  A0 FF           ldy   #$ff                ; string indexer
+000837r 2               
+000837r 2               @findstring:
+000837r 2  C8              iny                     ; do this here because we need the z flag below
+000838r 2  B9 rr rr        lda   diskerrortab,y
+00083Br 2  D0 FA           bne   @findstring       ; zip along the string till we find a zero
+00083Dr 2               
+00083Dr 2  CA              dex                     ; when this bottoms we've found our error
+00083Er 2  D0 F7           bne   @findstring
+000840r 2               
+000840r 2               
+000840r 2  AD CF 03        lda   TubeFlag
+000843r 2  C9 5A           cmp   #TubeEna
+000845r 2  F0 0A           beq   @tubeError
+000847r 2               
+000847r 2               @printstring:
+000847r 2  C8              iny
+000848r 2  B9 rr rr        lda   diskerrortab,y
+00084Br 2  20 F4 FF        jsr   OSWRCH
+00084Er 2  D0 F7           bne   @printstring
+000850r 2  00              brk
+000851r 2               
+000851r 2               @tubeError:
+000851r 2  C8              iny                     ; store index for basic BRK-alike hander
+000852r 2  98              tya
+000853r 2  18              clc
+000854r 2  69 rr           adc   #<diskerrortab
+000856r 2  85 D5           sta   $d5
+000858r 2  A9 rr           lda   #>diskerrortab
+00085Ar 2  69 00           adc   #0
+00085Cr 2  85 D6           sta   $d6
+00085Er 2  4C rr rr        jmp   L0409
+000861r 2               
+000861r 2               diskerrortab:
+000861r 2  00              .byte $00
+000862r 2  44 49 53 4B     .byte "DISK FAULT",$00
+000866r 2  20 46 41 55  
+00086Ar 2  4C 54 00     
+00086Dr 2  49 4E 54 45     .byte "INTERNAL ERROR",$00
+000871r 2  52 4E 41 4C  
+000875r 2  20 45 52 52  
+00087Cr 2  4E 4F 54 20     .byte "NOT READY",$00
+000880r 2  52 45 41 44  
+000884r 2  59 00        
+000886r 2  4E 4F 54 20     .byte "NOT FOUND",$00
+00088Ar 2  46 4F 55 4E  
+00088Er 2  44 00        
+000890r 2  4E 4F 20 50     .byte "NO PATH",$00
+000894r 2  41 54 48 00  
+000898r 2  49 4E 56 41     .byte "INVALID NAME",$00
+00089Cr 2  4C 49 44 20  
+0008A0r 2  4E 41 4D 45  
+0008A5r 2  41 43 43 45     .byte "ACCESS DENIED",$00
+0008A9r 2  53 53 20 44  
+0008ADr 2  45 4E 49 45  
+0008B3r 2  45 58 49 53     .byte "EXISTS",$00
+0008B7r 2  54 53 00     
+0008BAr 2  49 4E 56 41     .byte "INVALID OBJECT",$00
+0008BEr 2  4C 49 44 20  
+0008C2r 2  4F 42 4A 45  
+0008C9r 2  57 52 49 54     .byte "WRITE PROTECTED",$00
+0008CDr 2  45 20 50 52  
+0008D1r 2  4F 54 45 43  
+0008D9r 2  49 4E 56 41     .byte "INVALID DRIVE",$00
+0008DDr 2  4C 49 44 20  
+0008E1r 2  44 52 49 56  
+0008E7r 2  4E 4F 54 20     .byte "NOT ENABLED",$00
+0008EBr 2  45 4E 41 42  
+0008EFr 2  4C 45 44 00  
+0008F3r 2  4E 4F 20 46     .byte "NO FILESYSTEM",$00
+0008F7r 2  49 4C 45 53  
+0008FBr 2  59 53 54 45  
+000901r 2  00              .byte $00                     ; mkfs error
+000902r 2  54 49 4D 45     .byte "TIMEOUT",$00
+000906r 2  4F 55 54 00  
+00090Ar 2  45 45 50 52     .byte "EEPROM ERROR",$00
+00090Er 2  4F 4D 20 45  
+000912r 2  52 52 4F 52  
+000917r 2  46 41 49 4C     .byte "FAILED",$00
+00091Br 2  45 44 00     
+00091Er 2  54 4F 4F 20     .byte "TOO MANY",$00
+000922r 2  4D 41 4E 59  
+000926r 2  00           
+000927r 2  53 49 4C 4C     .byte "SILLY",$0d
+00092Br 2  59 0D        
+00092Dr 2               
+00092Dr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00092Dr 2               ;
+00092Dr 2               ; Display the filename at $140
+00092Dr 2               ;
+00092Dr 2               ;   renders 16 chars, pads with spaces
+00092Dr 2               ;
+00092Dr 2               print_filename:
+00092Dr 2  A2 00           ldx   #0
+00092Fr 2  F0 04           beq   @test
+000931r 2               
+000931r 2               @showit:
+000931r 2  20 F4 FF        jsr   OSWRCH
+000934r 2  E8              inx
+000935r 2               
+000935r 2               @test:
+000935r 2  BD 40 01        lda   NAME,x
+000938r 2  C9 20           cmp   #32              ; end string print if we find char < 32
+00093Ar 2  90 0B           bcc   @test2
+00093Cr 2               
+00093Cr 2  E0 10           cpx   #16              ; or x == 16
+00093Er 2  D0 F1           bne   @showit
+000940r 2               
+000940r 2  60              rts
+000941r 2               
+000941r 2               @showit2:
+000941r 2  A9 20           lda   #32
+000943r 2  20 F4 FF        jsr   OSWRCH
+000946r 2  E8              inx
+000947r 2               
+000947r 2               @test2:
+000947r 2  E0 10           cpx   #16
+000949r 2  D0 F6           bne   @showit2
+00094Br 2               
+00094Br 2  60              rts
+00094Cr 2               
+00094Cr 2               
+00094Cr 2               
+00094Cr 2               
+00094Cr 2               
+00094Cr 2               
+00094Cr 2               
+00094Cr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00094Cr 2               ;
+00094Cr 2               ; Display file info
+00094Cr 2               ;
+00094Cr 2               ; Shows load, exec, length
+00094Cr 2               ;
+00094Cr 2               print_fileinfo:
+00094Cr 2  A5 CC           lda   LLOAD+1
+00094Er 2  20 02 F8        jsr   HEXOUT
+000951r 2  A5 CB           lda   LLOAD
+000953r 2  20 FA F7        jsr   HEXOUTS
+000956r 2               
+000956r 2  A5 CE           lda   LEXEC+1
+000958r 2  20 02 F8        jsr   HEXOUT
+00095Br 2  A5 CD           lda   LEXEC
+00095Dr 2  20 FA F7        jsr   HEXOUTS
+000960r 2               
+000960r 2  A5 D0           lda   LLENGTH+1
+000962r 2  20 02 F8        jsr   HEXOUT
+000965r 2  A5 CF           lda   LLENGTH
+000967r 2  4C FA F7        jmp   HEXOUTS
+00096Ar 2               
+00096Ar 2               
+00096Ar 2               
+00096Ar 2               
+00096Ar 2               
+00096Ar 2               
+00096Ar 2               
+00096Ar 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+00096Ar 2               ;
+00096Ar 2               ; Read filename from $100 to $140
+00096Ar 2               ;
+00096Ar 2               ; Input  $9A = pointer just after command
+00096Ar 2               ;
+00096Ar 2               ; Output $140 contains filename
+00096Ar 2               ;
+00096Ar 2               read_filename:
+00096Ar 2  A2 00           ldx   #0
+00096Cr 2  A4 9A           ldy   $9a
+00096Er 2               
+00096Er 2               @filename1:
+00096Er 2  20 76 F8        jsr   SKIPSPC
+000971r 2  C9 22           cmp   #$22
+000973r 2  F0 1A           beq   @filename5
+000975r 2               
+000975r 2               @filename2:
+000975r 2  C9 0D           cmp   #$0d
+000977r 2  F0 0C           beq   @filename3
+000979r 2               
+000979r 2  9D 40 01        sta   NAME,x
+00097Cr 2  E8              inx
+00097Dr 2  C8              iny
+00097Er 2  B9 00 01        lda   $100,y
+000981r 2  C9 20           cmp   #$20
+000983r 2  D0 F0           bne   @filename2
+000985r 2               
+000985r 2               @filename3:
+000985r 2  A9 0D           lda   #$0d
+000987r 2  9D 40 01        sta   NAME,x
+00098Ar 2               
+00098Ar 2  E0 00           cpx   #0
+00098Cr 2  F0 1D           beq   @filename6
+00098Er 2               
+00098Er 2  60              rts
+00098Fr 2               
+00098Fr 2               @filename5:
+00098Fr 2  C8              iny
+000990r 2  B9 00 01        lda   $100,y
+000993r 2  C9 0D           cmp   #$0d
+000995r 2  F0 14           beq   @filename6
+000997r 2               
+000997r 2  9D 40 01        sta   NAME,x
+00099Ar 2  E8              inx
+00099Br 2  C9 22           cmp   #$22
+00099Dr 2  D0 F0           bne   @filename5
+00099Fr 2               
+00099Fr 2  CA              dex
+0009A0r 2  C8              iny
+0009A1r 2  B9 00 01        lda   $100,y
+0009A4r 2  C9 22           cmp   #$22
+0009A6r 2  D0 DD           bne   @filename3
+0009A8r 2               
+0009A8r 2  E8              inx
+0009A9r 2  B0 E4           bcs   @filename5
+0009ABr 2               
+0009ABr 2               @filename6:
+0009ABr 2  4C 7D FA        jmp   COSSYN
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               
+0009AEr 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0009AEr 2               ;
+0009AEr 2               ; getnexthexval
+0009AEr 2               ;
+0009AEr 2               ; parse a 1 or 2 digit hex value from $100,y leaving result in A and $cb.
+0009AEr 2               ; C set if error
+0009AEr 2               ;
+0009AEr 2               getnexthexval:
+0009AEr 2  20 76 F8        jsr   $f876       ; get next non-space char from input buffer
+0009B1r 2  20 7E F8        jsr   $f87e       ; convert to hex nybble
+0009B4r 2  B0 1B           bcs   @error
+0009B6r 2               
+0009B6r 2  85 CB           sta   $cb
+0009B8r 2               
+0009B8r 2  C8              iny
+0009B9r 2  B9 00 01        lda   $100,y
+0009BCr 2               
+0009BCr 2  20 7E F8        jsr   $f87e       ; convert to hex nybble
+0009BFr 2  B0 0D           bcs   @nomore
+0009C1r 2               
+0009C1r 2  C8              iny
+0009C2r 2  06 CB           asl   $cb
+0009C4r 2  06 CB           asl   $cb
+0009C6r 2  06 CB           asl   $cb
+0009C8r 2  06 CB           asl   $cb
+0009CAr 2  05 CB           ora   $cb
+0009CCr 2  85 CB           sta   $cb
+0009CEr 2               
+0009CEr 2               @nomore:
+0009CEr 2  A5 CB           lda   $cb
+0009D0r 2  18              clc
+0009D1r 2               
+0009D1r 2               @error:
+0009D1r 2  60              rts
+0009D2r 2               
+0009D2r 2               
+0009D2r 2               
+0009D2r 2               
+0009D2r 2               
+0009D2r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+0009D2r 2               ;
+0009D2r 2               ; more
+0009D2r 2               ;
+0009D2r 2               ; prompt for a key, return it in A
+0009D2r 2               ;
+0009D2r 2               more:
+0009D2r 2  20 D1 F7        jsr   STROUT
+0009D5r 2  3C 50 52 45     .byte "<PRESS A KEY>"
+0009D9r 2  53 53 20 41  
+0009DDr 2  20 4B 45 59  
+0009E2r 2  EA              nop
+0009E3r 2  20 E3 FF        jsr   OSRDCH
+0009E6r 2  48              pha
+0009E7r 2               
+0009E7r 2  A9 00           lda   #0                  ; cheesy x-pos reset
+0009E9r 2  85 E0           sta   $e0
+0009EBr 2  20 D1 F7        jsr   STROUT
+0009EEr 2  20 20 20 20     .byte "             "
+0009F2r 2  20 20 20 20  
+0009F6r 2  20 20 20 20  
+0009FBr 2  EA              nop
+0009FCr 2  A9 00           lda   #0
+0009FEr 2  85 E0           sta   $e0
+000A00r 2               
+000A00r 2  68              pla
+000A01r 2  60              rts
+000A02r 2               
+000A02r 2               
+000A02r 2               
+000A02r 2               
+000A02r 2               
+000A02r 2               ;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~;~~
+000A02r 2               ;
+000A02r 2               ; tab_space
+000A02r 2               ;
+000A02r 2               ; tabs across until horizontal cursor pos is = to val in x
+000A02r 2               ;
+000A02r 2               tab_loop:
+000A02r 2  A9 20           lda   #$20
+000A04r 2  20 F4 FF        jsr   OSWRCH
+000A07r 2               
+000A07r 2               tab_space:
+000A07r 2  E4 E0           cpx   $e0
+000A09r 2  B0 F7           bcs   tab_loop
+000A0Br 2  60              rts
+000A0Cr 2               
+000A0Cr 2               tab_space10:
+000A0Cr 2  A2 0A           ldx   #10
+000A0Er 2  4C rr rr        jmp   tab_space
+000A11r 2               
+000A11r 2               tab_space16:
+000A11r 2  A2 10           ldx   #16
+000A13r 2  4C rr rr        jmp   tab_space
+000A16r 2               
+000A16r 1               .include "osword7f.asm"
+000A16r 2                       sector          = $80
+000A16r 2                       drive           = $84
+000A16r 2                       IOFlag          = $85
+000A16r 2                       IOAddr          = $86
+000A16r 2               
+000A16r 2                       SDDOSClientId   = $DE
+000A16r 2               
+000A16r 2               ;;; OSWORD A=7F8 271 command level disk access
+000A16r 2               osword7f:
+000A16r 2               
+000A16r 2               .if (debug_osw_7f = 1)
+000A16r 2                       LDY #$00
+000A16r 2                       LDA TubeCtrl + 5        ; number of parameters
+000A16r 2                       CLC
+000A16r 2                       ADC #$06                ; command at +6, params after that
+000A16r 2                       TAX
+000A16r 2               word7Fdebug:
+000A16r 2                       LDA TubeCtrl, Y         ; command block
+000A16r 2                       JSR DebugHexOut
+000A16r 2                       INY
+000A16r 2                       DEX
+000A16r 2                       BPL word7Fdebug
+000A16r 2                       JSR DebugNewline
+000A16r 2               .endif
+000A16r 2               
+000A16r 2  A0 06                LDY #6
+000A18r 2  B9 60 00             LDA TubeCtrl, Y
+000A1Br 2  C9 4B                CMP #$4B                ; write sector multi
+000A1Dr 2  F0 32                BEQ word7F_4B
+000A1Fr 2  C9 53                CMP #$53                ; read sector multi
+000A21r 2  F0 49                BEQ word7F_53
+000A23r 2  C9 57                CMP #$57                ; read sector multi (and deleted data)
+000A25r 2  F0 45                BEQ word7F_53
+000A27r 2               
+000A27r 2  48                   PHA
+000A28r 2  20 D1 F7             JSR STROUT
+000A2Br 2  55 4E 53 55          .byte "UNSUPPORTED OSWORD 7F:"
+000A2Fr 2  50 50 4F 52  
+000A33r 2  54 45 44 20  
+000A41r 2  EA                   NOP
+000A42r 2  68                   PLA
+000A43r 2  20 02 F8             JSR HEXOUT
+000A46r 2  20 ED FF             JSR OSNEWL
+000A49r 2               
+000A49r 2               word7Freturn:
+000A49r 2  A4 65                LDY TubeCtrl + 5        ; number of parameters
+000A4Br 2  A9 00                LDA #$00
+000A4Dr 2  99 67 00             STA TubeCtrl + 7, Y     ; Results byte stored after the params
+000A50r 2  60                   RTS
+000A51r 2               
+000A51r 2               word7F_4B:
+000A51r 2  A2 00                LDX #0
+000A53r 2  20 rr rr             JSR word7f_process_params
+000A56r 2               
+000A56r 2               word7F_write_sectors:
+000A56r 2  20 rr rr             JSR sd_sector_w
+000A59r 2               
+000A59r 2  E6 80                INC sector
+000A5Br 2  D0 0A                BNE word7F_write_dec
+000A5Dr 2  E6 81                INC sector + 1
+000A5Fr 2  D0 06                BNE word7F_write_dec
+000A61r 2  E6 82                INC sector + 2
+000A63r 2  D0 02                BNE word7F_write_dec
+000A65r 2  E6 83                INC sector + 3
+000A67r 2               
+000A67r 2               word7F_write_dec:
+000A67r 2  CA                   DEX
+000A68r 2  D0 EC                BNE word7F_write_sectors
+000A6Ar 2  F0 19                BEQ word7F_release
+000A6Cr 2               
+000A6Cr 2               word7F_53:
+000A6Cr 2  A2 01                LDX #1
+000A6Er 2  20 rr rr             JSR word7f_process_params
+000A71r 2               
+000A71r 2               word7F_read_sectors:
+000A71r 2  20 rr rr             JSR sd_sector_r
+000A74r 2               
+000A74r 2  E6 80                INC sector
+000A76r 2  D0 0A                BNE word7F_read_dec
+000A78r 2  E6 81                INC sector + 1
+000A7Ar 2  D0 06                BNE word7F_read_dec
+000A7Cr 2  E6 82                INC sector + 2
+000A7Er 2  D0 02                BNE word7F_read_dec
+000A80r 2  E6 83                INC sector + 3
+000A82r 2               
+000A82r 2               word7F_read_dec:
+000A82r 2  CA                   DEX
+000A83r 2  D0 EC                BNE word7F_read_sectors
+000A85r 2               
+000A85r 2               
+000A85r 2               word7F_release:
+000A85r 2  A5 85                LDA IOFlag
+000A87r 2  F0 05                BEQ word7F_skiprelease
+000A89r 2               
+000A89r 2                       ;; Release Tube
+000A89r 2  A9 9E                LDA #SDDOSClientId - $40
+000A8Br 2  20 rr rr             JSR L0406
+000A8Er 2               
+000A8Er 2               word7F_skiprelease:
+000A8Er 2               
+000A8Er 2  4C rr rr             jmp word7Freturn
+000A91r 2               
+000A91r 2               ;;; Common code for read/write sector param parocessing
+000A91r 2               ;;;
+000A91r 2               ;;; On Entry
+000A91r 2               ;;; - OSWORD 7F parameter block in TubeCtrl
+000A91r 2               ;;; - X = 1 for read sector and X = 0 for write sector
+000A91r 2               ;;;
+000A91r 2               ;;; Actions:
+000A91r 2               ;;; - Processes memory address from TubeCtrl + 1
+000A91r 2               ;;; - Claims the tube if the memory address in the parasite
+000A91r 2               ;;; - Sets the IOFlag to 0 = host, 1 = parasite
+000A91r 2               ;;; - Calculate the physical SDDOS sector number from drive, track and sector
+000A91r 2               ;;;
+000A91r 2               ;;; On Exit:
+000A91r 2               ;;; - Returns the number of sectors to read in X
+000A91r 2               
+000A91r 2               word7f_process_params:
+000A91r 2               
+000A91r 2  A5 61                LDA TubeCtrl + 1
+000A93r 2  85 86                STA IOAddr
+000A95r 2               
+000A95r 2  A5 62                LDA TubeCtrl + 2
+000A97r 2  85 87                STA IOAddr + 1
+000A99r 2               
+000A99r 2  A5 63                LDA TubeCtrl + 3
+000A9Br 2  25 64                AND TubeCtrl + 4
+000A9Dr 2  18                   CLC
+000A9Er 2  69 01                ADC #1
+000AA0r 2  85 85                STA IOFlag              ; 0 = transfer to host
+000AA2r 2  F0 0D                BEQ word7F_skipclaim
+000AA4r 2               
+000AA4r 2                       ;; Claim Tube
+000AA4r 2  A9 DE                LDA #SDDOSClientId
+000AA6r 2  20 rr rr             JSR L0406
+000AA9r 2               
+000AA9r 2                       ;; Setup Data Transfer
+000AA9r 2  8A                   TXA                     ;  X = 1 for read sector and X = 0 for write sector
+000AAAr 2  A2 61                LDX #<(TubeCtrl + 1)
+000AACr 2  A0 00                LDY #>(TubeCtrl + 1)
+000AAEr 2  20 rr rr             JSR L0406
+000AB1r 2               
+000AB1r 2               word7F_skipclaim:
+000AB1r 2               
+000AB1r 2  A5 68                LDA TubeCtrl + 8        ; sector number
+000AB3r 2  85 80                STA sector
+000AB5r 2               
+000AB5r 2  A9 00                LDA #0
+000AB7r 2  85 81                STA sector+1
+000AB9r 2  85 82                STA sector+2
+000ABBr 2  85 83                STA sector+3
+000ABDr 2               
+000ABDr 2  A5 60                LDA TubeCtrl            ; drive number (0=A; 1=B)
+000ABFr 2  29 01                AND #$01
+000AC1r 2  85 84                STA drive
+000AC3r 2               
+000AC3r 2  A5 60                LDA TubeCtrl            ; drive 2 = second side
+000AC5r 2  29 02                AND #$02
+000AC7r 2  F0 07                BEQ word7Fdrive0
+000AC9r 2               
+000AC9r 2                       ;; Add 10 sectors to access drive 2 tracks
+000AC9r 2  A5 80                LDA sector
+000ACBr 2  18                   CLC
+000ACCr 2  69 0A                ADC #10
+000ACEr 2  85 80                STA sector
+000AD0r 2               
+000AD0r 2               word7Fdrive0:
+000AD0r 2               
+000AD0r 2                       ;; Add 20 sectors for each track (because the image is an track-interleaved DSD)
+000AD0r 2  A6 67                LDX TubeCtrl + 7        ; track number
+000AD2r 2  F0 16                BEQ word7F_track_done
+000AD4r 2               word7F_tracks:
+000AD4r 2  18                   CLC
+000AD5r 2  A5 80                LDA sector
+000AD7r 2  69 14                ADC #20
+000AD9r 2  85 80                STA sector
+000ADBr 2  90 0A                BCC word7F_track_dec
+000ADDr 2  E6 81                INC sector + 1
+000ADFr 2  D0 06                BNE word7F_track_dec
+000AE1r 2  E6 82                INC sector + 2
+000AE3r 2  D0 02                BNE word7F_track_dec
+000AE5r 2  E6 83                INC sector + 3
+000AE7r 2               word7F_track_dec:
+000AE7r 2  CA                   DEX
+000AE8r 2  D0 EA                BNE word7F_tracks
+000AEAr 2               
+000AEAr 2               word7F_track_done:
+000AEAr 2  A5 69                LDA TubeCtrl + 9                ; MS 3 bits = sector size; LS 5 bits = num sectors
+000AECr 2  29 1F                AND #$1F
+000AEEr 2  AA                   TAX
+000AEFr 2  60                   RTS
+000AF0r 2               
+000AF0r 2               
+000AF0r 2               
+000AF0r 2               ;;; Sector level disk access (from SDDOS)
+000AF0r 2               
+000AF0r 2               ;;; Read Sector Entry Point
+000AF0r 2               sd_sector_r:
+000AF0r 2  20 rr rr             JSR send_drive_and_sector ; Set SDDOS drive + sector
+000AF3r 2  A9 43 20 rr          SLOWCMDI CMD_READ_IMG_SEC ; Command = read SDDOS sector
+000AF7r 2  rr           
+000AF8r 2  20 rr rr             JSR send_cmd_init_read    ; Reset datapointer
+000AFBr 2  A0 00                LDY #0
+000AFDr 2  A5 85                LDA IOFlag
+000AFFr 2  F0 0B                BEQ rd2
+000B01r 2               
+000B01r 2               ;;; Copy block of 256 from AtoMMC to parasite memory via tube
+000B01r 2               rd1:
+000B01r 2  AD 02 B4             readportFAST AREAD_DATA_REG
+000B04r 2  8D E5 BE             STA TubeR3
+000B07r 2               .if (debug_sddos = 1)
+000B07r 2                       STA debug_data, Y
+000B07r 2               .endif
+000B07r 2  C8                   INY
+000B08r 2  D0 F7                BNE rd1
+000B0Ar 2  F0 0A                BEQ sd_sector_r_end
+000B0Cr 2               
+000B0Cr 2               ;;; Copy block of 256 from AtoMMC to host memory
+000B0Cr 2               rd2:
+000B0Cr 2  AD 02 B4             readportFAST AREAD_DATA_REG
+000B0Fr 2  91 86                STA (IOAddr), Y
+000B11r 2               .if (debug_sddos = 1)
+000B11r 2                       STA debug_data, Y
+000B11r 2               .endif
+000B11r 2  C8                   INY
+000B12r 2  D0 F8                BNE rd2
+000B14r 2  E6 87                INC IOAddr + 1
+000B16r 2               
+000B16r 2               sd_sector_r_end:
+000B16r 2               .if (debug_sddos = 1)
+000B16r 2                       JSR dump_debug_data
+000B16r 2               .endif
+000B16r 2  60                   RTS
+000B17r 2               
+000B17r 2               ;;; Write Sector Entry Point
+000B17r 2               sd_sector_w:
+000B17r 2  20 rr rr             JSR send_drive_and_sector ; Set SDDOS drive + sector
+000B1Ar 2  20 rr rr             JSR send_cmd_init_write   ; Reset globalbufferpointer
+000B1Dr 2  A0 00                LDY #0
+000B1Fr 2  A5 85                LDA IOFlag
+000B21r 2  F0 0B                BEQ wr2
+000B23r 2               
+000B23r 2               ;;; Copy block of 256 from AtoMMC to parasite memory via tube
+000B23r 2               wr1:
+000B23r 2  AD E5 BE             LDA TubeR3
+000B26r 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B29r 2               .if (debug_sddos = 1)
+000B29r 2                       STA debug_data, Y
+000B29r 2               .endif
+000B29r 2  C8                   INY
+000B2Ar 2  D0 F7                BNE wr1
+000B2Cr 2  F0 0A                BEQ sd_sector_w_end
+000B2Er 2               
+000B2Er 2               ;;; Copy block of 256 from AtoMMC to host memory
+000B2Er 2               wr2:
+000B2Er 2  B1 86                LDA (IOAddr), Y
+000B30r 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B33r 2               .if (debug_sddos = 1)
+000B33r 2                       STA debug_data, Y
+000B33r 2               .endif
+000B33r 2  C8                   INY
+000B34r 2  D0 F8                BNE wr2
+000B36r 2  E6 87                INC IOAddr + 1
+000B38r 2               
+000B38r 2               sd_sector_w_end:
+000B38r 2  A9 44 20 rr          SLOWCMDI CMD_WRITE_IMG_SEC   ; Command = write SDDOS sector
+000B3Cr 2  rr           
+000B3Dr 2               .if (debug_sddos = 1)
+000B3Dr 2                       JSR dump_debug_data
+000B3Dr 2               .endif
+000B3Dr 2  60                   RTS
+000B3Er 2               
+000B3Er 2               send_drive_and_sector:
+000B3Er 2  20 rr rr             JSR send_cmd_init_write   ; Reset globalbufferpointer
+000B41r 2  A5 84                LDA drive                 ; Send drive 0 or 1
+000B43r 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B46r 2  20 rr rr             JSR interwritedelay
+000B49r 2  A5 80                LDA sector                ; Send sectornr LB
+000B4Br 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B4Er 2  20 rr rr             JSR interwritedelay
+000B51r 2  A5 81                LDA sector+1              ; Send sectornr
+000B53r 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B56r 2  20 rr rr             JSR interwritedelay
+000B59r 2  A5 82                LDA sector+2              ; Send sectornr
+000B5Br 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B5Er 2  20 rr rr             JSR interwritedelay
+000B61r 2  A5 83                LDA sector+3              ; Send sectornr HB
+000B63r 2  8D 03 B4             writeportFAST AWRITE_DATA_REG
+000B66r 2  20 rr rr             JSR interwritedelay
+000B69r 2  A9 40 8D 00          FASTCMDI CMD_LOAD_PARAM   ; Command = load SDDOS parameters
+000B6Dr 2  B4 20 rr rr  
+000B71r 2  AD 00 B4     
+000B74r 2  4C rr rr             JMP  interwritedelay
+000B77r 2               
+000B77r 2               send_cmd_init_read:
+000B77r 2  A9 20                LDA #CMD_INIT_READ
+000B79r 2  8D 00 B4             writeportFAST ACMD_REG
+000B7Cr 2  4C rr rr             JMP  interwritedelay
+000B7Fr 2               
+000B7Fr 2               send_cmd_init_write:
+000B7Fr 2  A9 21                LDA #CMD_INIT_WRITE
+000B81r 2  8D 00 B4             writeportFAST ACMD_REG
+000B84r 2  4C rr rr             JMP interwritedelay
+000B87r 2               
+000B87r 2               .if (debug_sddos = 1)
+000B87r 2               dump_debug_data:
+000B87r 2                       PHA
+000B87r 2                       TXA
+000B87r 2                       PHA
+000B87r 2                       TYA
+000B87r 2                       PHA
+000B87r 2                       JSR OSNEWL
+000B87r 2                       LDY #0
+000B87r 2               dump_debug_loop:
+000B87r 2                       TYA
+000B87r 2                       PHA
+000B87r 2                       JSR HEXOUT
+000B87r 2                       LDA #' '
+000B87r 2                       JSR OSWRCH
+000B87r 2                       LDA #':'
+000B87r 2                       JSR OSWRCH
+000B87r 2                       LDA #' '
+000B87r 2                       JSR OSWRCH
+000B87r 2                       LDX #16
+000B87r 2               dump_debug_loop1:
+000B87r 2                       LDA debug_data, Y
+000B87r 2                       JSR HEXOUT
+000B87r 2                       INY
+000B87r 2                       DEX
+000B87r 2                       BNE dump_debug_loop1
+000B87r 2                       PLA
+000B87r 2                       TAY
+000B87r 2                       LDA #' '
+000B87r 2                       JSR OSWRCH
+000B87r 2                       LDX #16
+000B87r 2               dump_debug_loop2:
+000B87r 2                       LDA debug_data, Y
+000B87r 2                       JSR dump_debug_char
+000B87r 2                       INY
+000B87r 2                       DEX
+000B87r 2                       BNE dump_debug_loop2
+000B87r 2                       JSR OSNEWL
+000B87r 2                       CPY #0
+000B87r 2                       BNE dump_debug_loop
+000B87r 2                       PLA
+000B87r 2                       TAY
+000B87r 2                       PLA
+000B87r 2                       TAX
+000B87r 2                       PLA
+000B87r 2                       RTS
+000B87r 2               
+000B87r 2               dump_debug_char:
+000B87r 2                       CMP #$20
+000B87r 2                       BCC dump_debug_char1
+000B87r 2                       CMP #$7F
+000B87r 2                       BCC dump_debug_char2
+000B87r 2               dump_debug_char1:
+000B87r 2                       LDA #'.'
+000B87r 2               dump_debug_char2:
+000B87r 2                       JMP OSWRCH
+000B87r 2               
+000B87r 2               debug_data:
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2                       .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+000B87r 2               .endif
+000B87r 2               
+000B87r 2               
+000B87r 1               .include "oswordff.asm"
+000B87r 2               	ctrl  = $80
+000B87r 2                       saveA = $82
+000B87r 2               	addr  = $84
+000B87r 2               	count = $86
+000B87r 2               
+000B87r 2               oswordff:
+000B87r 2  86 80                STX ctrl+0
+000B89r 2  84 81                STY ctrl+1
+000B8Br 2  85 82                STA saveA	; Save OSWORD parameters
+000B8Dr 2               
+000B8Dr 2               .if (debug_osw_ff = 1)
+000B8Dr 2               	LDY #$00
+000B8Dr 2               oswordffdebug:
+000B8Dr 2                       LDA (ctrl),Y
+000B8Dr 2               	JSR DebugHexOut
+000B8Dr 2               	INY
+000B8Dr 2               	CPY #$0D
+000B8Dr 2               	BNE oswordffdebug
+000B8Dr 2               	JSR DebugNewline
+000B8Dr 2               .endif
+000B8Dr 2               
+000B8Dr 2  A0 02                LDY #$02
+000B8Fr 2  B1 80                LDA (ctrl),Y
+000B91r 2  85 84                STA addr+0	; I/O address low byte
+000B93r 2  C8                   INY
+000B94r 2  B1 80                LDA (ctrl),Y
+000B96r 2  85 85                STA addr+1      ; I/O address high byte
+000B98r 2  20 rr rr             JSR L259C       ; Claim the Tube
+000B9Br 2  A0 0C                LDY #$0C
+000B9Dr 2  B1 80                LDA (ctrl),Y
+000B9Fr 2  48                   PHA		; Get read/write command
+000BA0r 2  A5 80                LDA ctrl+0
+000BA2r 2  18                   CLC
+000BA3r 2  69 06                ADC #$06
+000BA5r 2  AA                   TAX		; Point to Control+6
+000BA6r 2  A9 00                LDA #$00
+000BA8r 2  65 81                ADC ctrl+1
+000BAAr 2  A8                   TAY		; XY->CoPro address in control block
+000BABr 2  68                   PLA
+000BACr 2  48                   PHA
+000BADr 2  20 rr rr             JSR L0406       ; Initiate specified action
+000BB0r 2  A0 0A                LDY #$0A
+000BB2r 2  B1 80                LDA (ctrl),Y
+000BB4r 2  AA                   TAX		; Get count low byte
+000BB5r 2  C8                   INY
+000BB6r 2  B1 80                LDA (ctrl),Y
+000BB8r 2  85 86                STA count       ; Get count high byte
+000BBAr 2  D0 03                BNE L2544       ; Jump forward if >255 bytes to do
+000BBCr 2  8A                   TXA
+000BBDr 2  F0 4E                BEQ L2592       ; Jump to exit if no bytes left
+000BBFr 2               L2544:
+000BBFr 2  8A                   TXA
+000BC0r 2  F0 02                BEQ L2549       ; Jump forward if multiple of 256 bytes
+000BC2r 2  E6 86                INC count       ; Inc high byte to balance DECs later
+000BC4r 2               L2549:
+000BC4r 2  68                   PLA
+000BC5r 2  6A                   ROR A
+000BC6r 2  B0 28                BCS L2575       ; Get command back, jump if H->C
+000BC8r 2               
+000BC8r 2  20 rr rr             JSR L259B
+000BCBr 2  20 rr rr             JSR L259B
+000BCEr 2  20 rr rr             JSR L259B	; Delay before starting
+000BD1r 2  A0 00                LDY #$00        ; Zero offset for (zp),Y
+000BD3r 2               L2558:
+000BD3r 2  AD E5 BE             LDA TubeR3
+000BD6r 2  91 84                STA (addr),Y    ; Transfer a byte C->H
+000BD8r 2  20 rr rr             JSR L259B
+000BDBr 2  20 rr rr             JSR L259B
+000BDEr 2  20 rr rr             JSR L259B	; Delay between bytes
+000BE1r 2  E6 84                INC addr+0
+000BE3r 2  D0 02                BNE L256C
+000BE5r 2  E6 85                INC addr+1	; Update I/O address
+000BE7r 2               L256C:
+000BE7r 2  CA                   DEX
+000BE8r 2  D0 E9                BNE L2558       ; Loop for up to 256 bytes
+000BEAr 2  C6 86                DEC count
+000BECr 2  D0 E5                BNE L2558       ; Loop for each 256-byte chunk
+000BEEr 2  F0 1D                BEQ L2592       ; Jump to exit when finished
+000BF0r 2               
+000BF0r 2               L2575:
+000BF0r 2  A0 00                LDY #$00
+000BF2r 2               L2577:
+000BF2r 2  B1 84                LDA (addr),Y
+000BF4r 2  8D E5 BE             STA TubeR3       ; Transfer byte H->C
+000BF7r 2  20 rr rr             JSR L259B
+000BFAr 2  20 rr rr             JSR L259B
+000BFDr 2  20 rr rr             JSR L259B       ; Delay between bytes
+000C00r 2  E6 84                INC addr+0
+000C02r 2  D0 02                BNE L258B
+000C04r 2  E6 85                INC addr+1      ; Update I/O addreL258B:
+000C06r 2               L258B:
+000C06r 2  CA                   DEX
+000C07r 2  D0 E9                BNE L2577       ; Loop for up to 256 bytes
+000C09r 2  C6 86                DEC count
+000C0Br 2  D0 E5                BNE L2577       ; Loop for each 256-byte chunk
+000C0Dr 2               
+000C0Dr 2               L2592:
+000C0Dr 2  20 rr rr             JSR L25A4       ; Release Tube
+000C10r 2  A6 80                LDX ctrl+0
+000C12r 2  A4 81                LDY ctrl+1
+000C14r 2  A5 82                LDA saveA       ; Restore entry registers
+000C16r 2               L259B:                  ; Call here to delay 6us:
+000C16r 2  60                   RTS             ; And return
+000C17r 2               
+000C17r 2               L259C:
+000C17r 2  A9 C7                LDA #$C0+7
+000C19r 2  20 rr rr             JSR L0406       ; Claim with ID=7
+000C1Cr 2  90 F9                BCC L259C
+000C1Er 2  60                   RTS             ; Loop until claimed
+000C1Fr 2               
+000C1Fr 2               L25A4:
+000C1Fr 2  A9 87                LDA #$80+7
+000C21r 2  20 rr rr             JSR L0406       ; Release with ID=7
+000C24r 2  60                   RTS
+000C25r 2               
+000C25r 1               
+000C25r 1               EndAddr:
+000C25r 1               
