@@ -16,9 +16,9 @@ Unpack the zip file onto an AtoMMC SD Card
 
 Install MMC2MHZ.ROM as your version of AtoMMC
 
-VGA80          ;; optional but use it if you have it available
-*CWD TUBE
-*TUBE
+>VGA80          ;; optional but use it if you have it available
+>*CWD TUBE
+>*TUBE
 
 Hints:
 
@@ -55,8 +55,13 @@ Z80 files:
 
 TUBE/CPM1.dsd           - Disc image for CPM
 TUBE/INFOCOM.dsd        - Disc image for InfoCom adventure
-TUBE/Z80BAS             - Z80 BBC Basic
+TUBE/Z80BAS             - Z80 BBC Basic (Standalone version)
+TUBE/Z80ROM             - Z80 BBC Basic (ROM version)
 TUBE/CLOCKSP            - JHG's BBC Basic ClockSP benchmark
+
+From the Z80 tube * prompt, you should be able to
+*RUN Z80ROM
+>CHAIN "CLOCKSP"
 
 Here's how you get CP/M running (a bit fiddly):
 
@@ -73,7 +78,12 @@ A>B:
 B>DIR
 B>HITCH2
 
-For some reason, Z80BAS is not currently working.
+Known issue 1: The slowest Z80 Co Pro hangs loading files. Select one
+of the faster ones.
+
+Known issue 2: Z80BAS sometimes doesn't work, use Z80ROM instead.
+
+Known issue 3: The Z80 Co Pro Error Handler hangs.
 
 6809 files:
 -----------
