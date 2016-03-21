@@ -1,27 +1,35 @@
 #!/bin/bash
 
+rm -rf TUBE
+mkdir TUBE
+
 cd src
 
-rm -f TUBE
+for version in TUBE TUBED1 TUBED2 TUBED3
+do
 
-echo Assembling
-ca65 -l AtomHost.lst -o AtomHost.o AtomHost.asm
+rm -f $version
 
-echo Linking
-ld65 AtomHost.o -o TUBE -C AtomHost.lkr 
+echo Assembling $version
+ca65 -l AtomHost_$version.lst -o AtomHost_$version.o AtomHost_$version.asm
 
-echo CRC = `../tools/crc16 TUBE | tr "a-z" "A-Z"`
+echo Linking $version
+ld65 AtomHost_$version.o -o $version -C AtomHost.lkr 
 
-echo Cleaning
-rm -f *.o
+echo CRC = `../tools/crc16 $version | tr "a-z" "A-Z"`
+
+cp -a $version ../TUBE
+
+echo Cleaning $version
+rm -f AtomHost_$version.o $version
+
+done
 
 cd ..
 
 echo Packaging
 
-rm -rf TUBE
-mkdir TUBE
-cp -a README.txt TUBE
-cp -a src/TUBE TUBE
 cp -a demos/* TUBE
+cp -a README.txt TUBE
+rm -f atom_tube.zip
 zip -qr atom_tube.zip TUBE
