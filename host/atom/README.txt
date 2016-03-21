@@ -8,7 +8,10 @@ Atom Tube Host files:
 ---------------------
 
 TUBE/TUBE               - Atom Tube Host
-TUBE/MMC2MHZ.ROM        - AtoMMC 2.99 (with Tube support)
+TUBE/TUBED1             - Atom Tube Host with level 1 debugging (log unsupported OS calls)
+TUBE/TUBED2             - Atom Tube Host with level 2 debugging (additionally log R1/R2 protocol)
+TUBE/TUBED3             - Atom Tube Host with level 3 debugging (additionally log R4 protocol and OSWORD 7F/FF)
+TUBE/MMC2MHZ.ROM        - AtoMMC 3 (beta release, with Tube support)
 
 Installation:
 
@@ -63,6 +66,13 @@ From the Z80 tube * prompt, you should be able to
 *RUN Z80ROM
 >CHAIN "CLOCKSP"
 
+or
+
+*RUN Z80BAS
+>CHAIN "CLOCKSP"
+
+These both end up loading the same version of Z80 BBC Basic.
+
 Here's how you get CP/M running (a bit fiddly):
 
 >VGA80
@@ -81,9 +91,7 @@ B>HITCH2
 Known issue 1: The slowest Z80 Co Pro hangs loading files. Select one
 of the faster ones.
 
-Known issue 2: Z80BAS sometimes doesn't work, use Z80ROM instead.
-
-Known issue 3: The Z80 Co Pro Error Handler hangs.
+Known issue 2: The Z80 Co Pro Error Handler hangs.
 
 6809 files:
 -----------
