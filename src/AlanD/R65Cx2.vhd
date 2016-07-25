@@ -23,8 +23,11 @@ entity R65C02 is
 		irq_n : in std_logic;
 		di : in unsigned(7 downto 0);
 		do : out unsigned(7 downto 0);
+		do_next : out unsigned(7 downto 0);
 		addr : out unsigned(15 downto 0);
+		addr_next : out unsigned(15 downto 0);
 		nwe : out std_logic;
+		nwe_next : out std_logic;
 		sync : out std_logic;
 		sync_irq : out std_logic
 			
@@ -570,7 +573,6 @@ architecture Behavioral of R65C02 is
 	);
 	signal opcInfo        : decodedBitsDef;
 	signal nextOpcInfo    : decodedBitsDef;	-- Next opcode (decoded)
-	signal nextOpcInfoReg : decodedBitsDef;	-- Next opcode (decoded) pipelined
 	signal theOpcode      : unsigned(7 downto 0);
 	signal nextOpcode     : unsigned(7 downto 0);
 
@@ -595,13 +597,16 @@ architecture Behavioral of R65C02 is
 		nextAddrRelative
 	);
 	signal nextAddr : nextAddrDef;
+	signal myAddrNext : unsigned(15 downto 0); -- DMB Lookahead output
 	signal myAddr : unsigned(15 downto 0);
 	signal myAddrIncr : unsigned(15 downto 0);
 	signal myAddrIncrH : unsigned(7 downto 0);
 	signal myAddrDecrH : unsigned(7 downto 0);
+	signal theWeNext : std_logic; -- DMB Lookahead output
 	signal theWe : std_logic;
 	signal irqActive : std_logic;
 -- Output register
+	signal doNext : unsigned(7 downto 0); -- DMB Lookahead output
 	signal doReg : unsigned(7 downto 0);
 -- Buffer register
 	signal T : unsigned(7 downto 0);
@@ -703,7 +708,7 @@ processCmpInput: process(clk, opcInfo, A, X, Y)
 --hardware interrupts IRQ & NMI will push the B flag as being 0.
 
 	
-processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, D, I, Z, C)
+processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, R, D, I, Z, C)
 		variable lowBits: unsigned(5 downto 0);
 		variable nineBits: unsigned(8 downto 0);
 		variable rmwBits: unsigned(8 downto 0);
@@ -848,14 +853,15 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 		when others =>			null;
 		end case;	
         		
-	if rising_edge(clk) then	
+-- DMB Remove Pipelining        		
+--	if rising_edge(clk) then	
 		aluRmwOut <= rmwBits(7 downto 0);
 		aluRegisterOut <= ninebits(7 downto 0);
 		aluC <= varC;
 		aluZ <= varZ;
 		aluV <= varV;
 		aluN <= varN;
-		end if;
+--		end if;
 		
 	end process;
 
@@ -909,13 +915,6 @@ calcNextOpcode: process(clk, di, reset, processIrq)
 
 	nextOpcInfo <= opcodeInfoTable(to_integer(nextOpcode));
 	
-	process(clk)
-	begin
-		if rising_edge(clk) then
-			nextOpcInfoReg <= nextOpcInfo;
-		end if;
-	end process;
-
 	-- Read bits and flags from opcodeInfoTable and store in opcInfo.
 	-- This info is used to control the execution of the opcode.
 calcOpcInfo: process(clk)
@@ -1293,53 +1292,70 @@ calcT: process(clk)
 -- -----------------------------------------------------------------------
 -- Data out
 -- -----------------------------------------------------------------------
-calcDo: process(clk)
+calcDoComb: process(nextCpuCycle, aluRmwOut, opcInfo(opcIRQ), irqActive, myAddrIncr, PC, di)
+	begin
+       doNext <= aluRmwOut;
+       case nextCpuCycle is
+           when cycleStack2 => if opcInfo(opcIRQ) = '1' and irqActive = '0' then
+                                   doNext <= myAddrIncr(15 downto 8);
+                               else
+                                   doNext <= PC(15 downto 8);
+                               end if;
+           when cycleStack3 => doNext <= PC(7 downto 0);
+           when cycleRmw => doNext <= di; -- Read-modify-write write old value first.
+           when others => null;
+       end case;
+	end process;
+
+   -- DMB Lookahead data output
+   do_next <= doNext when enable = '1' else DoReg;
+
+calcDoReg: process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
-				doReg <= aluRmwOut;
-				case nextCpuCycle is
-				when cycleStack2 =>					if opcInfo(opcIRQ) = '1' and irqActive = '0' then
-																doReg <= myAddrIncr(15 downto 8);
-															else
-																doReg <= PC(15 downto 8);
-															end if;
-				when cycleStack3 =>				doReg <= PC(7 downto 0);
-				when cycleRmw =>					doReg <= di; -- Read-modify-write write old value first.
-				when others => null;
-				end case;
+				doReg <= doNext;
 			end if;			
 		end if;
 	end process;
-	do <= doReg;
-	
 
+   -- DMB Registered data output
+	do <= doReg;
 
 -- -----------------------------------------------------------------------
 -- Write enable
 -- -----------------------------------------------------------------------
-calcWe: process(clk)
+calcWeComb: process(nextCpuCycle, opcInfo(opcStackUp), opcInfo(opcStackAddr), opcInfo(opcStackData))
 	begin
+       theWeNext <= '1'; 
+       case nextCpuCycle is
+           when cycleStack1 =>
+               if opcInfo(opcStackUp) = '0' and ((opcInfo(opcStackAddr) = '0') or (opcInfo(opcStackData) = '1')) then
+                   theWeNext <= '0';
+               end if;
+           when cycleStack2 | cycleStack3 | cycleStack4 =>
+               if opcInfo(opcStackUp) = '0' then
+                   theWeNext <= '0';	
+               end if;						
+           when cycleRmw => theWeNext <= '0';	
+           when cycleWrite =>	theWeNext <= '0';	
+           when others => null;
+       end case;				
+	end process;
+
+   -- DMB Lookahead we output
+	nwe_next <= theWeNext when enable = '1' else theWe;
+   
+calcWeReg: process(clk)
+   begin
 		if rising_edge(clk) then
 			if enable = '1' then
-				theWe <= '1'; 
-				case nextCpuCycle is
-				when cycleStack1 =>
-								if opcInfo(opcStackUp) = '0' and ((opcInfo(opcStackAddr) = '0') or (opcInfo(opcStackData) = '1')) then
-										theWe <= '0';
-								end if;
-				when cycleStack2 | cycleStack3 | cycleStack4 =>
-								if opcInfo(opcStackUp) = '0' then
-										theWe <= '0';	
-								end if;						
-				when cycleRmw =>				theWe <= '0';	
-				when cycleWrite =>			theWe <= '0';	
-				when others =>					null;
-				end case;				
+				theWe <= theWeNext; 
 			end if;
 		end if;	
-		--nwe <= theWe;
 	end process;
+   
+   -- DMB Registered we output
 	nwe <= theWe;
 
 -- -----------------------------------------------------------------------
@@ -1462,43 +1478,54 @@ indexAlu: process(opcInfo, myAddr, T, X, Y)
 		end if;
 	end process;
 
-calcAddr: process(clk)
+calcAddrComb: process(myAddr, nextAddr, myAddrIncr, myAddrIncrH, myAddrDecrH, PC, nmiReg, di, theOpcode, indexOut, S, T, X)
+	begin
+       myAddrNext <= myAddr;
+  		 case nextAddr is
+				when nextAddrIncr => myAddrNext <= myAddrIncr;
+				when nextAddrIncrL => myAddrNext(7 downto 0) <= myAddrIncr(7 downto 0);
+				when nextAddrIncrH => myAddrNext(15 downto 8) <= myAddrIncrH;
+				when nextAddrDecrH => myAddrNext(15 downto 8) <= myAddrDecrH;
+				when nextAddrPc => myAddrNext <= PC;
+				when nextAddrIrq =>myAddrNext <= X"FFFE";
+					if nmiReg = '0' then
+						myAddrNext <= X"FFFA";
+					end if;
+				when nextAddrReset => myAddrNext <= X"FFFC";
+				when nextAddrAbs => myAddrNext <= di & T;
+				when nextAddrAbsIndexed =>--myAddrNext <= di & indexOut(7 downto 0);
+					if theOpcode = x"7C" then
+						myAddrNext <= (di & T) + (x"00"& X);
+					else
+						myAddrNext <= di & indexOut(7 downto 0);
+					end if;
+				when nextAddrZeroPage => myAddrNext <= "00000000" & di;
+				when nextAddrZPIndexed => myAddrNext <= "00000000" & indexOut(7 downto 0);
+				when nextAddrStack => myAddrNext <= "00000001" & S;
+				when nextAddrRelative => myAddrNext(7 downto 0) <= indexOut(7 downto 0);
+				when others => null;
+       end case;
+	end process;	
+
+   -- DMB Lookahead address output
+   addr_next <= myAddrNext when enable = '1' else myAddr;
+   
+calcAddrReg: process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
-				case nextAddr is
-				when nextAddrIncr => myAddr <= myAddrIncr;
-				when nextAddrIncrL => myAddr(7 downto 0) <= myAddrIncr(7 downto 0);
-				when nextAddrIncrH => myAddr(15 downto 8) <= myAddrIncrH;
-				when nextAddrDecrH => myAddr(15 downto 8) <= myAddrDecrH;
-				when nextAddrPc => myAddr <= PC;
-				when nextAddrIrq =>myAddr <= X"FFFE";
-					if nmiReg = '0' then
-						myAddr <= X"FFFA";
-					end if;
-				when nextAddrReset => myAddr <= X"FFFC";
-				when nextAddrAbs => myAddr <= di & T;
-				when nextAddrAbsIndexed =>--myAddr <= di & indexOut(7 downto 0);
-					if theOpcode = x"7C" then
-						myAddr <= (di & T) + (x"00"& X);
-					else
-						myAddr <= di & indexOut(7 downto 0);
-					end if;
-				when nextAddrZeroPage => myAddr <= "00000000" & di;
-				when nextAddrZPIndexed => myAddr <= "00000000" & indexOut(7 downto 0);
-				when nextAddrStack => myAddr <= "00000001" & S;
-				when nextAddrRelative => myAddr(7 downto 0) <= indexOut(7 downto 0);
-				when others => null;
-				end case;
+             myAddr <= myAddrNext;
 			end if;
 		end if;							
 	end process;	
-
+   
 	myAddrIncr <= myAddr + 1;
 	myAddrIncrH <= myAddr(15 downto 8) + 1;
 	myAddrDecrH <= myAddr(15 downto 8) - 1;
+   
+   -- DMB Registered address output
 	addr <= myAddr;
-	
+
 -- DMB This looked plain broken and inferred a latch
 --    
 --	calcsync: process(clk)
@@ -1514,8 +1541,8 @@ calcAddr: process(clk)
 
    sync <= '1' when theCpuCycle = opcodeFetch else '0';
 	
-		sync_irq <= irqActive;
-	
+	sync_irq <= irqActive;
+
 end architecture;
 
 

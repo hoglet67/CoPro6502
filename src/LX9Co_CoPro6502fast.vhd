@@ -4,11 +4,6 @@ use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
 entity LX9CoPro6502fast is
-    generic (
-       UseT65Core    : boolean := false;
-       UseJensCore   : boolean := false;
-       UseAlanDCore  : boolean := true
-       );
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
@@ -83,6 +78,16 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
     signal cpu_NMI_n_sync  : std_logic;
     signal sync       : std_logic;
 
+    -- Lookahead (unregistered) signals
+    signal p_cs_b_next      : std_logic;
+    signal ram_cs_b_next    : std_logic;
+    signal rom_cs_b_next    : std_logic;    
+    signal cpu_dout_next    : std_logic_vector (7 downto 0);
+    signal cpu_dout_next_us : unsigned (7 downto 0);
+    signal cpu_addr_next    : std_logic_vector (23 downto 0);
+    signal cpu_addr_next_us : unsigned (23 downto 0);
+    signal cpu_R_W_n_next   : std_logic;
+    
     signal digit1_cs_b : std_logic;
     signal digit2_cs_b : std_logic;
     signal digit1      : std_logic_vector (7 downto 0);
@@ -107,7 +112,7 @@ begin
         h_rdnw  => h_rdnw,
         h_rst_b => h_rst_b 
     );
-
+    
     inst_dcm_32_64 : entity work.dcm_32_64 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_cpu,
@@ -117,64 +122,31 @@ begin
 
     inst_tuberom : entity work.tuberom_65c102_banner port map (
         CLK             => clk_cpu,
-        ADDR            => cpu_addr(10 downto 0),
+        ADDR            => cpu_addr_next(10 downto 0),
         DATA            => rom_data_out
     );
 
-    GenT65Core: if UseT65Core generate
-        inst_T65 : entity work.T65 port map (
-            Mode            => "01",
-            Abort_n         => '1',
-            SO_n            => '1',
-            Res_n           => RSTn_sync,
-            Enable          => cpu_clken,
-            Clk             => clk_cpu,
-            Rdy             => '1',
-            IRQ_n           => cpu_IRQ_n_sync,
-            NMI_n           => cpu_NMI_n_sync,
-            R_W_n           => cpu_R_W_n,
-            Sync            => sync,
-            A(23 downto 0)  => cpu_addr,
-            DI(7 downto 0)  => cpu_din,
-            DO(7 downto 0)  => cpu_dout
+    inst_r65c02: entity work.r65c02 port map(
+        reset     => RSTn_sync,
+        clk       => clk_cpu,
+        enable    => cpu_clken,
+        nmi_n     => cpu_NMI_n_sync,
+        irq_n     => cpu_IRQ_n_sync,
+        di        => unsigned(cpu_din),
+        do_next   => cpu_dout_next_us,
+        do        => cpu_dout_us,
+        addr_next => cpu_addr_next_us(15 downto 0),
+        addr      => cpu_addr_us(15 downto 0),
+        nwe_next  => cpu_R_W_n_next,
+        nwe       => cpu_R_W_n,
+        sync      => sync,
+        sync_irq  => open
         );
-    end generate;
-    
-    GenJensCore: if UseJensCore generate
-        Inst_r65c02_tc: entity work.r65c02_tc PORT MAP(
-            clk_clk_i   => cpu_clken,
-            d_i         => cpu_din,
-            irq_n_i     => cpu_IRQ_n_sync,
-            nmi_n_i     => cpu_NMI_n_sync,
-            rdy_i       => '1',
-            rst_rst_n_i => RSTn_sync,
-            so_n_i      => '1',
-            a_o         => cpu_addr(15 downto 0),
-            d_o         => cpu_dout,
-            rd_o        => open,
-            sync_o      => sync,
-            wr_n_o      => cpu_R_W_n,
-            wr_o        => open
-        );
-    end generate;
 
-    GenAlanDCore: if UseAlanDCore generate
-        inst_r65c02: entity work.r65c02 port map(
-            reset    => RSTn_sync,
-            clk      => clk_cpu,
-            enable   => cpu_clken,
-            nmi_n    => cpu_NMI_n_sync,
-            irq_n    => cpu_IRQ_n_sync,
-            di       => unsigned(cpu_din),
-            do       => cpu_dout_us,
-            addr     => cpu_addr_us(15 downto 0),
-            nwe      => cpu_R_W_n,
-            sync     => sync,
-            sync_irq => open
-        );
-        cpu_dout <= std_logic_vector(cpu_dout_us);
-        cpu_addr <= std_logic_vector(cpu_addr_us);
-    end generate;
+    cpu_dout      <= std_logic_vector(cpu_dout_us);
+    cpu_addr      <= std_logic_vector(cpu_addr_us);
+    cpu_dout_next <= std_logic_vector(cpu_dout_next_us);
+    cpu_addr_next <= std_logic_vector(cpu_addr_next_us);
 
     inst_tube: entity work.tube port map (
         h_addr          => h_addr,
@@ -199,8 +171,8 @@ begin
         clk     => clk_cpu,
         we_uP   => ram_wr_int,
         ce      => '1',
-        addr_uP => cpu_addr(15 downto 0),
-        D_uP    => cpu_dout,
+        addr_uP => cpu_addr_next(15 downto 0),
+        D_uP    => cpu_dout_next,
         Q_uP    => ram_data_out
     );
 
@@ -212,20 +184,24 @@ begin
     digit2_cs_b <= '0' when rom_cs_b = '0' and cpu_addr(11 downto 0) = x"870" else '1';
 
     -- Original: Acorn TUBE 65C102 Co-Processor
-    -- Updated:  Acorn TUBE 32Mhz 65C102 Co-Pro
+    -- Updated:  Acorn TUBE 64MHz 65C102 Co-Pro
     
-    digit1 <= x"33" when sw_out(1 downto 0) = "11" else
+    digit1 <= x"36" when sw_out(1 downto 0) = "11" else
               x"31" when sw_out(1 downto 0) = "10" else
               x"30"; 
 
-    digit2 <= x"32" when sw_out(1 downto 0) = "11" else
-              x"36" when sw_out(1 downto 0) = "10" else
+    digit2 <= x"36" when sw_out(1 downto 0) = "10" else
               x"38" when sw_out(1 downto 0) = "01" else
               x"34";
     
     ram_cs_b <= '0' when p_cs_b = '1' and rom_cs_b = '1' else '1';
-    
-    ram_wr_int <= ((not ram_cs_b) and (not cpu_R_W_n) and cpu_clken);
+
+    -- Look ahead versions of the chip selects
+    p_cs_b_next <= '0' when cpu_addr_next(15 downto 3) = "1111111011111" else '1';
+    rom_cs_b_next <= '0' when cpu_addr_next(15 downto 11) = "11111" and cpu_R_W_n_next = '1' and bootmode = '1' else '1';
+    ram_cs_b_next <= '0' when p_cs_b_next = '1' and rom_cs_b_next = '1' else '1';
+
+    ram_wr_int <= ((not ram_cs_b_next) and (not cpu_R_W_n_next) and cpu_clken);
 
     cpu_din <=
         p_data_out   when p_cs_b      = '0' else
@@ -305,7 +281,7 @@ begin
             clken_counter <= clken_counter + 1;
             case "00" & sw_out(1 downto 0) is
                when x"3"   =>
-                   cpu_clken     <= clken_counter(0);
+                   cpu_clken     <= '1';
                when x"2"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
                when x"1"   =>
