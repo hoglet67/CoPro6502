@@ -56,7 +56,6 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 -------------------------------------------------
 
     signal ram_cs_b        : std_logic;
-    signal ram_wr_int      : std_logic;
     signal rom_cs_b        : std_logic;
     signal rom_data_out    : std_logic_vector (7 downto 0);
     signal ram_data_out    : std_logic_vector (7 downto 0);
@@ -169,8 +168,8 @@ begin
 
     Inst_RAM_64K: entity work.RAM_64K PORT MAP(
         clk     => clk_cpu,
-        we_uP   => ram_wr_int,
-        ce      => '1',
+        we_uP   => not cpu_R_W_n_next,
+        ce      => not ram_cs_b_next,
         addr_uP => cpu_addr_next(15 downto 0),
         D_uP    => cpu_dout_next,
         Q_uP    => ram_data_out
@@ -200,8 +199,6 @@ begin
     p_cs_b_next <= '0' when cpu_addr_next(15 downto 3) = "1111111011111" else '1';
     rom_cs_b_next <= '0' when cpu_addr_next(15 downto 11) = "11111" and cpu_R_W_n_next = '1' and bootmode = '1' else '1';
     ram_cs_b_next <= '0' when p_cs_b_next = '1' and rom_cs_b_next = '1' else '1';
-
-    ram_wr_int <= ((not ram_cs_b_next) and (not cpu_R_W_n_next) and cpu_clken);
 
     cpu_din <=
         p_data_out   when p_cs_b      = '0' else
