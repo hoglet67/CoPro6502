@@ -169,7 +169,7 @@ begin
     Inst_RAM_64K: entity work.RAM_64K PORT MAP(
         clk     => clk_cpu,
         we_uP   => not cpu_R_W_n_next,
-        ce      => not ram_cs_b_next,
+        ce      => '1',
         addr_uP => cpu_addr_next(15 downto 0),
         D_uP    => cpu_dout_next,
         Q_uP    => ram_data_out
