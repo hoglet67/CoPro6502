@@ -122,7 +122,7 @@ begin
 
     inst_tuberom : entity work.tuberom_65c102_banner port map (
         CLK             => clk_cpu,
-        ADDR            => cpu_addr_next(10 downto 0),
+        ADDR            => cpu_addr(10 downto 0),
         DATA            => rom_data_out
     );
 
@@ -281,7 +281,12 @@ begin
             clken_counter <= clken_counter + 1;
             case "00" & sw_out(1 downto 0) is
                when x"3"   =>
-                   cpu_clken     <= '1';
+                   -- Add a single wait state for ROM accesses
+                   if (rom_cs_b_next = '0' and cpu_clken = '1') then
+                       cpu_clken     <= '0';
+                   else
+                       cpu_clken     <= '1';
+                   end if;                  
                when x"2"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
                when x"1"   =>
