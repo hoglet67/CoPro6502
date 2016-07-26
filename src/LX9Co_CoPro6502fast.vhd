@@ -105,7 +105,7 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
--    inst_ICAP_config : entity work.ICAP_config port map (
+--    inst_ICAP_config : entity work.ICAP_config port map (
 --        fastclk => fastclk,
 --        sw_in   => sw,
 --        sw_out  => sw_out,
@@ -119,7 +119,7 @@ begin
     
     sw_out <= sw;
     
-    inst_dcm_32_64 : entity work.dcm_32_64 port map (
+    inst_dcm_32_80 : entity work.dcm_32_80 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_cpu,
         CLK0_OUT1 => open,
@@ -128,10 +128,10 @@ begin
 
     inst_tuberom : entity work.tuberom_65c102_banner port map (
         CLK             => clk_cpu,
-        ADDR            => cpu_addr_next(10 downto 0),
+        ADDR            => cpu_addr(10 downto 0),
         DATA            => rom_data_out
     );
-
+    
     GenAlanDCore: if UseAlanDCore generate
         inst_r65c02: entity work.r65c02 port map(
             reset     => RSTn_sync,
@@ -174,9 +174,11 @@ begin
         process(clk_cpu)
         begin
             if rising_edge(clk_cpu) then
-                cpu_addr(15 downto 0) <= cpu_addr_next(15 downto 0);
-                cpu_dout              <= cpu_dout_next;
-                cpu_R_W_n             <= cpu_R_W_n_next;            
+                if cpu_clken = '1' then
+                    cpu_addr(15 downto 0) <= cpu_addr_next(15 downto 0);
+                    cpu_dout              <= cpu_dout_next;
+                    cpu_R_W_n             <= cpu_R_W_n_next;
+                end if;
             end if;
         end process;            
     end generate;
@@ -313,11 +315,11 @@ begin
             case "00" & sw_out(1 downto 0) is
                when x"3"   =>
                    -- Add a single wait state for ROM accesses
-                   --if (rom_cs_b_next = '0' and cpu_clken = '1') then
-                   --    cpu_clken     <= '0';
-                   --else
+                   if (rom_cs_b_next = '0' and cpu_clken = '1') then
+                       cpu_clken     <= '0';
+                   else
                        cpu_clken     <= '1';
-                   --end if;                  
+                   end if;                  
                when x"2"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
                when x"1"   =>
