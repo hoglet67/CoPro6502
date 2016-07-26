@@ -205,7 +205,7 @@ begin
     Inst_RAM_64K: entity work.RAM_64K PORT MAP(
         clk     => clk_cpu,
         we_uP   => not cpu_R_W_n_next,
-        ce      => '1',
+        ce      => cpu_clken,
         addr_uP => cpu_addr_next(15 downto 0),
         D_uP    => cpu_dout_next,
         Q_uP    => ram_data_out
@@ -221,13 +221,13 @@ begin
     -- Original: Acorn TUBE 65C102 Co-Processor
     -- Updated:  Acorn TUBE 64MHz 65C102 Co-Pro
     
-    digit1 <= x"36" when sw_out(1 downto 0) = "11" else
-              x"31" when sw_out(1 downto 0) = "10" else
+    digit1 <= x"38" when sw_out(1 downto 0) = "11" else
+              x"32" when sw_out(1 downto 0) = "10" else
+              x"31" when sw_out(1 downto 0) = "01" else
               x"30"; 
 
-    digit2 <= x"36" when sw_out(1 downto 0) = "10" else
-              x"38" when sw_out(1 downto 0) = "01" else
-              x"34";
+    digit2 <= x"35" when sw_out(1 downto 0) = "00" else
+              x"30";
     
     ram_cs_b <= '0' when p_cs_b = '1' and rom_cs_b = '1' else '1';
 
