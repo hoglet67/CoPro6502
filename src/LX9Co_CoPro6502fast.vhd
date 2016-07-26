@@ -4,6 +4,10 @@ use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
 entity LX9CoPro6502fast is
+    generic (
+       UseAlanDCore  : boolean := false;
+       UseArletCore  : boolean := true
+       );
     port (
         -- GOP Signals
         fastclk   : in    std_logic;
@@ -85,6 +89,7 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
     signal cpu_dout_next_us : unsigned (7 downto 0);
     signal cpu_addr_next    : std_logic_vector (23 downto 0);
     signal cpu_addr_next_us : unsigned (23 downto 0);
+    signal cpu_we_next      : std_logic;
     signal cpu_R_W_n_next   : std_logic;
     
     signal digit1_cs_b : std_logic;
@@ -100,17 +105,19 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_ICAP_config : entity work.ICAP_config port map (
-        fastclk => fastclk,
-        sw_in   => sw,
-        sw_out  => sw_out,
-        h_addr  => h_addr,
-        h_cs_b  => h_cs_b,
-        h_data  => h_data,
-        h_phi2  => h_phi2,
-        h_rdnw  => h_rdnw,
-        h_rst_b => h_rst_b 
-    );
+-    inst_ICAP_config : entity work.ICAP_config port map (
+--        fastclk => fastclk,
+--        sw_in   => sw,
+--        sw_out  => sw_out,
+--        h_addr  => h_addr,
+--        h_cs_b  => h_cs_b,
+--        h_data  => h_data,
+--        h_phi2  => h_phi2,
+--        h_rdnw  => h_rdnw,
+--        h_rst_b => h_rst_b 
+--    );
+    
+    sw_out <= sw;
     
     inst_dcm_32_64 : entity work.dcm_32_64 port map (
         CLKIN_IN  => fastclk,
@@ -121,32 +128,59 @@ begin
 
     inst_tuberom : entity work.tuberom_65c102_banner port map (
         CLK             => clk_cpu,
-        ADDR            => cpu_addr(10 downto 0),
+        ADDR            => cpu_addr_next(10 downto 0),
         DATA            => rom_data_out
     );
 
-    inst_r65c02: entity work.r65c02 port map(
-        reset     => RSTn_sync,
-        clk       => clk_cpu,
-        enable    => cpu_clken,
-        nmi_n     => cpu_NMI_n_sync,
-        irq_n     => cpu_IRQ_n_sync,
-        di        => unsigned(cpu_din),
-        do_next   => cpu_dout_next_us,
-        do        => cpu_dout_us,
-        addr_next => cpu_addr_next_us(15 downto 0),
-        addr      => cpu_addr_us(15 downto 0),
-        nwe_next  => cpu_R_W_n_next,
-        nwe       => cpu_R_W_n,
-        sync      => sync,
-        sync_irq  => open
-        );
+    GenAlanDCore: if UseAlanDCore generate
+        inst_r65c02: entity work.r65c02 port map(
+            reset     => RSTn_sync,
+            clk       => clk_cpu,
+            enable    => cpu_clken,
+            nmi_n     => cpu_NMI_n_sync,
+            irq_n     => cpu_IRQ_n_sync,
+            di        => unsigned(cpu_din),
+            do_next   => cpu_dout_next_us,
+            do        => cpu_dout_us,
+            addr_next => cpu_addr_next_us(15 downto 0),
+            addr      => cpu_addr_us(15 downto 0),
+            nwe_next  => cpu_R_W_n_next,
+            nwe       => cpu_R_W_n,
+            sync      => sync,
+            sync_irq  => open
+            );
 
-    cpu_dout      <= std_logic_vector(cpu_dout_us);
-    cpu_addr      <= std_logic_vector(cpu_addr_us);
-    cpu_dout_next <= std_logic_vector(cpu_dout_next_us);
-    cpu_addr_next <= std_logic_vector(cpu_addr_next_us);
+        cpu_dout      <= std_logic_vector(cpu_dout_us);
+        cpu_addr      <= std_logic_vector(cpu_addr_us);
+        cpu_dout_next <= std_logic_vector(cpu_dout_next_us);
+        cpu_addr_next <= std_logic_vector(cpu_addr_next_us);
+    end generate;
 
+    GenArletCore: if UseArletCore generate        
+        inst_arlet_6502: entity work.arlet_6502 port map(
+            clk   => clk_cpu,
+            reset => not RSTn_sync,
+            AB    => cpu_addr_next(15 downto 0),
+            DI    => cpu_din,
+            DO    => cpu_dout_next,
+            WE    => cpu_we_next,
+            IRQ   => not cpu_IRQ_n_sync,
+            NMI   => not cpu_NMI_n_sync,
+            RDY   => cpu_clken
+            );
+
+        cpu_R_W_n_next <= not cpu_we_next;        
+
+        process(clk_cpu)
+        begin
+            if rising_edge(clk_cpu) then
+                cpu_addr(15 downto 0) <= cpu_addr_next(15 downto 0);
+                cpu_dout              <= cpu_dout_next;
+                cpu_R_W_n             <= cpu_R_W_n_next;            
+            end if;
+        end process;            
+    end generate;
+    
     inst_tube: entity work.tube port map (
         h_addr          => h_addr,
         h_cs_b          => h_cs_b,
@@ -279,11 +313,11 @@ begin
             case "00" & sw_out(1 downto 0) is
                when x"3"   =>
                    -- Add a single wait state for ROM accesses
-                   if (rom_cs_b_next = '0' and cpu_clken = '1') then
-                       cpu_clken     <= '0';
-                   else
+                   --if (rom_cs_b_next = '0' and cpu_clken = '1') then
+                   --    cpu_clken     <= '0';
+                   --else
                        cpu_clken     <= '1';
-                   end if;                  
+                   --end if;                  
                when x"2"   =>
                    cpu_clken     <= clken_counter(1) and clken_counter(0);
                when x"1"   =>
