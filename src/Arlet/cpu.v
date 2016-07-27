@@ -123,7 +123,7 @@ reg shift;              // doing shift/rotate instruction
 reg rotate;             // doing rotate (no shift)
 reg backwards;          // backwards branch
 reg cond_true;          // branch condition is true
-reg [2:0] cond_code;    // condition code bits from instruction
+reg [3:0] cond_code;    // condition code bits from instruction
 reg shift_right;        // Instruction ALU shift/rotate right 
 reg alu_shift_right;    // Current cycle shift right enable
 reg [3:0] op;           // Main ALU operation for instruction
@@ -882,7 +882,8 @@ always @(posedge clk or posedge reset)
                 8'b0x00_1000:   state <= PUSH0;
                 8'b0x10_1000:   state <= PULL0;
                 8'b0xx1_1000:   state <= REG;   // CLC, SEC, CLI, SEI 
-                8'b1xx0_00x0:   state <= FETCH; // IMM
+                8'b11x0_00x0:   state <= FETCH; // IMM
+                8'b1x10_00x0:   state <= FETCH; // IMM
                 8'b1xx0_1100:   state <= ABS0;  // X/Y abs
                 8'b1xxx_1000:   state <= REG;   // DEY, TYA, ... 
                 8'bxxx0_0001:   state <= INDX0;
@@ -890,7 +891,8 @@ always @(posedge clk or posedge reset)
                 8'bxxx0_1001:   state <= FETCH; // IMM
                 8'bxxx0_1101:   state <= ABS0;  // even E column
                 8'bxxx0_1110:   state <= ABS0;  // even E column
-                8'bxxx1_0000:   state <= BRA0;  // odd 0 column
+                8'bxxx1_0000:   state <= BRA0;  // odd 0 column (Branches)
+                8'b1000_0000:   state <= BRA0;  // BRA
                 8'bxxx1_0001:   state <= INDY0; // odd 1 column
                 8'bxxx1_01xx:   state <= ZPX0;  // odd 4,5,6,7 columns
                 8'bxxx1_1001:   state <= ABSX0; // odd 9 column
@@ -1207,18 +1209,19 @@ always @(posedge clk )
 
 always @(posedge clk)
     if( RDY )
-        cond_code <= IR[7:5];
+        cond_code <= IR[7:4];
 
 always @*
     case( cond_code )
-            3'b000: cond_true = ~N;
-            3'b001: cond_true = N;
-            3'b010: cond_true = ~V;
-            3'b011: cond_true = V;
-            3'b100: cond_true = ~C;
-            3'b101: cond_true = C;
-            3'b110: cond_true = ~Z;
-            3'b111: cond_true = Z;
+            4'b0001: cond_true = ~N;
+            4'b0011: cond_true = N;
+            4'b0101: cond_true = ~V;
+            4'b0111: cond_true = V;
+            4'b1001: cond_true = ~C;
+            4'b1011: cond_true = C;
+            4'b1101: cond_true = ~Z;
+            4'b1111: cond_true = Z;
+            default: cond_true = 1; // BRA is 80
     endcase
 
 
