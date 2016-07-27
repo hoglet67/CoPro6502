@@ -119,7 +119,7 @@ begin
     
     sw_out <= sw;
     
-    inst_dcm_32_80 : entity work.dcm_32_80 port map (
+    inst_dcm_cpu_clk : entity work.dcm_32_80 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_cpu,
         CLK0_OUT1 => open,
