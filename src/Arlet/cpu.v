@@ -200,11 +200,11 @@ parameter
     JSR1   = 6'd27, // JSR     - push PCL, send S to ALU (-1)
     JSR2   = 6'd28, // JSR     - write S
     JSR3   = 6'd29, // JSR     - fetch MSB
-    PULL0  = 6'd30, // PLP/PLA - save next op in IRHOLD, send S to ALU (+1)
-    PULL1  = 6'd31, // PLP/PLA - fetch data from stack, write S
-    PULL2  = 6'd32, // PLP/PLA - prefetch op, but don't increment PC
-    PUSH0  = 6'd33, // PHP/PHA - send A to ALU (+0)
-    PUSH1  = 6'd34, // PHP/PHA - write A/P, send S to ALU (-1)
+    PULL0  = 6'd30, // PLP/PLA/PLX/PLY - save next op in IRHOLD, send S to ALU (+1)
+    PULL1  = 6'd31, // PLP/PLA/PLX/PLY - fetch data from stack, write S
+    PULL2  = 6'd32, // PLP/PLA/PLX/PLY - prefetch op, but don't increment PC
+    PUSH0  = 6'd33, // PHP/PHA/PHX/PHY - send A to ALU (+0)
+    PUSH1  = 6'd34, // PHP/PHA/PHX/PHY - write A/P, send S to ALU (-1)
     READ   = 6'd35, // Read memory for read/modify/write (INC, DEC, shift)
     REG    = 6'd36, // Read register for reg-reg transfers
     RTI0   = 6'd37, // RTI     - send S to ALU (+1)
@@ -895,7 +895,10 @@ always @(posedge clk or posedge reset)
                 8'bxxx1_01xx:   state <= ZPX0;  // odd 4,5,6,7 columns
                 8'bxxx1_1001:   state <= ABSX0; // odd 9 column
                 8'bxxx1_11xx:   state <= ABSX0; // odd C, D, E, F columns
-                8'bxxxx_1010:   state <= REG;   // <shift> A, TXA, ...  NOP
+                8'bx101_1010:   state <= PUSH0; // PHX/PHY
+                8'bx111_1010:   state <= PULL0; // PLX/PLY
+                8'bx0xx_1010:   state <= REG;   // <shift> A, TXA, ...  NOP
+                8'bxxx0_1010:   state <= REG;   // <shift> A, TXA, ...  NOP
             endcase
 
         ZP0     : state <= write_back ? READ : FETCH;
@@ -986,8 +989,9 @@ always @(posedge clk)
                 8'b10111010,    // TSX
                 8'b1011x1x0,    // LDX/LDY
                 8'b11001010,    // DEX
+                8'bx1x11010,    // PHY, PLY, PHX, PLX
                 8'b1x1xxx01,    // LDA, SBC
-                8'bxxx01000:    // DEY, TAY, INY, INX
+                8'bxxx01000:    // PHP, PLP, PHA, PLA, DEY, TAY, INY, INX
                                 load_reg <= 1;
 
                 default:        load_reg <= 0;
@@ -998,14 +1002,17 @@ always @(posedge clk)
         casex( IR )
                 8'b1110_1000,   // INX
                 8'b1100_1010,   // DEX
+                8'b1111_1010,   // PLX
                 8'b101x_xx10:   // LDX, TAX, TSX
                                 dst_reg <= SEL_X;
 
                 8'b0x00_1000,   // PHP, PHA
+                8'bx101_1010,   // PHX, PHY
                 8'b1001_1010:   // TXS
                                 dst_reg <= SEL_S;
 
                 8'b1x00_1000,   // DEY, DEX
+                8'b0111_1010,   // PLY
                 8'b101x_x100,   // LDY
                 8'b1010_x000:   // LDY #imm, TAY
                                 dst_reg <= SEL_Y;
@@ -1022,12 +1029,14 @@ always @(posedge clk)
                 8'b100x_x110,   // STX
                 8'b100x_1x10,   // TXA, TXS
                 8'b1110_xx00,   // INX, CPX
+                8'b1101_1010,   // PHX
                 8'b1100_1010:   // DEX
                                 src_reg <= SEL_X; 
 
                 8'b100x_x100,   // STY
                 8'b1001_1000,   // TYA
                 8'b1100_xx00,   // CPY
+                8'b0101_1010,   // PHY
                 8'b1x00_1000:   // DEY, INY
                                 src_reg <= SEL_Y;
 
@@ -1108,7 +1117,7 @@ always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
                 8'b0xxx_x110,   // ASL, ROL, LSR, ROR (abs, absx, zpg, zpgx)
-                8'b0xxx_1010:   // ASL, ROL, LSR, ROR (acc)
+                8'b0xx0_1010:   // ASL, ROL, LSR, ROR (acc)
                                 shift <= 1;
 
                 default:        shift <= 0;
@@ -1137,7 +1146,7 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
-                8'b0x1x_1010,   // ROL A, ROR A
+                8'b0x10_1010,   // ROL A, ROR A
                 8'b0x1x_x110:   // ROR, ROL 
                                 rotate <= 1;
 
