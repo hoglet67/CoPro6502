@@ -984,14 +984,14 @@ always @(posedge clk)
 always @(posedge clk)
      if( state == DECODE && RDY )
         casex( IR )
-                8'b0xx01010,    // ASLA, ROLA, LSRA, RORA
+                8'b0xxx1010,    // ASLA, INCA, ROLA, DECA, LSRA, PHY, RORA, PLY
                 8'b0xxxxx01,    // ORA, AND, EOR, ADC
                 8'b100x10x0,    // DEY, TYA, TXA, TXS
                 8'b1010xxx0,    // LDA/LDX/LDY 
                 8'b10111010,    // TSX
                 8'b1011x1x0,    // LDX/LDY
                 8'b11001010,    // DEX
-                8'bx1x11010,    // PHY, PLY, PHX, PLX
+                8'b11x11010,    // PHX, PLX
                 8'b1x1xxx01,    // LDA, SBC
                 8'bxxx01000:    // PHP, PLP, PHA, PLA, DEY, TAY, INY, INX
                                 load_reg <= 1;
@@ -1090,6 +1090,7 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
+                8'b0001_1010,   // INCA
                 8'b111x_x110,   // INC 
                 8'b11x0_1000:   // INX, INY
                                 inc <= 1;
@@ -1158,7 +1159,8 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
-                8'b00xx_xx10:   // ROL, ASL
+                8'b00xx_x110,   // ROL, ASL
+                8'b00x0_1010:   // ROL, ASL
                                 op <= OP_ROL;
 
                 8'b0010_x100:   // BIT zp/abs   
@@ -1167,6 +1169,7 @@ always @(posedge clk )
                 8'b01xx_xx10:   // ROR, LSR
                                 op <= OP_A;
 
+                8'b0011_1010,   // DEC A
                 8'b1000_1000,   // DEY
                 8'b1100_1010,   // DEX 
                 8'b110x_x110,   // DEC 
