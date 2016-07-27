@@ -219,7 +219,8 @@ parameter
     WRITE  = 6'd46, // Write memory for read/modify/write 
     ZP0    = 6'd47, // Z-page  - fetch ZP address
     ZPX0   = 6'd48, // ZP, X   - fetch ZP, and send to ALU (+X)
-    ZPX1   = 6'd49; // ZP, X   - load from memory
+    ZPX1   = 6'd49, // ZP, X   - load from memory
+    IND0   = 6'd50; // (ZP)    - fetch ZP address, and send to ALU (+0)
 
 `ifdef SIM
 
@@ -240,6 +241,7 @@ always @*
             ABSX0:  statename = "ABSX0";
             ABSX1:  statename = "ABSX1";
             ABSX2:  statename = "ABSX2";
+            IND0:   statename = "IND0";
             INDX0:  statename = "INDX0";
             INDX1:  statename = "INDX1";
             INDX2:  statename = "INDX2";
@@ -887,6 +889,7 @@ always @(posedge clk or posedge reset)
                 8'b1xx0_1100:   state <= ABS0;  // X/Y abs
                 8'b1xxx_1000:   state <= REG;   // DEY, TYA, ... 
                 8'bxxx0_0001:   state <= INDX0;
+                8'bxxx1_0010:   state <= IND0;  // (ZP) odd 2 column
                 8'bxxx0_01xx:   state <= ZP0;
                 8'bxxx0_1001:   state <= FETCH; // IMM
                 8'bxxx0_1101:   state <= ABS0;  // even E column
@@ -914,6 +917,8 @@ always @(posedge clk or posedge reset)
         ABSX0   : state <= ABSX1;
         ABSX1   : state <= (CO | store | write_back) ? ABSX2 : FETCH;
         ABSX2   : state <= write_back ? READ : FETCH;
+
+        IND0    : state <= INDX1;
 
         INDX0   : state <= INDX1;
         INDX1   : state <= INDX2;
@@ -984,6 +989,8 @@ always @(posedge clk)
 always @(posedge clk)
      if( state == DECODE && RDY )
         casex( IR )
+                8'b0xx10010,    // ORA, AND, EOR, ADC (zp)
+                8'b1x110010,    // LDA, SBC (zp)
                 8'b0xxx1010,    // ASLA, INCA, ROLA, DECA, LSRA, PHY, RORA, PLY
                 8'b0xxxxx01,    // ORA, AND, EOR, ADC
                 8'b100x10x0,    // DEY, TYA, TXA, TXS
@@ -1005,7 +1012,9 @@ always @(posedge clk)
                 8'b1110_1000,   // INX
                 8'b1100_1010,   // DEX
                 8'b1111_1010,   // PLX
-                8'b101x_xx10:   // LDX, TAX, TSX
+                8'b1010_0010,   // LDX imm
+                8'b101x_x110,   // LDX
+                8'b101x_1x10:   // LDX, TAX, TSX
                                 dst_reg <= SEL_X;
 
                 8'b0x00_1000,   // PHP, PHA
@@ -1060,6 +1069,7 @@ always @(posedge clk)
 always @(posedge clk)
      if( state == DECODE && RDY )
         casex( IR )
+                8'b1001_0010,   // STA (zp)
                 8'b100x_x1x0,   // STX, STY
                 8'b100x_xx01:   // STA
                                 store <= 1;
@@ -1101,6 +1111,7 @@ always @(posedge clk )
 always @(posedge clk )
      if( (state == DECODE || state == BRK0) && RDY )
         casex( IR )
+                8'bx111_0010,   // SBC (zp), ADC (zp)
                 8'bx11x_xx01:   // SBC, ADC
                                 adc_sbc <= 1;
 
@@ -1110,6 +1121,7 @@ always @(posedge clk )
 always @(posedge clk )
      if( (state == DECODE || state == BRK0) && RDY )
         casex( IR )
+                8'b0111_0010,   // ADC (zp)
                 8'b011x_xx01:   // ADC
                                 adc_bcd <= D;
 
@@ -1129,6 +1141,7 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
+                8'b1101_0010,   // CMP (zp)
                 8'b11x0_0x00,   // CPX, CPY (imm/zp)
                 8'b11x0_1100,   // CPX, CPY (abs)
                 8'b110x_xx01:   // CMP 
@@ -1140,7 +1153,8 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
-                8'b01xx_xx10:   // ROR, LSR
+                8'b01xx_x110,   // ROR, LSR
+                8'b01xx_1x10:   // ROR, LSR
                                 shift_right <= 1;
 
                 default:        shift_right <= 0; 
@@ -1166,9 +1180,11 @@ always @(posedge clk )
                 8'b0010_x100:   // BIT zp/abs   
                                 op <= OP_AND;
 
-                8'b01xx_xx10:   // ROR, LSR
+                8'b01xx_x110,   // ROR, LSR
+                8'b01xx_1x10:   // ROR, LSR
                                 op <= OP_A;
 
+                8'b11x1_0010,   // CMP, SBC (zp)
                 8'b0011_1010,   // DEC A
                 8'b1000_1000,   // DEY
                 8'b1100_1010,   // DEX 
@@ -1177,6 +1193,8 @@ always @(posedge clk )
                 8'b11x0_0x00,   // CPX, CPY (imm, zpg)
                 8'b11x0_1100:   op <= OP_SUB;
 
+                8'b00x1_0010,   // ORA, AND (zp)
+                8'b0x01_0010,   // ORA, EOR (zp)
                 8'b010x_xx01,   // EOR
                 8'b00xx_xx01:   // ORA, AND
                                 op <= { 2'b11, IR[6:5] };
