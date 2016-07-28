@@ -989,18 +989,18 @@ always @(posedge clk)
 always @(posedge clk)
      if( state == DECODE && RDY )
         casex( IR )
-                8'b0xx10010,    // ORA, AND, EOR, ADC (zp)
-                8'b1x110010,    // LDA, SBC (zp)
-                8'b0xxx1010,    // ASLA, INCA, ROLA, DECA, LSRA, PHY, RORA, PLY
-                8'b0xxxxx01,    // ORA, AND, EOR, ADC
-                8'b100x10x0,    // DEY, TYA, TXA, TXS
-                8'b1010xxx0,    // LDA/LDX/LDY 
-                8'b10111010,    // TSX
-                8'b1011x1x0,    // LDX/LDY
-                8'b11001010,    // DEX
-                8'b11x11010,    // PHX, PLX
-                8'b1x1xxx01,    // LDA, SBC
-                8'bxxx01000:    // PHP, PLP, PHA, PLA, DEY, TAY, INY, INX
+                8'b0xx1_0010,   // ORA, AND, EOR, ADC (zp)
+                8'b1x11_0010,   // LDA, SBC (zp)
+                8'b0xxx_1010,   // ASLA, INCA, ROLA, DECA, LSRA, PHY, RORA, PLY
+                8'b0xxx_xx01,   // ORA, AND, EOR, ADC
+                8'b100x_10x0,   // DEY, TYA, TXA, TXS
+                8'b1010_xxx0,   // LDA/LDX/LDY 
+                8'b1011_1010,   // TSX
+                8'b1011_x1x0,   // LDX/LDY
+                8'b1100_1010,   // DEX
+                8'b11x1_1010,   // PHX, PLX
+                8'b1x1x_xx01,   // LDA, SBC
+                8'bxxx0_1000:   // PHP, PLP, PHA, PLA, DEY, TAY, INY, INX
                                 load_reg <= 1;
 
                 default:        load_reg <= 0;
