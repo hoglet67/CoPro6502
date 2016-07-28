@@ -55,6 +55,7 @@ reg  D = 0;             // decimal flag
 reg  V = 0;             // overflow flag
 reg  N = 0;             // negative flag
 wire AZ;                // ALU Zero flag
+wire AZ2;               // ALU Second Zero flag, set using TSB/TRB semantics
 wire AV;                // ALU overflow flag
 wire AN;                // ALU negative flag
 wire HC;                // ALU half carry
@@ -126,8 +127,8 @@ reg cond_true;          // branch condition is true
 reg [3:0] cond_code;    // condition code bits from instruction
 reg shift_right;        // Instruction ALU shift/rotate right 
 reg alu_shift_right;    // Current cycle shift right enable
-reg [3:0] op;           // Main ALU operation for instruction
-reg [3:0] alu_op;       // Current cycle ALU operation 
+reg [4:0] op;           // Main ALU operation for instruction
+reg [4:0] alu_op;       // Current cycle ALU operation
 reg adc_bcd;            // ALU should do BCD style carry 
 reg adj_bcd;            // results should be BCD adjusted
 
@@ -136,6 +137,7 @@ reg adj_bcd;            // results should be BCD adjusted
  * get loaded at the DECODE state, and used later
  */
 reg store_zero;         // doing STZ instruction
+reg txb_ins;            // doing TSB/TRB instruction
 reg bit_ins;            // doing BIT instruction
 reg bit_ins_nv;         // doing BIT instruction that will update the n and v flags (i.e. not BIT imm)
 reg plp;                // doing PLP instruction
@@ -156,13 +158,14 @@ reg res;                // in reset
  */
 
 parameter
-        OP_OR  = 4'b1100,
-        OP_AND = 4'b1101,
-        OP_EOR = 4'b1110,
-        OP_ADD = 4'b0011,
-        OP_SUB = 4'b0111,
-        OP_ROL = 4'b1011,
-        OP_A   = 4'b1111;
+        OP_OR   = 5'b11000,
+        OP_AND  = 5'b11001,
+        OP_EOR  = 5'b11010,
+        OP_NAND = 5'b11011,
+        OP_ADD  = 5'b00100,
+        OP_SUB  = 5'b01100,
+        OP_ROL  = 5'b10100,
+        OP_A    = 5'b11100;
 
 /*
  * Microcode state machine. Basically, every addressing mode has its own
@@ -581,6 +584,7 @@ ALU ALU( .clk(clk),
          .OUT(ADD),
          .V(AV),
          .Z(AZ),
+         .Z2(AZ2),
          .N(AN),
          .HC(HC),
          .RDY(RDY) );
@@ -683,7 +687,6 @@ always @*
          RTI1,
          RTI2,
          INDX1,
-         READ,
          REG,
          JSR0,
          JSR1,
@@ -695,7 +698,9 @@ always @*
          PUSH1,
          PULL0,
          RTS0:  BI = 8'h00;
-        
+
+         READ:  BI = txb_ins ? regfile : 8'h00;
+
          BRA0:  BI = PCL;
 
          DECODE,
@@ -766,8 +771,8 @@ always @(posedge clk )
  */
 
 always @(posedge clk) 
-    if( state == WRITE ) 
-        Z <= AZ;
+    if( state == WRITE)
+        Z <= txb_ins ? AZ2 : AZ;
     else if( state == RTI2 )
         Z <= DIMUX[1];
     else if( state == DECODE ) begin
@@ -778,7 +783,7 @@ always @(posedge clk)
     end
 
 always @(posedge clk)
-    if( state == WRITE )
+    if( state == WRITE && ~txb_ins)
         N <= AN;
     else if( state == RTI2 )
         N <= DIMUX[7];
@@ -876,10 +881,12 @@ always @(posedge clk or posedge reset)
     else if( RDY ) case( state )
         DECODE  : 
             casex ( IR )
+                // TODO Review for simplifications as in verilog the first matching case has priority
                 8'b0000_0000:   state <= BRK0;
                 8'b0010_0000:   state <= JSR0;
                 8'b0010_1100:   state <= ABS0;  // BIT abs
                 8'b1001_1100:   state <= ABS0;  // STZ abs
+                8'b000x_1100:   state <= ABS0;  // TSB/TRB
                 8'b0100_0000:   state <= RTI0;  // 
                 8'b0100_1100:   state <= JMP0;
                 8'b0110_0000:   state <= RTS0;
@@ -893,6 +900,7 @@ always @(posedge clk or posedge reset)
                 8'b1xxx_1000:   state <= REG;   // DEY, TYA, ... 
                 8'bxxx0_0001:   state <= INDX0;
                 8'bxxx1_0010:   state <= IND0;  // (ZP) odd 2 column
+                8'b000x_0100:   state <= ZP0;   // TSB/TRB
                 8'bxxx0_01xx:   state <= ZP0;
                 8'bxxx0_1001:   state <= FETCH; // IMM
                 8'bxxx0_1101:   state <= ABS0;  // even D column
@@ -1089,6 +1097,7 @@ always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
                 8'b0xxx_x110,   // ASL, ROL, LSR, ROR
+                8'b000x_x100,   // TSB/TRB
                 8'b11xx_x110:   // DEC/INC 
                                 write_back <= 1;
 
@@ -1180,6 +1189,12 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
+                8'b0000_x100:   // TSB
+                                op <= OP_OR;
+
+                8'b0001_x100:   // TRB
+                                op <= OP_NAND;
+
                 8'b00xx_x110,   // ROL, ASL
                 8'b00x0_1010:   // ROL, ASL
                                 op <= OP_ROL;
@@ -1205,7 +1220,7 @@ always @(posedge clk )
                 8'b0x01_0010,   // ORA, EOR (zp)
                 8'b010x_xx01,   // EOR
                 8'b00xx_xx01:   // ORA, AND
-                                op <= { 2'b11, IR[6:5] };
+                                op <= { 3'b110, IR[6:5] };
                 
                 default:        op <= OP_ADD; 
         endcase
@@ -1221,6 +1236,15 @@ always @(posedge clk )
 
                 default:        // not a BIT instruction
                                 {bit_ins, bit_ins_nv}  <= 2'b00;
+        endcase
+
+always @(posedge clk )
+     if( state == DECODE && RDY )
+        casex( IR )
+                8'b000x_x100:   // TRB/TSB
+                                txb_ins <= 1;
+
+                default:        txb_ins <= 0;
         endcase
 
 always @(posedge clk )
