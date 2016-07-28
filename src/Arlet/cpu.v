@@ -55,6 +55,7 @@ reg  D = 0;             // decimal flag
 reg  V = 0;             // overflow flag
 reg  N = 0;             // negative flag
 wire AZ;                // ALU Zero flag
+reg  AZ2;               // ALU Second Zero flag, set using TSB/TRB semantics
 wire AV;                // ALU overflow flag
 wire AN;                // ALU negative flag
 wire HC;                // ALU half carry
@@ -136,6 +137,8 @@ reg adj_bcd;            // results should be BCD adjusted
  * get loaded at the DECODE state, and used later
  */
 reg store_zero;         // doing STZ instruction
+reg trb_ins;            // doing TRB instruction
+reg txb_ins;            // doing TSB/TRB instruction
 reg bit_ins;            // doing BIT instruction
 reg bit_ins_nv;         // doing BIT instruction that will update the n and v flags (i.e. not BIT imm)
 reg plp;                // doing PLP instruction
@@ -683,7 +686,6 @@ always @*
          RTI1,
          RTI2,
          INDX1,
-         READ,
          REG,
          JSR0,
          JSR1,
@@ -695,7 +697,9 @@ always @*
          PUSH1,
          PULL0,
          RTS0:  BI = 8'h00;
-        
+
+         READ:  BI = txb_ins ? (trb_ins ? ~regfile : regfile) : 8'h00;
+
          BRA0:  BI = PCL;
 
          DECODE,
@@ -762,12 +766,18 @@ always @(posedge clk )
     end
 
 /*
+ * Special Z flag got TRB/TSB
+ */ 
+always @(posedge clk) 
+    AZ2 <= ~|(AI & regfile);
+
+/*
  * Update Z, N flags when writing A, X, Y, Memory, or when doing compare
  */
 
 always @(posedge clk) 
-    if( state == WRITE ) 
-        Z <= AZ;
+    if( state == WRITE)
+        Z <= txb_ins ? AZ2 : AZ;
     else if( state == RTI2 )
         Z <= DIMUX[1];
     else if( state == DECODE ) begin
@@ -778,7 +788,7 @@ always @(posedge clk)
     end
 
 always @(posedge clk)
-    if( state == WRITE )
+    if( state == WRITE && ~txb_ins)
         N <= AN;
     else if( state == RTI2 )
         N <= DIMUX[7];
@@ -876,10 +886,12 @@ always @(posedge clk or posedge reset)
     else if( RDY ) case( state )
         DECODE  : 
             casex ( IR )
+                // TODO Review for simplifications as in verilog the first matching case has priority
                 8'b0000_0000:   state <= BRK0;
                 8'b0010_0000:   state <= JSR0;
                 8'b0010_1100:   state <= ABS0;  // BIT abs
                 8'b1001_1100:   state <= ABS0;  // STZ abs
+                8'b000x_1100:   state <= ABS0;  // TSB/TRB
                 8'b0100_0000:   state <= RTI0;  // 
                 8'b0100_1100:   state <= JMP0;
                 8'b0110_0000:   state <= RTS0;
@@ -893,6 +905,7 @@ always @(posedge clk or posedge reset)
                 8'b1xxx_1000:   state <= REG;   // DEY, TYA, ... 
                 8'bxxx0_0001:   state <= INDX0;
                 8'bxxx1_0010:   state <= IND0;  // (ZP) odd 2 column
+                8'b000x_0100:   state <= ZP0;   // TSB/TRB
                 8'bxxx0_01xx:   state <= ZP0;
                 8'bxxx0_1001:   state <= FETCH; // IMM
                 8'bxxx0_1101:   state <= ABS0;  // even D column
@@ -1089,6 +1102,7 @@ always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
                 8'b0xxx_x110,   // ASL, ROL, LSR, ROR
+                8'b000x_x100,   // TSB/TRB
                 8'b11xx_x110:   // DEC/INC 
                                 write_back <= 1;
 
@@ -1180,6 +1194,12 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
+                8'b0000_x100:   // TSB
+                                op <= OP_OR;
+
+                8'b0001_x100:   // TRB
+                                op <= OP_AND;
+
                 8'b00xx_x110,   // ROL, ASL
                 8'b00x0_1010:   // ROL, ASL
                                 op <= OP_ROL;
@@ -1221,6 +1241,24 @@ always @(posedge clk )
 
                 default:        // not a BIT instruction
                                 {bit_ins, bit_ins_nv}  <= 2'b00;
+        endcase
+
+always @(posedge clk )
+     if( state == DECODE && RDY )
+        casex( IR )
+                8'b000x_x100:   // TRB/TSB
+                                txb_ins <= 1;
+
+                default:        txb_ins <= 0;
+        endcase
+
+always @(posedge clk )
+     if( state == DECODE && RDY )
+        casex( IR )
+                8'b0001_x100:   // TRB
+                                trb_ins <= 1;
+
+                default:        trb_ins <= 0;
         endcase
 
 always @(posedge clk )
