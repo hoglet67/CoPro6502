@@ -135,6 +135,7 @@ reg adj_bcd;            // results should be BCD adjusted
  * some flip flops to remember we're doing special instructions. These
  * get loaded at the DECODE state, and used later
  */
+reg store_zero;         // doing STZ instruction
 reg bit_ins;            // doing BIT instruction
 reg plp;                // doing PLP instruction
 reg php;                // doing PHP instruction 
@@ -437,7 +438,7 @@ always @*
 
         BRK2:    DO = (IRQ | NMI_edge) ? (P & 8'b1110_1111) : P;
 
-        default: DO = regfile;
+        default: DO = store_zero ? 0 : regfile;
     endcase
 
 /*
@@ -877,6 +878,7 @@ always @(posedge clk or posedge reset)
                 8'b0000_0000:   state <= BRK0;
                 8'b0010_0000:   state <= JSR0;
                 8'b0010_1100:   state <= ABS0;  // BIT abs
+                8'b1001_1100:   state <= ABS0;  // STZ abs
                 8'b0100_0000:   state <= RTI0;  // 
                 8'b0100_1100:   state <= JMP0;
                 8'b0110_0000:   state <= RTS0;
@@ -892,14 +894,16 @@ always @(posedge clk or posedge reset)
                 8'bxxx1_0010:   state <= IND0;  // (ZP) odd 2 column
                 8'bxxx0_01xx:   state <= ZP0;
                 8'bxxx0_1001:   state <= FETCH; // IMM
-                8'bxxx0_1101:   state <= ABS0;  // even E column
+                8'bxxx0_1101:   state <= ABS0;  // even D column
                 8'bxxx0_1110:   state <= ABS0;  // even E column
                 8'bxxx1_0000:   state <= BRA0;  // odd 0 column (Branches)
                 8'b1000_0000:   state <= BRA0;  // BRA
                 8'bxxx1_0001:   state <= INDY0; // odd 1 column
                 8'bxxx1_01xx:   state <= ZPX0;  // odd 4,5,6,7 columns
                 8'bxxx1_1001:   state <= ABSX0; // odd 9 column
-                8'bxxx1_11xx:   state <= ABSX0; // odd C, D, E, F columns
+                8'bx011_1100:   state <= ABSX0; // C column BIT (3C), LDY (BC)
+                8'bxxx1_11x1:   state <= ABSX0; // odd D, F columns
+                8'bxxx1_111x:   state <= ABSX0; // odd E, F columns
                 8'bx101_1010:   state <= PUSH0; // PHX/PHY
                 8'bx111_1010:   state <= PULL0; // PLX/PLY
                 8'bx0xx_1010:   state <= REG;   // <shift> A, TXA, ...  NOP
@@ -1058,7 +1062,8 @@ always @(posedge clk)
      if( state == DECODE && RDY )
         casex( IR )
                 8'bxxx1_0001,   // INDY
-                8'b10x1_x110,   // LDX/STX zpg/abs, Y
+                8'b10x1_0110,   // LDX zp,Y / STX zp,Y
+                8'b1011_1110,   // LDX abs,Y
                 8'bxxxx_1001:   // abs, Y
                                 index_y <= 1;
 
@@ -1070,7 +1075,8 @@ always @(posedge clk)
      if( state == DECODE && RDY )
         casex( IR )
                 8'b1001_0010,   // STA (zp)
-                8'b100x_x1x0,   // STX, STY
+                8'b100x_x1x0,   // STX, STY, STZ abs, STZ abs,x
+                8'b011x_0100,   // STZ zp, STZ zp,x
                 8'b100x_xx01:   // STA
                                 store <= 1;
 
@@ -1209,6 +1215,16 @@ always @(posedge clk )
                                 bit_ins <= 1;
 
                 default:        bit_ins <= 0; 
+        endcase
+
+always @(posedge clk )
+     if( state == DECODE && RDY )
+        casex( IR )
+                8'b1001_11x0,   // STZ abs, STZ abs,x
+                8'b011x_0100:   // STZ zp, STZ zp,x
+                                store_zero <= 1;
+
+                default:        store_zero <= 0;
         endcase
 
 /*
