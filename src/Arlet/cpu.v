@@ -225,7 +225,10 @@ parameter
     ZP0    = 6'd47, // Z-page  - fetch ZP address
     ZPX0   = 6'd48, // ZP, X   - fetch ZP, and send to ALU (+X)
     ZPX1   = 6'd49, // ZP, X   - load from memory
-    IND0   = 6'd50; // (ZP)    - fetch ZP address, and send to ALU (+0)
+    IND0   = 6'd50, // (ZP)    - fetch ZP address, and send to ALU (+0)
+    JMPIX0 = 6'd51, // JMP (,X)- fetch LSB and send to ALU (+X)
+    JMPIX1 = 6'd52, // JMP (,X)- fetch MSB and send to ALU (+Carry)
+    JMPIX2 = 6'd53; // JMP (,X)- Wait for ALU (only if needed)
 
 `ifdef SIM
 
@@ -287,6 +290,10 @@ always @*
             JMP1:   statename = "JMP1";
             JMPI0:  statename = "JMPI0";
             JMPI1:  statename = "JMPI1";
+            JMPIX0: statename = "JMPIX0";
+            JMPIX1: statename = "JMPIX1";
+            JMPIX2: statename = "JMPIX2";
+          
     endcase
 
 //always @( PC )
@@ -310,12 +317,14 @@ always @*
 
         JMP1,
         JMPI1,
+        JMPIX1,
         JSR3,
         RTS3,           
         RTI4:           PC_temp = { DIMUX, ADD };
                         
         BRA1:           PC_temp = { ABH, ADD };
 
+        JMPIX2,
         BRA2:           PC_temp = { ADD, PCL };
 
         BRK2:           PC_temp =      res ? 16'hfffc : 
@@ -335,6 +344,8 @@ always @*
                             PC_inc = 1;
 
         ABS0,
+        JMPIX0,
+        JMPIX2,
         ABSX0,
         FETCH,
         BRA0,
@@ -344,6 +355,8 @@ always @*
         JMP1,
         RTI4,
         RTS3:           PC_inc = 1;
+
+        JMPIX1:         PC_inc = ~CO;       // Don't increment PC if we are going to go through JMPIX2
 
         BRA1:           PC_inc = CO ^~ backwards;
 
@@ -367,6 +380,7 @@ parameter
 
 always @*
     case( state )
+        JMPIX1,
         ABSX1,
         INDX3,
         INDY2,
@@ -377,6 +391,7 @@ always @*
 
         BRA2,
         INDY3,
+        JMPIX2,
         ABSX2:          AB = { ADD, ABL };
 
         BRA1:           AB = { ABH, ADD };
@@ -549,6 +564,7 @@ always @*
         INDY1,
         INDX0,
         ZPX0,
+        JMPIX0,
         ABSX0  : regsel = index_y ? SEL_Y : SEL_X;
 
 
@@ -650,6 +666,7 @@ always @*
         REG,
         ZPX0,
         INDX0,
+        JMPIX0,
         ABSX0,
         RTI0,
         RTS0,
@@ -717,6 +734,7 @@ always @*
     case( state )
         INDY2,
         BRA1,
+        JMPIX1,
         ABSX1:  CI = CO;
 
         DECODE,
@@ -891,6 +909,7 @@ always @(posedge clk or posedge reset)
                 8'b0100_1100:   state <= JMP0;
                 8'b0110_0000:   state <= RTS0;
                 8'b0110_1100:   state <= JMPI0;
+                8'b0111_1100:   state <= JMPIX0;
                 8'b0x00_1000:   state <= PUSH0;
                 8'b0x10_1000:   state <= PULL0;
                 8'b0xx1_1000:   state <= REG;   // CLC, SEC, CLI, SEI 
@@ -930,6 +949,10 @@ always @(posedge clk or posedge reset)
         ABSX0   : state <= ABSX1;
         ABSX1   : state <= (CO | store | write_back) ? ABSX2 : FETCH;
         ABSX2   : state <= write_back ? READ : FETCH;
+
+        JMPIX0  : state <= JMPIX1;
+        JMPIX1  : state <= CO ? JMPIX2 : JMP0;
+        JMPIX2  : state <= JMP0;
 
         IND0    : state <= INDX1;
 
