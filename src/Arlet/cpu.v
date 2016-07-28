@@ -137,6 +137,7 @@ reg adj_bcd;            // results should be BCD adjusted
  */
 reg store_zero;         // doing STZ instruction
 reg bit_ins;            // doing BIT instruction
+reg bit_ins_nv;         // doing BIT instruction that will update the n and v flags (i.e. not BIT imm)
 reg plp;                // doing PLP instruction
 reg php;                // doing PHP instruction 
 reg clc;                // clear carry
@@ -786,7 +787,7 @@ always @(posedge clk)
             N <= ADD[7];
         else if( (load_reg & (regsel != SEL_S)) | compare )
             N <= AN;
-    end else if( state == FETCH && bit_ins ) 
+    end else if( state == FETCH && bit_ins_nv )
         N <= DIMUX[7];
 
 /*
@@ -826,7 +827,7 @@ always @(posedge clk )
         if( adc_sbc ) V <= AV;
         if( clv )     V <= 0;
         if( plp )     V <= ADD[6];
-    end else if( state == FETCH && bit_ins ) 
+    end else if( state == FETCH && bit_ins_nv )
         V <= DIMUX[6];
 
 /*
@@ -1183,7 +1184,8 @@ always @(posedge clk )
                 8'b00x0_1010:   // ROL, ASL
                                 op <= OP_ROL;
 
-                8'b0010_x100:   // BIT zp/abs   
+                8'b1000_1001,   // BIT imm
+                8'b001x_x100:   // BIT zp/abs/zpx/absx
                                 op <= OP_AND;
 
                 8'b01xx_x110,   // ROR, LSR
@@ -1211,10 +1213,14 @@ always @(posedge clk )
 always @(posedge clk )
      if( state == DECODE && RDY )
         casex( IR )
-                8'b0010_x100:   // BIT zp/abs   
-                                bit_ins <= 1;
+                8'b001x_x100:   // BIT zp/abs/zpx/absx (update N,V,Z)
+                                {bit_ins, bit_ins_nv}  <= 2'b11;
 
-                default:        bit_ins <= 0; 
+                8'b1000_1001:   // BIT imm (update Z)
+                                {bit_ins, bit_ins_nv}  <= 2'b10;
+
+                default:        // not a BIT instruction
+                                {bit_ins, bit_ins_nv}  <= 2'b00;
         endcase
 
 always @(posedge clk )
