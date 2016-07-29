@@ -5,23 +5,22 @@
  * CI is Carry In.
  * CO is Carry Out.
  *
- * op[4:0] is defined as follows:
+ * op[3:0] is defined as follows:
  *
- * 00100   AI + BI
- * 01100   AI - BI
- * 10100   AI + AI
- * 11000   AI | BI
- * 11001   AI & BI
- * 11010   AI ^ BI
- * 11011   AI & ~BI
- * 11100   AI
+ * 0011   AI + BI
+ * 0111   AI - BI
+ * 1011   AI + AI
+ * 1100   AI | BI
+ * 1101   AI & BI
+ * 1110   AI ^ BI
+ * 1111   AI
  *
  */
 
-module ALU( clk, op, right, AI, BI, CI, CO, BCD, OUT, V, Z, Z2, N, HC, RDY );
+module ALU( clk, op, right, AI, BI, CI, CO, BCD, OUT, V, Z, N, HC, RDY );
 	input clk;
 	input right;
-	input [4:0] op;		// operation
+	input [3:0] op;		// operation
 	input [7:0] AI;
 	input [7:0] BI;
 	input CI;
@@ -30,7 +29,6 @@ module ALU( clk, op, right, AI, BI, CI, CO, BCD, OUT, V, Z, Z2, N, HC, RDY );
 	output CO;
 	output V;
 	output Z;
-	output Z2;   // A second Z flag, set using the semantics of TXB
 	output N;
 	output HC;
 	input RDY;
@@ -39,7 +37,6 @@ reg [7:0] OUT;
 reg CO;
 wire V;
 wire Z;
-reg Z2;
 reg N;
 reg HC;
 
@@ -50,18 +47,17 @@ reg [7:0] temp_BI;
 reg [4:0] temp_l;
 reg [4:0] temp_h;
 wire [8:0] temp = { temp_h, temp_l[3:0] };
-wire adder_CI = (right | (op[4:3] == 2'b11)) ? 0 : CI;
+wire adder_CI = (right | (op[3:2] == 2'b11)) ? 0 : CI;
 
 // calculate the logic operations. The 'case' can be done in 1 LUT per
 // bit. The 'right' shift is a simple mux that can be implemented by
 // F5MUX.
 always @*  begin
-	case( op[2:0] )
-	    3'b000: temp_logic = AI | BI;
-	    3'b001: temp_logic = AI & BI;
-	    3'b010: temp_logic = AI ^ BI;
-	    3'b011: temp_logic = AI & ~BI;
-      default: temp_logic = AI;
+	case( op[1:0] )
+	    2'b00: temp_logic = AI | BI;
+	    2'b01: temp_logic = AI & BI;
+	    2'b10: temp_logic = AI ^ BI;
+	    2'b11: temp_logic = AI;
 	endcase
 
 	if( right )
@@ -71,7 +67,7 @@ end
 // Add logic result to BI input. This only makes sense when logic = AI.
 // This stage can be done in 1 LUT per bit, using carry chain logic.
 always @* begin
-	case( op[4:3] )
+	case( op[3:2] )
 	    2'b00: temp_BI = BI;	// A+B
 	    2'b01: temp_BI = ~BI;	// A-B
 	    2'b10: temp_BI = temp_logic;	// A+A
@@ -104,7 +100,6 @@ always @(posedge clk)
 	CO  <= temp[8] | CO9;
 	N   <= temp[7];
 	HC  <= temp_HC;
-	Z2  <= ~|(AI & BI);
     end
 
 assign V = AI7 ^ BI7 ^ CO ^ N;

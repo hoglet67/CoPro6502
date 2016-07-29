@@ -55,7 +55,7 @@ reg  D = 0;             // decimal flag
 reg  V = 0;             // overflow flag
 reg  N = 0;             // negative flag
 wire AZ;                // ALU Zero flag
-wire AZ2;               // ALU Second Zero flag, set using TSB/TRB semantics
+reg  AZ2;               // ALU Second Zero flag, set using TSB/TRB semantics
 wire AV;                // ALU overflow flag
 wire AN;                // ALU negative flag
 wire HC;                // ALU half carry
@@ -127,8 +127,8 @@ reg cond_true;          // branch condition is true
 reg [3:0] cond_code;    // condition code bits from instruction
 reg shift_right;        // Instruction ALU shift/rotate right 
 reg alu_shift_right;    // Current cycle shift right enable
-reg [4:0] op;           // Main ALU operation for instruction
-reg [4:0] alu_op;       // Current cycle ALU operation
+reg [3:0] op;           // Main ALU operation for instruction
+reg [3:0] alu_op;       // Current cycle ALU operation 
 reg adc_bcd;            // ALU should do BCD style carry 
 reg adj_bcd;            // results should be BCD adjusted
 
@@ -137,6 +137,7 @@ reg adj_bcd;            // results should be BCD adjusted
  * get loaded at the DECODE state, and used later
  */
 reg store_zero;         // doing STZ instruction
+reg trb_ins;            // doing TRB instruction
 reg txb_ins;            // doing TSB/TRB instruction
 reg bit_ins;            // doing BIT instruction
 reg bit_ins_nv;         // doing BIT instruction that will update the n and v flags (i.e. not BIT imm)
@@ -158,14 +159,13 @@ reg res;                // in reset
  */
 
 parameter
-        OP_OR   = 5'b11000,
-        OP_AND  = 5'b11001,
-        OP_EOR  = 5'b11010,
-        OP_NAND = 5'b11011,
-        OP_ADD  = 5'b00100,
-        OP_SUB  = 5'b01100,
-        OP_ROL  = 5'b10100,
-        OP_A    = 5'b11100;
+        OP_OR  = 4'b1100,
+        OP_AND = 4'b1101,
+        OP_EOR = 4'b1110,
+        OP_ADD = 4'b0011,
+        OP_SUB = 4'b0111,
+        OP_ROL = 4'b1011,
+        OP_A   = 4'b1111;
 
 /*
  * Microcode state machine. Basically, every addressing mode has its own
@@ -600,7 +600,6 @@ ALU ALU( .clk(clk),
          .OUT(ADD),
          .V(AV),
          .Z(AZ),
-         .Z2(AZ2),
          .N(AN),
          .HC(HC),
          .RDY(RDY) );
@@ -716,7 +715,7 @@ always @*
          PULL0,
          RTS0:  BI = 8'h00;
 
-         READ:  BI = txb_ins ? regfile : 8'h00;
+         READ:  BI = txb_ins ? (trb_ins ? ~regfile : regfile) : 8'h00;
 
          BRA0:  BI = PCL;
 
@@ -783,6 +782,12 @@ always @(posedge clk )
             if( clc ) C <= 0;
         end
     end
+
+/*
+ * Special Z flag got TRB/TSB
+ */ 
+always @(posedge clk) 
+    AZ2 <= ~|(AI & regfile);
 
 /*
  * Update Z, N flags when writing A, X, Y, Memory, or when doing compare
@@ -1216,7 +1221,7 @@ always @(posedge clk )
                                 op <= OP_OR;
 
                 8'b0001_x100:   // TRB
-                                op <= OP_NAND;
+                                op <= OP_AND;
 
                 8'b00xx_x110,   // ROL, ASL
                 8'b00x0_1010:   // ROL, ASL
@@ -1243,7 +1248,7 @@ always @(posedge clk )
                 8'b0x01_0010,   // ORA, EOR (zp)
                 8'b010x_xx01,   // EOR
                 8'b00xx_xx01:   // ORA, AND
-                                op <= { 3'b110, IR[6:5] };
+                                op <= { 2'b11, IR[6:5] };
                 
                 default:        op <= OP_ADD; 
         endcase
@@ -1268,6 +1273,15 @@ always @(posedge clk )
                                 txb_ins <= 1;
 
                 default:        txb_ins <= 0;
+        endcase
+
+always @(posedge clk )
+     if( state == DECODE && RDY )
+        casex( IR )
+                8'b0001_x100:   // TRB
+                                trb_ins <= 1;
+
+                default:        trb_ins <= 0;
         endcase
 
 always @(posedge clk )
