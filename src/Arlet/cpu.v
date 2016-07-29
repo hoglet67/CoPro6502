@@ -28,6 +28,16 @@
 
 `define IMPLEMENT_NOPS
 
+/*
+ * Two things were needed to correctly implement 65C02 BCD arithmentic
+ * 1. The Z flag needs calculating over the BCD adjusted ALU output
+ * 2. The N flag needs calculating over the BCD adjusted ALU output
+ *
+ * If IMPLEMENT_CORRECT_BCD_FLAGS is defined, this additional logic is added
+ */
+
+// `define IMPLEMENT_CORRECT_BCD_FLAGS
+
 module arlet_6502( clk, reset, AB, DI, DO, WE, IRQ, NMI, RDY );
 
 input clk;              // CPU clock 
@@ -65,9 +75,11 @@ reg  D = 0;             // decimal flag
 reg  V = 0;             // overflow flag
 reg  N = 0;             // negative flag
 wire AZ;                // ALU Zero flag
+wire AZ1;               // ALU Zero flag (BCD adjusted)
 reg  AZ2;               // ALU Second Zero flag, set using TSB/TRB semantics
 wire AV;                // ALU overflow flag
 wire AN;                // ALU negative flag
+wire AN1;               // ALU negative flag (BCD adjusted)
 wire HC;                // ALU half carry
 
 reg  [7:0] AI;          // ALU Input A
@@ -75,6 +87,7 @@ reg  [7:0] BI;          // ALU Input B
 wire [7:0] DI;          // Data In
 wire [7:0] IR;          // Instruction register
 reg  [7:0] DO;          // Data Out 
+wire [7:0] AO;          // ALU output after BCD adjustment
 reg  WE;                // Write Enable
 reg  CI;                // Carry In
 wire CO;                // Carry Out 
@@ -554,6 +567,20 @@ always @* begin
     endcase
 end
 
+assign AO = { ADD[7:4] + ADJH, ADD[3:0] + ADJL };
+
+`ifdef IMPLEMENT_CORRECT_BCD_FLAGS
+
+assign AN1 = AO[7];
+assign AZ1 = ~|AO;
+
+`else
+
+assign AN1 = AN;
+assign AZ1 = AZ;
+
+`endif
+   
 /*
  * write to a register. Usually this is the (BCD corrected) output of the
  * ALU, but in case of the JSR0 we use the S register to temporarily store
@@ -562,7 +589,7 @@ end
  */
 always @(posedge clk)
     if( write_register & RDY )
-        AXYS[regsel] <= (state == JSR0) ? DIMUX : { ADD[7:4] + ADJH, ADD[3:0] + ADJL };
+        AXYS[regsel] <= (state == JSR0) ? DIMUX : AO;
 
 /*
  * register select logic. This determines which of the A, X, Y or
@@ -805,26 +832,26 @@ always @(posedge clk)
 
 always @(posedge clk) 
     if( state == WRITE)
-        Z <= txb_ins ? AZ2 : AZ;
+        Z <= txb_ins ? AZ2 : AZ1;
     else if( state == RTI2 )
         Z <= DIMUX[1];
     else if( state == DECODE ) begin
         if( plp )
             Z <= ADD[1];
         else if( (load_reg & (regsel != SEL_S)) | compare | bit_ins )
-            Z <= AZ;
+            Z <= AZ1;
     end
 
 always @(posedge clk)
     if( state == WRITE && ~txb_ins)
-        N <= AN;
+        N <= AN1;
     else if( state == RTI2 )
         N <= DIMUX[7];
     else if( state == DECODE ) begin
         if( plp )
             N <= ADD[7];
         else if( (load_reg & (regsel != SEL_S)) | compare )
-            N <= AN;
+            N <= AN1;
     end else if( state == FETCH && bit_ins_nv )
         N <= DIMUX[7];
 
