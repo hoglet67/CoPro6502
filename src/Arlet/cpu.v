@@ -18,6 +18,16 @@
  * on the output pads if external memory is required.
  */
 
+/*
+ * Two things were needed to correctly implement 65C02 NOPs
+ * 1. Ensure the microcode state machine uses an appropriate addressing mode for the opcode length
+ * 2. Ensure there are no side-effects (e.g. register updates, memory stores, etc)
+ * 
+ * If IMPLEMENT_NOPS is defined, the state machine is modified accordingly.
+ */
+
+`define IMPLEMENT_NOPS
+
 module arlet_6502( clk, reset, AB, DI, DO, WE, IRQ, NMI, RDY );
 
 input clk;              // CPU clock 
@@ -915,6 +925,11 @@ always @(posedge clk or posedge reset)
                 8'b0110_0000:   state <= RTS0;
                 8'b0110_1100:   state <= JMPI0;
                 8'b0111_1100:   state <= JMPIX0;
+`ifdef IMPLEMENT_NOPS             
+                8'bxxxx_xx11:   state <= REG;   // (NOP1: 3/7/B/F column)
+                8'bxxx0_0010:   state <= FETCH; // (NOP2: 2 column, 4 column handled correctly below)
+                8'bx1x1_1100:   state <= ABS0;  // (NOP3: C column)
+`endif
                 8'b0x00_1000:   state <= PUSH0;
                 8'b0x10_1000:   state <= PULL0;
                 8'b0xx1_1000:   state <= REG;   // CLC, SEC, CLI, SEI 
@@ -1029,7 +1044,7 @@ always @(posedge clk)
 
 always @(posedge clk)
      if( state == DECODE && RDY )
-        casex( IR )
+        casex( IR )             // DMB: Checked for 65C02 NOP collisions
                 8'b0xx1_0010,   // ORA, AND, EOR, ADC (zp)
                 8'b1x11_0010,   // LDA, SBC (zp)
                 8'b0xxx_1010,   // ASLA, INCA, ROLA, DECA, LSRA, PHY, RORA, PLY
@@ -1110,7 +1125,7 @@ always @(posedge clk)
 
 always @(posedge clk)
      if( state == DECODE && RDY )
-        casex( IR )
+        casex( IR )             // DMB: Checked for 65C02 NOP collisions
                 8'b1001_0010,   // STA (zp)
                 8'b100x_x1x0,   // STX, STY, STZ abs, STZ abs,x
                 8'b011x_0100,   // STZ zp, STZ zp,x
@@ -1123,7 +1138,7 @@ always @(posedge clk)
 
 always @(posedge clk )
      if( state == DECODE && RDY )
-        casex( IR )
+        casex( IR )             // DMB: Checked for 65C02 NOP collisions
                 8'b0xxx_x110,   // ASL, ROL, LSR, ROR
                 8'b000x_x100,   // TSB/TRB
                 8'b11xx_x110:   // DEC/INC 
