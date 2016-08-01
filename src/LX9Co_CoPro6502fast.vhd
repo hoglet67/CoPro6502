@@ -105,19 +105,17 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
---    inst_ICAP_config : entity work.ICAP_config port map (
---        fastclk => fastclk,
---        sw_in   => sw,
---        sw_out  => sw_out,
---        h_addr  => h_addr,
---        h_cs_b  => h_cs_b,
---        h_data  => h_data,
---        h_phi2  => h_phi2,
---        h_rdnw  => h_rdnw,
---        h_rst_b => h_rst_b 
---    );
-    
-    sw_out <= sw;
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => sw_out,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
     
     inst_dcm_cpu_clk : entity work.dcm_32_80 port map (
         CLKIN_IN  => fastclk,
@@ -157,7 +155,7 @@ begin
     end generate;
 
     GenArletCore: if UseArletCore generate        
-        inst_arlet_6502: entity work.arlet_6502 port map(
+        inst_arlet_6502: entity work.cpu_65c02 port map(
             clk   => clk_cpu,
             reset => not RSTn_sync,
             AB    => cpu_addr_next(15 downto 0),

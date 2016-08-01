@@ -1,11 +1,21 @@
 /*
- * verilog model of 6502 CPU.
+ * verilog model of 65C02 CPU.
  *
+ * Based on original 6502 "Arlet 6502 Core" by Arlet Ottens 
+ * 
  * (C) Arlet Ottens, <arlet@c-scape.nl>
  *
  * Feel free to use this code in any project (commercial or not), as long as you
  * keep this message, and the copyright notice. This code is provided "as is", 
- * without any warranties of any kind. 
+ * without any warranties of any kind.
+ * 
+ * Support for 65C02 instructions and addressing modes by David Banks and Ed Spittles
+ *
+ * (C) 2016 David Banks and Ed Spittles
+ * 
+ * Feel free to use this code in any project (commercial or not), as long as you
+ * keep this message, and the copyright notice. This code is provided "as is", 
+ * without any warranties of any kind.
  * 
  */
 
@@ -38,7 +48,7 @@
 
 // `define IMPLEMENT_CORRECT_BCD_FLAGS
 
-module arlet_6502( clk, reset, AB, DI, DO, WE, IRQ, NMI, RDY );
+module cpu_65c02( clk, reset, AB, DI, DO, WE, IRQ, NMI, RDY );
 
 input clk;              // CPU clock 
 input reset;            // reset signal
