@@ -53,16 +53,43 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 -------------------------------------------------
     
     signal p_cs_b        : std_logic;
+    signal bank_cs_b     : std_logic;
     signal p_data_out    : std_logic_vector (7 downto 0);
 
 -------------------------------------------------
 -- ram/rom signals
 -------------------------------------------------
 
-    signal ram_cs_b        : std_logic;
-    signal rom_cs_b        : std_logic;
-    signal rom_data_out    : std_logic_vector (7 downto 0);
-    signal ram_data_out    : std_logic_vector (7 downto 0);
+    signal ram_cs_b         : std_logic;
+    signal rom_cs_b         : std_logic;
+    signal rom_data_out     : std_logic_vector (7 downto 0);
+    signal int_ram_data_out : std_logic_vector (7 downto 0);
+    signal ext_ram_data_out : std_logic_vector (7 downto 0);
+
+-------------------------------------------------
+-- bank registers and physical address bus
+-------------------------------------------------
+
+    signal ext_ram       : std_logic;
+    signal ext_ram_next  : std_logic;
+    signal int_ram_we    : std_logic;
+    signal ext_ram_we    : std_logic;
+
+    signal physical_addr_next : std_logic_vector (20 downto 0);
+    
+    -- bit 7 = 0 for internal RAM, 1 for external RAM
+    type bank_reg_type is array (0 to 7) of std_logic_vector (7 downto 0);
+
+    signal bank_reg : bank_reg_type := (
+        0 => x"00",
+        1 => x"01",
+        2 => x"02",
+        3 => x"03",
+        4 => x"04",
+        5 => x"05",
+        6 => x"06",
+        7 => x"07"
+    );
 
 -------------------------------------------------
 -- cpu signals
@@ -70,8 +97,8 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 
     signal debug_clk  : std_logic;
     signal cpu_R_W_n  : std_logic;
-    signal cpu_addr   : std_logic_vector (23 downto 0);
-    signal cpu_addr_us: unsigned (23 downto 0);
+    signal cpu_addr   : std_logic_vector (15 downto 0);
+    signal cpu_addr_us: unsigned (15 downto 0);
     signal cpu_din    : std_logic_vector (7 downto 0);
     signal cpu_dout   : std_logic_vector (7 downto 0);
     signal cpu_dout_us: unsigned (7 downto 0);
@@ -83,12 +110,13 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 
     -- Lookahead (unregistered) signals
     signal p_cs_b_next      : std_logic;
+    signal bank_cs_b_next   : std_logic;
     signal ram_cs_b_next    : std_logic;
     signal rom_cs_b_next    : std_logic;    
     signal cpu_dout_next    : std_logic_vector (7 downto 0);
     signal cpu_dout_next_us : unsigned (7 downto 0);
-    signal cpu_addr_next    : std_logic_vector (23 downto 0);
-    signal cpu_addr_next_us : unsigned (23 downto 0);
+    signal cpu_addr_next    : std_logic_vector (15 downto 0);
+    signal cpu_addr_next_us : unsigned (15 downto 0);
     signal cpu_we_next      : std_logic;
     signal cpu_R_W_n_next   : std_logic;
     
@@ -105,19 +133,20 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_ICAP_config : entity work.ICAP_config port map (
-        fastclk => fastclk,
-        sw_in   => sw,
-        sw_out  => sw_out,
-        h_addr  => h_addr,
-        h_cs_b  => h_cs_b,
-        h_data  => h_data,
-        h_phi2  => h_phi2,
-        h_rdnw  => h_rdnw,
-        h_rst_b => h_rst_b 
-    );
+--    inst_ICAP_config : entity work.ICAP_config port map (
+--        fastclk => fastclk,
+--        sw_in   => sw,
+--        sw_out  => sw_out,
+--        h_addr  => h_addr,
+--        h_cs_b  => h_cs_b,
+--        h_data  => h_data,
+--        h_phi2  => h_phi2,
+--        h_rdnw  => h_rdnw,
+--        h_rst_b => h_rst_b 
+--    );
+    sw_out <= sw;
     
-    inst_dcm_cpu_clk : entity work.dcm_32_80 port map (
+    inst_dcm_cpu_clk : entity work.dcm_32_64 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_cpu,
         CLK0_OUT1 => open,
@@ -140,8 +169,8 @@ begin
             di        => unsigned(cpu_din),
             do_next   => cpu_dout_next_us,
             do        => cpu_dout_us,
-            addr_next => cpu_addr_next_us(15 downto 0),
-            addr      => cpu_addr_us(15 downto 0),
+            addr_next => cpu_addr_next_us,
+            addr      => cpu_addr_us,
             nwe_next  => cpu_R_W_n_next,
             nwe       => cpu_R_W_n,
             sync      => sync,
@@ -158,7 +187,7 @@ begin
         inst_arlet_6502: entity work.cpu_65c02 port map(
             clk   => clk_cpu,
             reset => not RSTn_sync,
-            AB    => cpu_addr_next(15 downto 0),
+            AB    => cpu_addr_next,
             DI    => cpu_din,
             DO    => cpu_dout_next,
             WE    => cpu_we_next,
@@ -173,7 +202,7 @@ begin
         begin
             if rising_edge(clk_cpu) then
                 if cpu_clken = '1' then
-                    cpu_addr(15 downto 0) <= cpu_addr_next(15 downto 0);
+                    cpu_addr              <= cpu_addr_next;
                     cpu_dout              <= cpu_dout_next;
                     cpu_R_W_n             <= cpu_R_W_n_next;
                 end if;
@@ -202,14 +231,16 @@ begin
 
     Inst_RAM_64K: entity work.RAM_64K PORT MAP(
         clk     => clk_cpu,
-        we_uP   => not cpu_R_W_n_next,
+        we_uP   => int_ram_we,
         ce      => cpu_clken,
-        addr_uP => cpu_addr_next(15 downto 0),
+        addr_uP => physical_addr_next(15 downto 0),
         D_uP    => cpu_dout_next,
-        Q_uP    => ram_data_out
+        Q_uP    => int_ram_data_out
     );
 
-    p_cs_b <= '0' when cpu_addr(15 downto 3) = "1111111011111" else '1';
+    p_cs_b <= '0' when cpu_addr(15 downto 3) = 2#1111_1110_1111_1# else '1';
+   
+    bank_cs_b <= '0' when cpu_addr(15 downto 3) = 2#1111_1110_1110_0# else '1';
 
     rom_cs_b <= '0' when cpu_addr(15 downto 11) = "11111" and cpu_R_W_n = '1' and bootmode = '1' else '1';
 
@@ -219,29 +250,58 @@ begin
     -- Original: Acorn TUBE 65C102 Co-Processor
     -- Updated:  Acorn TUBE 64MHz 65C102 Co-Pro
     
-    digit1 <= x"38" when sw_out(1 downto 0) = "11" else
-              x"32" when sw_out(1 downto 0) = "10" else
-              x"31" when sw_out(1 downto 0) = "01" else
+    digit1 <= x"36" when sw_out(1 downto 0) = "11" else
+              x"31" when sw_out(1 downto 0) = "10" else
               x"30"; 
 
-    digit2 <= x"35" when sw_out(1 downto 0) = "00" else
-              x"30";
+    digit2 <= x"38" when sw_out(1 downto 0) = "01" else
+              x"36" when sw_out(1 downto 0) = "10" else
+              x"34";
     
-    ram_cs_b <= '0' when p_cs_b = '1' and rom_cs_b = '1' else '1';
+    ram_cs_b <= '0' when bank_cs_b = '1' and p_cs_b = '1' and rom_cs_b = '1' else '1';
 
     -- Look ahead versions of the chip selects
-    p_cs_b_next <= '0' when cpu_addr_next(15 downto 3) = "1111111011111" else '1';
+    p_cs_b_next <= '0' when cpu_addr_next(15 downto 3) = 2#1111_1110_1111_1# else '1';
+    bank_cs_b_next <= '0' when cpu_addr_next(15 downto 3) = 2#1111_1110_1110_0# else '1';
     rom_cs_b_next <= '0' when cpu_addr_next(15 downto 11) = "11111" and cpu_R_W_n_next = '1' and bootmode = '1' else '1';
-    ram_cs_b_next <= '0' when p_cs_b_next = '1' and rom_cs_b_next = '1' else '1';
+    ram_cs_b_next <= '0' when p_cs_b_next = '1' and bank_cs_b_next = '1' and rom_cs_b_next = '1' else '1';
 
     cpu_din <=
-        p_data_out   when p_cs_b      = '0' else
-        digit1       when digit1_cs_b = '0' else 
-        digit2       when digit2_cs_b = '0' else 
-        rom_data_out when rom_cs_b    = '0' else
-        ram_data_out when ram_cs_b    = '0' else
+        p_data_out        when p_cs_b      = '0' else
+        digit1            when digit1_cs_b = '0' else 
+        digit2            when digit2_cs_b = '0' else 
+        rom_data_out      when rom_cs_b    = '0' else
+        int_ram_data_out  when ram_cs_b    = '0' and ext_ram = '0' else
+        ext_ram_data_out  when ram_cs_b    = '0' and ext_ram = '1' else
         x"f1";
-        
+
+    
+--------------------------------------------------------
+-- bank registers
+--------------------------------------------------------
+
+    process (clk_cpu)
+    begin
+        if rising_edge(clk_cpu) then
+            if cpu_clken = '1' then
+                ext_ram <= ext_ram_next;
+                if bank_cs_b = '0' and cpu_R_W_n = '0' and bootmode = '0' then
+                    bank_reg(conv_integer(cpu_addr(2 downto 0))) <= cpu_dout;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    physical_addr_next <= bank_reg(conv_integer(cpu_addr_next(15 downto 13))) & cpu_addr_next(12 downto 0);
+    
+    ext_ram_next <= physical_addr_next(20);
+
+    int_ram_we <= '1' when ext_ram_next = '0' and cpu_R_W_n_next = '0' else
+                  '0';
+
+    ext_ram_we <= '1' when ext_ram_next = '1' and cpu_R_W_n_next = '0' else
+                  '0';
+    
 --------------------------------------------------------
 -- external Ram unused
 --------------------------------------------------------
@@ -250,9 +310,11 @@ begin
     ram_cs <= '1';
     ram_oe <= '1';
     ram_wr <= '1';
-    ram_addr  <= (others => '1');
+    ram_addr  <= physical_addr_next(18 downto 0);
     ram_data  <= (others => '1');
 
+    ext_ram_data_out <= ram_data;
+            
 --------------------------------------------------------
 -- test signals
 --------------------------------------------------------
