@@ -70,11 +70,14 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
 -- bank registers and physical address bus
 -------------------------------------------------
 
-    signal ext_ram       : std_logic;
-    signal ext_ram_next  : std_logic;
-    signal int_ram_we    : std_logic;
-    signal ext_ram_we    : std_logic;
+    signal ext_ram            : std_logic;
+    signal ext_ram_next       : std_logic;
+    signal ext_ram_we         : std_logic;
+    signal ext_ram_we_next    : std_logic;
 
+    signal int_ram_we_next    : std_logic;
+
+    signal physical_addr      : std_logic_vector (20 downto 0);
     signal physical_addr_next : std_logic_vector (20 downto 0);
     
     -- bit 7 = 0 for internal RAM, 1 for external RAM
@@ -221,7 +224,7 @@ begin
 
     Inst_RAM_64K: entity work.RAM_64K PORT MAP(
         clk     => clk_cpu,
-        we_uP   => int_ram_we,
+        we_uP   => int_ram_we_next,
         ce      => cpu_clken,
         addr_uP => physical_addr_next(15 downto 0),
         D_uP    => cpu_dout_next,
@@ -295,22 +298,34 @@ begin
     
     ext_ram_next <= physical_addr_next(20);
 
-    int_ram_we <= '1' when ext_ram_next = '0' and cpu_R_W_n_next = '0' else
-                  '0';
+    int_ram_we_next <= '1' when ext_ram_next = '0' and cpu_R_W_n_next = '0' else
+                       '0';
 
-    ext_ram_we <= '1' when ext_ram_next = '1' and cpu_R_W_n_next = '0' else
-                  '0';
+    ext_ram_we_next <= '1' when ext_ram_next = '1' and cpu_R_W_n_next = '0' else
+                       '0';
     
 --------------------------------------------------------
--- external Ram unused
+-- external Ram
+--
+-- note: dispite the naming, all control signals are active low
 --------------------------------------------------------
-    ram_ub_b <= '1';
-    ram_lb_b <= '1';
-    ram_cs <= '1';
-    ram_oe <= '1';
-    ram_wr <= '1';
-    ram_addr  <= physical_addr_next(18 downto 0);
-    ram_data  <= (others => '1');
+    process (clk_cpu)
+    begin
+        if rising_edge(clk_cpu) then
+            if cpu_clken = '1' then
+                ext_ram_we <= ext_ram_we_next;
+                physical_addr <= physical_addr_next;
+            end if;
+        end if;
+    end process;
+
+    ram_ub_b  <= '1';
+    ram_lb_b  <= '0';
+    ram_cs    <= '0';
+    ram_oe    <= ext_ram_we;
+    ram_wr    <= not ext_ram_we;
+    ram_addr  <= physical_addr(18 downto 0);
+    ram_data  <= cpu_dout when ext_ram_we = '1' else "ZZZZZZZZ";
 
     ext_ram_data_out <= ram_data;
             
