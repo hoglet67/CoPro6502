@@ -79,17 +79,7 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
     
     -- bit 7 = 0 for internal RAM, 1 for external RAM
     type bank_reg_type is array (0 to 7) of std_logic_vector (7 downto 0);
-
-    signal bank_reg : bank_reg_type := (
-        0 => x"00",
-        1 => x"01",
-        2 => x"02",
-        3 => x"03",
-        4 => x"04",
-        5 => x"05",
-        6 => x"06",
-        7 => x"07"
-    );
+    signal bank_reg : bank_reg_type;
 
 -------------------------------------------------
 -- cpu signals
@@ -280,9 +270,18 @@ begin
 -- bank registers
 --------------------------------------------------------
 
-    process (clk_cpu)
+    process (clk_cpu, RSTn_sync)
     begin
-        if rising_edge(clk_cpu) then
+        if RSTn_sync = '0' then
+            bank_reg(0) <= x"00";
+            bank_reg(1) <= x"01";
+            bank_reg(2) <= x"02";
+            bank_reg(3) <= x"03";
+            bank_reg(4) <= x"04";
+            bank_reg(5) <= x"05";
+            bank_reg(6) <= x"06";
+            bank_reg(7) <= x"07";            
+        elsif rising_edge(clk_cpu) then
             if cpu_clken = '1' then
                 ext_ram <= ext_ram_next;
                 if bank_cs_b = '0' and cpu_R_W_n = '0' and bootmode = '0' then
