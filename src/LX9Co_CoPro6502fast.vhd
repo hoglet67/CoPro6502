@@ -385,27 +385,36 @@ begin
     clk_gen : process(clk_cpu)
     begin
         if rising_edge(clk_cpu) then
-            clken_counter <= clken_counter + 1;
-            case "00" & sw_out(1 downto 0) is
-               when x"3"   =>
-                   -- Add a single wait state for ROM accesses
-                   if (rom_cs_b_next = '0' and cpu_clken = '1') then
-                       cpu_clken     <= '0';
-                   else
-                       cpu_clken     <= '1';
-                   end if;                  
-               when x"2"   =>
-                   cpu_clken     <= clken_counter(1) and clken_counter(0);
-               when x"1"   =>
-                   cpu_clken     <= clken_counter(2) and clken_counter(1) and clken_counter(0);
-               when x"0"   =>
-                   cpu_clken     <= clken_counter(3) and clken_counter(2) and clken_counter(1) and clken_counter(0);
-               when others =>
-                   cpu_clken     <= clken_counter(0);
-            end case;
+            if clken_counter = 0 then
+                case sw_out(1 downto 0) is
+                    when "11" =>
+                        if rom_cs_b_next = '0' then
+                            -- Add one wait state for ROM accesses
+                            clken_counter <= x"1";
+                        elsif ext_ram_next = '1' then
+                            -- Add four wait states for external RAM accesses                        
+                            clken_counter <= x"4";
+                        else
+                            -- Full speed ahead!
+                            clken_counter <= x"0";                        
+                        end if;                  
+                    when "10" =>
+                        clken_counter <= x"3";
+                    when "01" =>
+                        clken_counter <= x"7";
+                    when "00" =>
+                        clken_counter <= x"F";
+                    when others =>
+                        -- there are no others
+                end case;                
+            else
+                clken_counter <= clken_counter - 1;
+            end if;
         end if;
     end process;
 
+    cpu_clken <= '1' when clken_counter = 0 else '0';
+    
 end BEHAVIORAL;
 
 
