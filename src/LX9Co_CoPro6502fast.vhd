@@ -336,7 +336,7 @@ begin
 
     ram_ub_b  <= '1';
     ram_lb_b  <= '0';
-    ram_cs    <= '0';
+    ram_cs    <= not ext_ram;
     ram_oe    <= ext_ram_we;
     ram_addr  <= physical_addr(18 downto 0);
     ram_data  <= cpu_dout when ext_ram_we = '1' else "ZZZZZZZZ";
