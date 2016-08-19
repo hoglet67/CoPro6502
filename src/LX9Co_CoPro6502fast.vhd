@@ -319,11 +319,25 @@ begin
         end if;
     end process;
 
+    -- With 4 wait states, an external RAM cycle lasts ~80ns
+    -- To provide some address setup/hold margin we generate
+    -- a gated write signal off the falling edge of the clock
+    -- which gives half a cycle of setup/hold margin
+    process (clk_cpu)
+    begin
+        if falling_edge(clk_cpu) then
+            if ext_ram_we = '1' and clken_counter > 0 then
+                ram_wr <= '0';
+            else
+                ram_wr <= '1';
+            end if;
+        end if;
+    end process;
+
     ram_ub_b  <= '1';
     ram_lb_b  <= '0';
     ram_cs    <= '0';
     ram_oe    <= ext_ram_we;
-    ram_wr    <= not ext_ram_we;
     ram_addr  <= physical_addr(18 downto 0);
     ram_data  <= cpu_dout when ext_ram_we = '1' else "ZZZZZZZZ";
 
@@ -399,10 +413,18 @@ begin
                             clken_counter <= x"0";                        
                         end if;                  
                     when "10" =>
-                        clken_counter <= x"3";
+                        if ext_ram_next = '1' then
+                            -- Add four wait states for external RAM accesses                        
+                            clken_counter <= x"4";
+                        else
+                            -- Quarter speed ahead!
+                            clken_counter <= x"3";
+                        end if; 
                     when "01" =>
+                        -- Running so slowly there is need to special case external RAM accesses
                         clken_counter <= x"7";
                     when "00" =>
+                        -- Running so slowly there is need to special case external RAM accesses
                         clken_counter <= x"F";
                     when others =>
                         -- there are no others
