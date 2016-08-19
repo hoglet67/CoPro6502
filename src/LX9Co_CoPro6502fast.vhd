@@ -75,6 +75,8 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
     signal ext_ram_we         : std_logic;
     signal ext_ram_we_next    : std_logic;
 
+    signal int_ram            : std_logic;
+    signal int_ram_next       : std_logic;
     signal int_ram_we_next    : std_logic;
 
     signal physical_addr      : std_logic_vector (20 downto 0);
@@ -264,8 +266,8 @@ begin
         digit1            when digit1_cs_b = '0' else 
         digit2            when digit2_cs_b = '0' else 
         rom_data_out      when rom_cs_b    = '0' else
-        int_ram_data_out  when ram_cs_b    = '0' and ext_ram = '0' else
-        ext_ram_data_out  when ram_cs_b    = '0' and ext_ram = '1' else
+        int_ram_data_out  when int_ram     = '1' else
+        ext_ram_data_out  when ext_ram     = '1' else
         x"f1";
 
     
@@ -286,6 +288,7 @@ begin
             bank_reg(7) <= x"07";            
         elsif rising_edge(clk_cpu) then
             if cpu_clken = '1' then
+                int_ram <= int_ram_next;
                 ext_ram <= ext_ram_next;
                 if bank_cs_b = '0' and cpu_R_W_n = '0' and bootmode = '0' then
                     bank_reg(conv_integer(cpu_addr(2 downto 0))) <= cpu_dout;
@@ -296,9 +299,13 @@ begin
 
     physical_addr_next <= bank_reg(conv_integer(cpu_addr_next(15 downto 13))) & cpu_addr_next(12 downto 0);
     
-    ext_ram_next <= physical_addr_next(20);
+    int_ram_next    <= '1' when ram_cs_b_next = '0' and physical_addr_next(20) = '0' else
+                       '0';
 
-    int_ram_we_next <= '1' when ext_ram_next = '0' and cpu_R_W_n_next = '0' else
+    ext_ram_next    <= '1' when ram_cs_b_next = '0' and physical_addr_next(20) = '1' else
+                       '0';
+
+    int_ram_we_next <= '1' when int_ram_next = '1' and cpu_R_W_n_next = '0' else
                        '0';
 
     ext_ram_we_next <= '1' when ext_ram_next = '1' and cpu_R_W_n_next = '0' else
