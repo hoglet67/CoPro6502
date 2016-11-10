@@ -24,11 +24,12 @@ begin
     process (clk)
     begin
         if rising_edge(clk) then
-            if (we_UP = '1' and ce = '1') then
-                RAM(conv_integer(addr_uP(15 downto 0))) <= D_up;
+            if ce = '1' then
+                if we_UP = '1' then
+                    RAM(conv_integer(addr_uP(15 downto 0))) <= D_up;
+                end if;
+                Q_up <= RAM(conv_integer(addr_uP(15 downto 0)));        
             end if;
-            Q_up <= RAM(conv_integer(addr_uP(15 downto 0)));
-            
         end if;
     end process;
 end BEHAVIORAL;
