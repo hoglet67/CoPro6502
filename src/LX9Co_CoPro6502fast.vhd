@@ -30,7 +30,7 @@ entity LX9CoPro6502fast is
         ram_oe       : out   std_logic;
         ram_wr       : out   std_logic;
         ram_addr     : out   std_logic_vector (18 downto 0);
-        ram_data     : inout std_logic_vector (7 downto 0)
+        ram_data     : inout std_logic_vector (15 downto 0)
     );
 end LX9CoPro6502fast;
 
@@ -128,18 +128,17 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
---    inst_ICAP_config : entity work.ICAP_config port map (
---        fastclk => fastclk,
---        sw_in   => sw,
---        sw_out  => sw_out,
---        h_addr  => h_addr,
---        h_cs_b  => h_cs_b,
---        h_data  => h_data,
---        h_phi2  => h_phi2,
---        h_rdnw  => h_rdnw,
---        h_rst_b => h_rst_b 
---    );
-    sw_out <= sw;
+    inst_ICAP_config : entity work.ICAP_config port map (
+        fastclk => fastclk,
+        sw_in   => sw,
+        sw_out  => sw_out,
+        h_addr  => h_addr,
+        h_cs_b  => h_cs_b,
+        h_data  => h_data,
+        h_phi2  => h_phi2,
+        h_rdnw  => h_rdnw,
+        h_rst_b => h_rst_b 
+    );
     
     inst_dcm_cpu_clk : entity work.dcm_32_64 port map (
         CLKIN_IN  => fastclk,
@@ -341,14 +340,14 @@ begin
         end if;
     end process;
 
-    ram_ub_b  <= '1';
-    ram_lb_b  <= '0';
+    ram_ub_b  <= not physical_addr(19);
+    ram_lb_b  <= physical_addr(19);
     ram_cs    <= not ext_ram;
     ram_oe    <= ext_ram_we;
     ram_addr  <= physical_addr(18 downto 0);
-    ram_data  <= cpu_dout when ext_ram_we = '1' else "ZZZZZZZZ";
+    ram_data  <= (cpu_dout & cpu_dout) when ext_ram_we = '1' else (others => 'Z');
 
-    ext_ram_data_out <= ram_data;
+    ext_ram_data_out <= ram_data(15 downto 8) when physical_addr(19) = '1' else ram_data(7 downto 0);
             
 --------------------------------------------------------
 -- test signals
