@@ -165,7 +165,7 @@ module LX9CoPro80186 (
   );
    
   
-  dcm_32_8 inst_dcm (
+  dcm_32_14 inst_dcm (
     .CLKIN_IN(fastclk), 
     .CLK0_OUT(clk), 
     .CLK0_OUT1(), 
