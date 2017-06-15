@@ -16,7 +16,7 @@ entity CoPro6502 is
         test      : out   std_logic_vector(6 downto 1);
         sw        : in    std_logic_vector(2 downto 1);
         fcs       : out   std_logic;
-        
+
         -- Tube signals (use 16 out of 22 DIL pins)
         h_phi2    : in    std_logic;  -- 1,2,12,21,23 are global clocks
         h_addr    : in    std_logic_vector(2 downto 0);
@@ -37,82 +37,6 @@ entity CoPro6502 is
 end CoPro6502;
 
 architecture BEHAVIORAL of CoPro6502 is
- 
-    component dcm_49_16
-        port (
-            CLKIN_IN  : in  std_logic;
-            CLK0_OUT  : out std_logic;
-            CLK0_OUT1 : out std_logic;
-            CLK2X_OUT : out std_logic
-        ); 
-    end component;
-
-    component tuberom_65c102
-        port (
-            CLK  : in  std_logic;
-            ADDR : in  std_logic_vector(10 downto 0);
-            DATA : out std_logic_vector(7 downto 0));
-    end component;
-
-    component T65
-        port(
-            Mode    : in  std_logic_vector(1 downto 0);
-            Res_n   : in  std_logic;
-            Enable  : in  std_logic;
-            Clk     : in  std_logic;
-            Rdy     : in  std_logic;
-            Abort_n : in  std_logic;
-            IRQ_n   : in  std_logic;
-            NMI_n   : in  std_logic;
-            SO_n    : in  std_logic;
-            DI      : in  std_logic_vector(7 downto 0);          
-            R_W_n   : out std_logic;
-            Sync    : out std_logic;
-            EF      : out std_logic;
-            MF      : out std_logic;
-            XF      : out std_logic;
-            ML_n    : out std_logic;
-            VP_n    : out std_logic;
-            VDA     : out std_logic;
-            VPA     : out std_logic;
-            A       : out std_logic_vector(23 downto 0);
-            DO      : out std_logic_vector(7 downto 0)
-        );
-    end component;
-
-    component r65c02_tc
-    port(
-        clk_clk_i   : in std_logic;
-        d_i         : in std_logic_vector(7 downto 0);
-        irq_n_i     : in std_logic;
-        nmi_n_i     : in std_logic;
-        rdy_i       : in std_logic;
-        rst_rst_n_i : in std_logic;
-        so_n_i      : in std_logic;          
-        a_o         : out std_logic_vector(15 downto 0);
-        d_o         : out std_logic_vector(7 downto 0);
-        rd_o        : out std_logic;
-        sync_o      : out std_logic;
-        wr_n_o      : out std_logic;
-        wr_o        : out std_logic
-        );
-    end component;
-    
-    component r65c02
-    port(
-        reset       : in std_logic;
-        clk         : in std_logic;
-        enable      : in std_logic;
-        nmi_n       : in std_logic;
-        irq_n       : in std_logic;
-        di          : in unsigned(7 downto 0);          
-        do          : out unsigned(7 downto 0);
-        addr        : out unsigned(15 downto 0);
-        nwe         : out std_logic;
-        sync        : out std_logic;
-        sync_irq    : out std_logic
-        );
-    end component;
 
     component tube
         port(
@@ -147,14 +71,16 @@ architecture BEHAVIORAL of CoPro6502 is
     signal phi2          : std_logic;
     signal phi3          : std_logic;
     signal cpu_clken     : std_logic;
-    signal clken_counter : std_logic_vector (3 downto 0);
+    signal clken_counter : std_logic_vector (1 downto 0);
     signal bootmode      : std_logic;
     signal RSTn          : std_logic;
+    signal RSTn_sync     : std_logic;
 
 -------------------------------------------------
 -- parasite signals
 -------------------------------------------------
-    
+
+    signal p_cs_b_en     : std_logic;
     signal p_cs_b        : std_logic;
     signal p_data_out    : std_logic_vector (7 downto 0);
 
@@ -189,25 +115,25 @@ begin
 -- instantiated components
 ---------------------------------------------------------------------
 
-    inst_dcm_49_16 : dcm_49_16 port map (
+    inst_dcm_49_16 : entity work.dcm_49_16 port map (
         CLKIN_IN  => fastclk,
         CLK0_OUT  => clk_16M00,
         CLK0_OUT1 => open,
         CLK2X_OUT => open
     );
 
-    inst_tuberom : tuberom_65c102 port map (
+    inst_tuberom : entity work.tuberom_65c102 port map (
         CLK             => clk_16M00,
         ADDR            => cpu_addr(10 downto 0),
         DATA            => rom_data_out
     );
 
     GenT65Core: if UseT65Core generate
-        inst_T65 : T65 port map (
+        inst_T65 : entity work.T65 port map (
             Mode            => "01",
             Abort_n         => '1',
             SO_n            => '1',
-            Res_n           => RSTn,
+            Res_n           => RSTn_sync,
             Enable          => cpu_clken,
             Clk             => clk_16M00,
             Rdy             => '1',
@@ -220,17 +146,17 @@ begin
             DO(7 downto 0)  => cpu_dout
         );
         -- For debugging only
-        debug_clk <= cpu_clken;        
+        debug_clk <= cpu_clken;
     end generate;
-    
+
     GenJensCore: if UseJensCore generate
-        Inst_r65c02_tc: r65c02_tc PORT MAP(
+        Inst_r65c02_tc: entity work.r65c02_tc PORT MAP(
             clk_clk_i   => phi0,
             d_i         => cpu_din,
             irq_n_i     => cpu_IRQ_n_sync,
             nmi_n_i     => cpu_NMI_n_sync,
             rdy_i       => '1',
-            rst_rst_n_i => RSTn,
+            rst_rst_n_i => RSTn_sync,
             so_n_i      => '1',
             a_o         => cpu_addr(15 downto 0),
             d_o         => cpu_dout,
@@ -240,12 +166,12 @@ begin
             wr_o        => open
         );
         -- For debugging only
-        debug_clk <= phi0;    
+        debug_clk <= phi0;
     end generate;
 
     GenAlanDCore: if UseAlanDCore generate
-        inst_r65c02: r65c02 port map(
-            reset    => RSTn,
+        inst_r65c02: entity work.r65c02 port map(
+            reset    => RSTn_sync,
             clk      => clk_16M00,
             enable   => cpu_clken,
             nmi_n    => cpu_NMI_n_sync,
@@ -260,7 +186,7 @@ begin
         cpu_dout <= std_logic_vector(cpu_dout_us);
         cpu_addr <= std_logic_vector(cpu_addr_us);
         -- For debugging only
-        debug_clk <= cpu_clken;        
+        debug_clk <= cpu_clken;
     end generate;
 
     inst_tube: tube port map (
@@ -272,16 +198,17 @@ begin
         h_rst_b         => h_rst_b,
         h_irq_b         => h_irq_b,
         p_addr          => cpu_addr(2 downto 0),
-        p_cs_b          => p_cs_b,
+        p_cs_b          => p_cs_b_en,
         p_data_in       => cpu_dout,
         p_data_out      => p_data_out,
         p_rdnw          => cpu_R_W_n,
-        p_phi2          => phi1,
+        p_phi2          => clk_16M00,
         p_rst_b         => RSTn,
         p_nmi_b         => cpu_NMI_n,
         p_irq_b         => cpu_IRQ_n
     );
 
+    p_cs_b_en <= not((not p_cs_b) and cpu_clken);
 
     p_cs_b <= '0' when cpu_addr(15 downto 3) = "1111111011111" else '1';
 
@@ -294,7 +221,7 @@ begin
         rom_data_out when rom_cs_b = '0' else
         ram_data     when ram_cs_b = '0' else
         x"f1";
-    
+
     ram_cs <= ram_cs_b;
     ram_oe_int <= not ((not ram_cs_b) and cpu_R_W_n);
     ram_oe <= ram_oe_int;
@@ -304,11 +231,11 @@ begin
     ram_data <= cpu_dout when cpu_R_W_n = '0' else "ZZZZZZZZ";
 
     fcs <= '1';
-    
+
     testpr : process(sw, debug_clk, sync, cpu_addr, h_addr, h_cs_b, cpu_dout, p_data_out, p_cs_b, cpu_NMI_n, cpu_IRQ_n)
     begin
         if (sw(1) = '1' and sw(2) = '1') then
-        
+
             test(6) <= debug_clk;
             test(5) <= RSTn;
             test(4) <= sync;
@@ -324,13 +251,13 @@ begin
             tp(3) <= cpu_addr(1);
             tp(2) <= cpu_addr(0);
         else
-        
-            test(6) <= debug_clk; 
-            test(5) <= RSTn; 
-            test(4) <= sync; 
-            test(3) <= '0'; 
-            test(2) <= '0'; 
-            test(1) <= '0'; 
+
+            test(6) <= debug_clk;
+            test(5) <= RSTn;
+            test(4) <= sync;
+            test(3) <= '0';
+            test(2) <= '0';
+            test(1) <= '0';
             tp(8) <= ram_cs_b;
             tp(7) <= ram_wr_int;
             tp(6) <= ram_oe_int;
@@ -339,7 +266,7 @@ begin
             tp(3) <= CPU_NMI_n;
             tp(2) <= bootmode;
 
-    
+
 --            test(6) <= CPU_NMI_n;
 --            test(5) <= '0';
 --            if h_addr(2 downto 0) = "101" and h_cs_b = '0' then
@@ -364,13 +291,13 @@ begin
         end if;
     end process;
 
-    
+
 --------------------------------------------------------
 -- boot mode generator
 --------------------------------------------------------
-    boot_gen : process(clk_16M00, RSTn)
+    boot_gen : process(clk_16M00, RSTn_sync)
     begin
-        if RSTn = '0' then
+        if RSTn_sync = '0' then
             bootmode <= '1';
         elsif rising_edge(clk_16M00) then
             if p_cs_b = '0' then
@@ -379,15 +306,15 @@ begin
         end if;
     end process;
 
-    sync_gen : process(clk_16M00, RSTn)
+    sync_gen : process(clk_16M00, RSTn_sync)
     begin
-        if RSTn = '0' then
+        if RSTn_sync = '0' then
             cpu_NMI_n_sync <= '1';
             cpu_IRQ_n_sync <= '1';
         elsif rising_edge(clk_16M00) then
             if (cpu_clken = '1') then
                 cpu_NMI_n_sync <= cpu_NMI_n;
-                cpu_IRQ_n_sync <= cpu_IRQ_n;            
+                cpu_IRQ_n_sync <= cpu_IRQ_n;
             end if;
         end if;
     end process;
@@ -405,12 +332,6 @@ begin
 --------------------------------------------------------
     clk_gen : process(clk_16M00, RSTn)
     begin
---        if RSTn = '0' then
---            clken_counter <= (others => '0');
---            cpu_clken <= '0';
---            phi       <= '0';
---            phi2      <= '0';
---        els
         if rising_edge(clk_16M00) then
             clken_counter <= clken_counter + 1;
             cpu_clken     <= clken_counter(0) and clken_counter(1);
@@ -419,8 +340,7 @@ begin
             phi2          <= phi1;
             phi3          <= phi2;
         end if;
+        RSTn_sync <= RSTn;
     end process;
-    
+
 end BEHAVIORAL;
-
-
