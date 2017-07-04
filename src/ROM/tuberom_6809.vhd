@@ -652,11 +652,11 @@ begin
             when x"26E" => DATA <= x"BF";
             when x"26F" => DATA <= x"FF";
             when x"270" => DATA <= x"8A";
-            when x"271" => DATA <= x"46";
-            when x"272" => DATA <= x"10";
-            when x"273" => DATA <= x"BF";
-            when x"274" => DATA <= x"FF";
-            when x"275" => DATA <= x"90";
+            when x"271" => DATA <= x"10";
+            when x"272" => DATA <= x"BF";
+            when x"273" => DATA <= x"FF";
+            when x"274" => DATA <= x"90";
+            when x"275" => DATA <= x"46";
             when x"276" => DATA <= x"BE";
             when x"277" => DATA <= x"FF";
             when x"278" => DATA <= x"86";
@@ -836,7 +836,7 @@ begin
             when x"326" => DATA <= x"FF";
             when x"327" => DATA <= x"82";
             when x"328" => DATA <= x"EC";
-            when x"329" => DATA <= x"84";
+            when x"329" => DATA <= x"86";
             when x"32A" => DATA <= x"1F";
             when x"32B" => DATA <= x"01";
             when x"32C" => DATA <= x"1F";
