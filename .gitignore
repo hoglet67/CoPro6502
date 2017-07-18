@@ -19,3 +19,6 @@ client/z80/
 multiboot/
 src/Tube/ph_fifo_core_spartan3*
 src/Tube/ph_fifo_core_spartan3/
+_impact.log
+_impact.cmd
+
