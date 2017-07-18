@@ -11,7 +11,8 @@ module ICAP_core
    output [7:0] test
    );
 
-   reg          clk_16M00;
+   reg [1:0]    clk;
+   reg          reconfigure_sync;
 
    reg [15:0]   icap_din;
    reg          icap_ce;
@@ -30,11 +31,7 @@ module ICAP_core
 
    reg test_trig;
 
-   assign test = { clk_16M00, test_trig, busy, ff_icap_wr,
-    sw_in[0] ? icap_dout[3:0] :
-        (sw_in[1] ? icap_dout[7:4] :
-            (sw_in[2] ? icap_dout[11:8] :
-                (sw_in[3] ? icap_dout[15:12] : 4'b1010)))};
+   assign test = { 8'b0 };
 
    assign sw_out = powerup ? sw_in : soft_dip[3:0];
 
@@ -49,7 +46,7 @@ module ICAP_core
       .BUSY      (busy),   // Busy output
       .O         (icap_dout_reversed),   // 16-bit data output
       .CE        (ff_icap_ce),   // Clock enable input
-      .CLK       (clk_16M00),         // Clock input
+      .CLK       (clk[0]),         // Clock input
       .I         (ff_icap_din_reversed),  // 16-bit data input
       .WRITE     (ff_icap_wr)    // Write input
       );
@@ -110,7 +107,7 @@ module ICAP_core
    reg [5:0]    state = INIT;
    reg [5:0]    next_state;
 
-   always @(MBT_REBOOT or state or design_num or reconfigure or powerup or sw_in or busy or soft_dip)
+   always @(MBT_REBOOT or state or design_num or reconfigure_sync or powerup or sw_in or busy or soft_dip)
      begin: COMB
 
         case (state)
@@ -279,7 +276,7 @@ module ICAP_core
 
           IDLE:
             begin
-               if (reconfigure) begin
+               if (reconfigure_sync) begin
                   next_state  = DUMMY_1;
                end else begin
                   next_state  = IDLE;
@@ -483,12 +480,43 @@ module ICAP_core
      end
 
 
+   // Clock ICAP_SPARTAN6 and the state machine with clocks that are 90deg phase apart.
+   //
+   // This is an attempt to cure some reconfiguration unreliability.
+   //
+   // The problem is that ICAP_SPARTAN2 isn't treated by the Xilinx tools as a synchronous
+   // component, so when clocked off the same clock there can be timing issues.
+   //
+   // The below clocking patten runs the clock at 8MHz (half what it was before).
+   //
+   // It ensures there is plenty of setup and hold time margin for signals passing
+   // between ICAP_SPARTAN6 and the state machine, regardless of which clk edge is used
+   // ICAP_SPARTAN6.
+   //
+   // See this link for some related discussion:
+   // https://forums.xilinx.com/t5/Spartan-Family-FPGAs/20Mhz-limitation-for-ICAP-SPARTAN6/td-p/238060
+   //
+   // NOTE: I'm hedging here, as this bug is quite difficult to reproduce, and changing almost anything
+   // (e.g. connecting state to the test pins) causes the problem to go away.
+   //
+   // At worst this change should be harmless!
+   //
+   // Dave Banks - 18/07/2017
+   
    always@(posedge fastclk) begin
-      clk_16M00 = !clk_16M00;
+      if (clk == 2'b00)
+        clk <= 2'b10;
+      else if (clk == 2'b10)
+        clk <= 2'b11;
+      else if (clk == 2'b11)
+        clk <= 2'b01;
+      else
+        clk <= 2'b00;
    end
 
    // Give a bit of delay before starting the state machine
-   always @(posedge clk_16M00) begin
+   always @(posedge clk[1]) begin
+      reconfigure_sync <= reconfigure;
       if (MBT_REBOOT == 4'b1111) begin
          state <= next_state;
       end else begin
@@ -506,7 +534,7 @@ module ICAP_core
    end
 
 
-   always @(posedge clk_16M00) begin:   ICAP_FF
+   always @(posedge clk[1]) begin:   ICAP_FF
         // need to reverse bits to ICAP module since D0 bit is read first
         ff_icap_din_reversed[0]  <= icap_din[7];
         ff_icap_din_reversed[1]  <= icap_din[6];
