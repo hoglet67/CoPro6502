@@ -45,7 +45,7 @@ architecture BEHAVIORAL of LX9CoPro6502fast is
     signal bootmode      : std_logic;
     signal RSTn          : std_logic;
     signal RSTn_sync     : std_logic;
-    signal clken_counter : std_logic_vector (3 downto 0);
+    signal clken_counter : std_logic_vector (4 downto 0);
     signal reset_counter : std_logic_vector (8 downto 0);
     
 -------------------------------------------------
@@ -248,7 +248,7 @@ begin
               x"31" when sw_out(1 downto 0) = "10" else
               x"30"; 
 
-    digit2 <= x"38" when sw_out(1 downto 0) = "01" else
+    digit2 <= x"33" when sw_out(1 downto 0) = "00" else
               x"36" when sw_out(1 downto 0) = "10" else
               x"34";
     
@@ -408,30 +408,34 @@ begin
             if clken_counter = 0 then
                 case sw_out(1 downto 0) is
                     when "11" =>
+                        -- 64MHz
                         if rom_cs_b_next = '0' then
                             -- Add one wait state for ROM accesses
-                            clken_counter <= x"1";
+                            clken_counter <= "0" & x"1";
                         elsif ext_ram_next = '1' then
                             -- Add four wait states for external RAM accesses                        
-                            clken_counter <= x"4";
+                            clken_counter <= "0" & x"4";
                         else
                             -- Full speed ahead!
-                            clken_counter <= x"0";                        
+                            clken_counter <= "0" & x"0";                        
                         end if;                  
                     when "10" =>
+                        -- 16MHz
                         if ext_ram_next = '1' then
                             -- Add four wait states for external RAM accesses                        
-                            clken_counter <= x"4";
+                            clken_counter <= "0" & x"4";
                         else
                             -- Quarter speed ahead!
-                            clken_counter <= x"3";
+                            clken_counter <= "0" & x"3";
                         end if; 
                     when "01" =>
+                        -- 4MHz
                         -- Running so slowly there is need to special case external RAM accesses
-                        clken_counter <= x"7";
+                        clken_counter <= "0" & x"F";
                     when "00" =>
+                        -- 2.91MHz
                         -- Running so slowly there is need to special case external RAM accesses
-                        clken_counter <= x"F";
+                        clken_counter <= "1" & x"5";
                     when others =>
                         -- there are no others
                 end case;                
