@@ -86,7 +86,8 @@ module LX9CoProARM2 (
   reg         gsr1;
   reg         gsr2;
   
-  reg [8:0]   reset_counter;
+  reg [8:0]   reset_counter = 0;
+  reg [8:0]   gsr_counter = 0;
 
   wire [3:0]  sw_out;
    
@@ -104,19 +105,24 @@ module LX9CoProARM2 (
    
   assign clk = fastclk;
 
-  // Ensure reset is held active for 256 clock cycles on power up
-  // Needed as Beeb's reset is missed when using multiboot loader as initialization takes too long
   always @(posedge clk)
     begin
-      gsr0 <= !p_rst_b;
+      // Trigger a global reset when the parasite is reset (e.g. break is pressed)
+      // Delay this to allow any pending reconfiguration to happen
+      if (gsr_counter != 0)
+        gsr_counter <= gsr_counter + 1;
+      else if (!p_rst_b)
+        gsr_counter <= 1;
+      gsr0 <= gsr_counter[8];
       gsr1 <= gsr0;
-      gsr2 <= gsr1 && !gsr0;
+      gsr2 <= !gsr1 && gsr0; // rising edge
+      // Ensure reset is held active for 256 clock cycles on power up
+      // Needed as Beeb's reset is missed when using multiboot loader as initialization takes too long
       if (reset_counter[8] == 0)
-          reset_counter <= reset_counter + 1;
+        reset_counter <= reset_counter + 1;
   end
     
-  wire rst;
-  assign rst = !p_rst_b | !reset_counter[8];
+  wire rst = !reset_counter[8];
 
   STARTUP_SPARTAN6 startup_inst (
     .CFGCLK(),
