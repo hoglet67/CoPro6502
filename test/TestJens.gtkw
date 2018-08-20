@@ -1,0 +1,66 @@
+[*]
+[*] GTKWave Analyzer v3.3.66 (w)1999-2015 BSI
+[*] Mon Aug 20 09:53:12 2018
+[*]
+[dumpfile] "/home/dmb/atom/CoPro6502/test/dump.vcd"
+[dumpfile_mtime] "Mon Aug 20 09:43:50 2018"
+[dumpfile_size] 657907
+[savefile] "/home/dmb/atom/CoPro6502/test/TestJens.signals.gtkw"
+[timestart] 1651300000
+[size] 1863 1176
+[pos] -1 -549
+*-27.000000 2350000000 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] uut.
+[treeopen] uut.u_0.
+[sst_width] 225
+[signals_width] 246
+[sst_expanded] 1
+[sst_vpaned_height] 362
+@28
+clk
+@22
+cpu_addr[15:0]
+cpu_din[7:0]
+cpu_dout[7:0]
+@28
+cpu_r_w_n
+cpu_rstn
+@29
+uut.u_0.sync_o
+@22
+uut.u_0.u_0.adr_i[15:0]
+uut.u_0.u_0.adr_nxt_pc_o[15:0]
+uut.u_0.u_0.adr_nxt_pc_o_internal[15:0]
+uut.u_0.u_0.adr_pc_high_o_i[7:0]
+uut.u_0.u_0.adr_pc_low_o_i[7:0]
+uut.u_0.u_0.adr_pc_o[15:0]
+uut.u_0.u_0.adr_pc_o_i[15:0]
+uut.u_0.u_0.adr_pc_o_internal[15:0]
+@28
+uut.u_0.u_0.ci_o_i
+uut.u_0.u_0.clk_clk_i
+uut.u_0.u_0.cout_pc_o_i
+uut.u_0.u_0.ld_i[1:0]
+uut.u_0.u_0.ld_pc_i
+uut.u_0.u_0.load3_o_i
+uut.u_0.u_0.load_o_i
+@22
+uut.u_0.u_0.mw_u_0reg_cval[7:0]
+uut.u_0.u_0.mw_u_3temp_din[15:0]
+uut.u_0.u_0.mw_u_4reg_cval[7:0]
+uut.u_0.u_0.mw_u_5temp_din[15:0]
+uut.u_0.u_0.offset_high_o_i[7:0]
+uut.u_0.u_0.offset_i[15:0]
+uut.u_0.u_0.offset_low_o_i[7:0]
+@28
+uut.u_0.u_0.rst_rst_n_i
+uut.u_0.u_0.sel_pc_in_i
+uut.u_0.u_0.sel_pc_val_i[1:0]
+@22
+uut.u_0.u_0.val_o_i[7:0]
+uut.u_0.u_0.val_one[7:0]
+uut.u_0.u_0.val_zero[7:0]
+uut.u_0.u_4.current_state[7:0]
+uut.u_0.u_4.next_state[7:0]
+[pattern_trace] 1
+[pattern_trace] 0

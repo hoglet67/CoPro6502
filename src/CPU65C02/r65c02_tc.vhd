@@ -115,7 +115,7 @@ ARCHITECTURE struct OF r65c02_tc IS
 
    -- Optional embedded configurations
    -- pragma synthesis_off
-   FOR ALL : core USE ENTITY r65c02_tc.core;
+   --FOR ALL : core USE ENTITY r65c02_tc.core;
    -- pragma synthesis_on
 
 

@@ -224,11 +224,11 @@ ARCHITECTURE struct OF core IS
 
    -- Optional embedded configurations
    -- pragma synthesis_off
-   FOR ALL : fsm_execution_unit USE ENTITY r65c02_tc.fsm_execution_unit;
-   FOR ALL : fsm_intnmi USE ENTITY r65c02_tc.fsm_intnmi;
-   FOR ALL : reg_pc USE ENTITY r65c02_tc.reg_pc;
-   FOR ALL : reg_sp USE ENTITY r65c02_tc.reg_sp;
-   FOR ALL : regbank_axy USE ENTITY r65c02_tc.regbank_axy;
+   --FOR ALL : fsm_execution_unit USE ENTITY r65c02_tc.fsm_execution_unit;
+   --FOR ALL : fsm_intnmi USE ENTITY r65c02_tc.fsm_intnmi;
+   --FOR ALL : reg_pc USE ENTITY r65c02_tc.reg_pc;
+   --FOR ALL : reg_sp USE ENTITY r65c02_tc.reg_sp;
+   --FOR ALL : regbank_axy USE ENTITY r65c02_tc.regbank_axy;
    -- pragma synthesis_on
 
 
