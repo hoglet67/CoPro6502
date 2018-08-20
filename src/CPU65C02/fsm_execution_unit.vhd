@@ -8652,6 +8652,12 @@ BEGIN
                ld_o <= "11";
                ld_pc_o <= '1';
             END IF;
+         -- Added by DMB to fix wrap around bug where 3rd by of JMP is at xx00
+         WHEN s272 => 
+            IF (rdy_i = '1') THEN 
+               ld_o <= "11";
+               ld_pc_o <= '1';
+            END IF;
          WHEN s309 => 
             IF ((rdy_i = '1') AND (nmi_i = '1') AND (rdy_i = '1')) THEN 
                adr_o <= d_i & zw_b1;
