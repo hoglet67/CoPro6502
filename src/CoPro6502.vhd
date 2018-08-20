@@ -6,8 +6,8 @@ use ieee.numeric_std.all;
 entity CoPro6502 is
     generic (
        UseT65Core    : boolean := false;
-       UseJensCore   : boolean := false;
-       UseAlanDCore  : boolean := true
+       UseJensCore   : boolean := true;
+       UseAlanDCore  : boolean := false
        );
     port (
         -- GOP Signals
@@ -109,6 +109,8 @@ architecture BEHAVIORAL of CoPro6502 is
     signal cpu_IRQ_n_sync  : std_logic;
     signal cpu_NMI_n_sync  : std_logic;
     signal sync       : std_logic;
+    signal sample_reg : std_logic_vector(11 downto 0);
+
 begin
 
 ---------------------------------------------------------------------
@@ -230,67 +232,37 @@ begin
     ram_addr <= "000" & cpu_addr(15 downto 0);
     ram_data <= cpu_dout when cpu_R_W_n = '0' else "ZZZZZZZZ";
 
-    fcs <= '1';
 
-    testpr : process(sw, debug_clk, sync, cpu_addr, h_addr, h_cs_b, cpu_dout, p_data_out, p_cs_b, cpu_NMI_n, cpu_IRQ_n)
+    sample_gen : process(debug_clk)
     begin
-        if (sw(1) = '1' and sw(2) = '1') then
-
-            test(6) <= debug_clk;
-            test(5) <= RSTn;
-            test(4) <= sync;
-            test(3) <= cpu_addr(9);
-            test(2) <= cpu_addr(8);
-            test(1) <= cpu_addr(7);
-
-            tp(8) <= cpu_addr(6);
-            tp(7) <= cpu_addr(5);
-            tp(6) <= cpu_addr(4);
-            tp(5) <= cpu_addr(3);
-            tp(4) <= cpu_addr(2);
-            tp(3) <= cpu_addr(1);
-            tp(2) <= cpu_addr(0);
-        else
-
-            test(6) <= debug_clk;
-            test(5) <= RSTn;
-            test(4) <= sync;
-            test(3) <= '0';
-            test(2) <= '0';
-            test(1) <= '0';
-            tp(8) <= ram_cs_b;
-            tp(7) <= ram_wr_int;
-            tp(6) <= ram_oe_int;
-            tp(5) <= p_cs_b;
-            tp(4) <= CPU_IRQ_n;
-            tp(3) <= CPU_NMI_n;
-            tp(2) <= bootmode;
-
-
---            test(6) <= CPU_NMI_n;
---            test(5) <= '0';
---            if h_addr(2 downto 0) = "101" and h_cs_b = '0' then
---                test(4) <= '1';
---            else
---                test(4) <= '0';
---            end if;
---            if cpu_addr(2 downto 0) = "101" and p_cs_b = '0' then
---                test(3) <= '1';
---            else
---                test(3) <= '0';
---            end if;
---            test(2) <= debug_clk;
---            test(1) <= cpu_dout(7);
---            tp(8) <= cpu_dout(6);
---            tp(7) <= cpu_dout(5);
---            tp(6) <= cpu_dout(4);
---            tp(5) <= cpu_dout(3);
---            tp(4) <= cpu_dout(2);
---            tp(3) <= cpu_dout(1);
---            tp(2) <= cpu_dout(0);
+        if rising_edge(debug_clk) then
+            if cpu_R_W_n = '0' then
+                sample_reg(7 downto 0) <= cpu_dout;
+            else
+                sample_reg(7 downto 0) <= cpu_din;
+            end if;
+            sample_reg(8) <= cpu_R_W_n;
+            sample_reg(9) <= sync;
+            sample_reg(10) <= RSTn_sync; -- cpu_NMI_n_sync;
+            sample_reg(11) <= cpu_IRQ_n_sync;
         end if;
     end process;
 
+    fcs <= '1';
+
+    test(6) <= debug_clk;
+    test(5) <= sample_reg(11);
+    test(4) <= sample_reg(10);
+    test(3) <= sample_reg(9);
+    test(2) <= sample_reg(8);
+    test(1) <= sample_reg(7);
+    tp(8)   <= sample_reg(6);
+    tp(7)   <= sample_reg(5);
+    tp(6)   <= sample_reg(4);
+    tp(5)   <= sample_reg(3);
+    tp(4)   <= sample_reg(2);
+    tp(3)   <= sample_reg(1);
+    tp(2)   <= sample_reg(0);
 
 --------------------------------------------------------
 -- boot mode generator
