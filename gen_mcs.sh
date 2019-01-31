@@ -1,5 +1,5 @@
 #!/bin/bash
-. /opt/Xilinx/14.7/ISE_DS/settings*.sh
+. /opt/Xilinx/14.7/ISE_DS/settings64.sh
 
 # The S25FL032P has space for ~12 designs if they are uncompressed
 #
@@ -36,4 +36,3 @@ promgen                                 \
 -o $NAME.mcs  -p mcs -w -spi -s 8192
 
 rm -f $NAME.cfi $NAME.prm
-
