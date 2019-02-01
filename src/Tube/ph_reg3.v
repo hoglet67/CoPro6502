@@ -21,104 +21,193 @@
 // ============================================================================
 `timescale 1ns / 1ns
 
-module ph_reg3 #
+module bin_gray_counter #
   (
-   parameter INIT_WADDR = 1,
-   parameter INIT_RADDR = 0,
-   parameter INIT_DATA0 = 8'haa,
-   parameter INIT_DATA1 = 8'hee
+   parameter N = 0,     // Width of counters
+   parameter INIT = 0   // Initial value of binary counter
    )
    (
-    input        h_rst_b,
-    input        h_rd,
-    input        h_selectData,
-    input        h_phi2,
-
-    input [7:0]  p_data,
-    input        p_selectData,
-    input        p_phi2,
-    input        p_rdnw,
-    input        one_byte_mode,
-    output [7:0] h_data,
-    output       h_data_available,
-    output       p_empty,
-    output       p_full
+    input              clk,
+    input              rst,
+    input              inc,
+    output reg [N-1:0] binary,
+    output reg [N-1:0] gray
     );
 
-   // Flags
-   wire          rempty;    // empty flag, synchronised to the read domain
-   wire          rfull;     // full flag, synchronised to the read domain
-   wire          wempty;    // empty flag, synchronised to the write domain
-   wire          wfull;     // full flag, synchronised to the write domain
+   wire [N-1:0]        next_binary = binary + 1'b1;
+   wire [N-1:0]        next_gray = next_binary ^ (next_binary >> 1);
+
+   always @(posedge clk or posedge rst) begin
+      if (rst) begin
+         binary <= INIT;
+         gray <= INIT ^ (INIT >> 1);
+      end else if (inc) begin
+         binary <= next_binary;
+         gray <= next_gray;
+      end
+   end
+
+endmodule
+
+module async_fifo #
+  (
+   parameter D_WIDTH = 0,    // FIFO data width
+   parameter A_WIDTH = 0,    // Log(2) of the FIFO depth
+   parameter INIT_WADDR = 0, // Inital write address
+   parameter INIT_RADDR = 0  // Initial read addrtess
+   )
+   (
+    input        rst,      // asynchrous reset
+    input        wr_clk,   // write clock
+    input        wr_en,    // write enable
+    input [7:0]  wr_data,  // write data
+    input        rd_clk,   // read clock
+    input        rd_en,    // read enable
+    output [7:0] rd_data,  // read data (value at the HEAD of the FIFO)
+    output       rd_empty, // empty flag, synchronised to the read domain
+    output       rd_full,  // full flag, synchronised to the read domain
+    output       wr_empty, // empty flag, synchronised to the write domain
+    output       wr_full   // full flag, synchronised to the write domain
+    );
 
    // The read and write addresses are N+1 bits (where 2^N is the FIFO size)
-   // N=1 in this case for reg3 (i.e. two bytes)
    // The purpose of the additional bit is to distingish the full/empty cases
 
-   // Read address
-   reg [1:0]     raddr;     // binary encoded
-   wire [1:0]    raddr_g;   // gray coded
-   reg [1:0]     raddr_g1;  // gray coded, part synchronised to write domain
-   reg [1:0]     raddr_g2;  // gray coded, fully synchronised to write domain
-
    // Write address
-   reg [1:0]     waddr;     // binary encoded
-   wire [1:0]    waddr_g;   // gray coded
-   reg [1:0]     waddr_g1;  // gray coded, part synchronised to read domain
-   reg [1:0]     waddr_g2;  // gray coded, fully synchronised to read domain
+   wire [A_WIDTH:0] waddr;     // binary encoded
+   wire [A_WIDTH:0] waddr_g;   // gray coded
+   reg [A_WIDTH:0]  waddr_g1;  // gray coded, part synchronised to read domain
+   reg [A_WIDTH:0]  waddr_g2;  // gray coded, fully synchronised to read domain
 
-   // FIFO Data
-   reg [7:0]     data[0:1];
+   // Read address
+   wire [A_WIDTH:0] raddr;     // binary encoded
+   wire [A_WIDTH:0] raddr_g;   // gray coded
+   reg [A_WIDTH:0]  raddr_g1;  // gray coded, part synchronised to write domain
+   reg [A_WIDTH:0]  raddr_g2;  // gray coded, fully synchronised to write domain
+
+   // FIFO Data RAM
+   reg [D_WIDTH-1:0] data[0:2^(A_WIDTH-1)-1];
+
+   // Counter blocks for write address
+   // - binary-coded output used for RAM write address
+   // - gray-coded output used for flag logic
+   bin_gray_counter #
+     (
+      .N(A_WIDTH+1),
+      .INIT(INIT_WADDR)
+      )
+   waddr_counter
+     (
+      .clk(wr_clk),
+      .rst(rst),
+      .inc(wr_en && !wr_full),
+      .binary(waddr),
+      .gray(waddr_g)
+      );
+
+   // Counter blocks for read address
+   // - binary-coded output used for RAM read address
+   // - gray-coded output used for flag logic
+   bin_gray_counter #
+     (
+      .N(A_WIDTH+1),
+      .INIT(INIT_RADDR)
+      )
+   addr_counter
+     (
+      .clk(rd_clk),
+      .rst(rst),
+      .inc(rd_en && !rd_empty),
+      .binary(raddr),
+      .gray(raddr_g)
+      );
+
+   // Synchronise the gray-coded read address to the write clock domain
+   always @(posedge wr_clk) begin
+      raddr_g1 <= raddr_g;
+      raddr_g2 <= raddr_g1;
+   end
+
+   // Synchronise the gray-coded write address to the read clock domain
+   always @(posedge rd_clk) begin
+      waddr_g1 <= waddr_g;
+      waddr_g2 <= waddr_g1;
+   end
 
    // Write logic
-   always @(posedge p_phi2 or negedge h_rst_b) begin
-      if (!h_rst_b) begin
-         waddr <= INIT_WADDR;
-         raddr_g1 <= raddr_g;
-         raddr_g2 <= raddr_g;
-         data[0] <= INIT_DATA0;
-         data[1] <= INIT_DATA1;
-      end else begin
-         raddr_g1 <= raddr_g;
-         raddr_g2 <= raddr_g1;
-         if (p_selectData && !p_rdnw && !wfull) begin
-            data[waddr[0]] <= p_data;
-            waddr <= waddr + 1;
-         end
+   always @(posedge wr_clk) begin
+      if (wr_en && !wr_full) begin
+         data[waddr[A_WIDTH-1:0]] <= wr_data;
       end
    end
 
    // Read logic
-   always @(negedge h_phi2 or negedge h_rst_b) begin
-      if (!h_rst_b) begin
-         raddr <= INIT_RADDR;
-         waddr_g1 <= waddr_g;
-         waddr_g2 <= waddr_g;
-      end else begin
-         waddr_g1 <= waddr_g;
-         waddr_g2 <= waddr_g1;
-         if (h_selectData && h_rd && !rempty) begin
-            raddr <= raddr + 1;
-         end
-      end
-   end
+   assign rd_data = data[raddr[A_WIDTH-1:0]];
 
-   // Flag logic
+   // Full/Empty flags are generated from the gray coded addresses.
    //
-   // Full/Empty flags are generated from the gray coded addresses
+   // The wr_ prefixed versions are valid in the write clock domain.
+   // The rd_ prefixed versions are valid in the read clock domain.
    //
-   // In the case of a 2 entry FIFO, this works out quite nicely.
+   // The addresses contain one extra bit to distinguish the full and empty cases.
    //
-   // Note: I'm not convinced the logic for the full flag would generalize
-   // to more than two bits.
-   assign waddr_g = waddr ^ (waddr >> 1);
-   assign wfull   = (waddr_g ^ raddr_g2) == 2'b11;
-   assign wempty  = (waddr_g ^ raddr_g2) == 2'b00;
-   assign raddr_g = raddr ^ (raddr >> 1);
-   assign rfull  = (raddr_g ^ waddr_g2) == 2'b11;
-   assign rempty = (raddr_g ^ waddr_g2) == 2'b00;
+   // If the pointers match exacty, then the FIFO is empty.
+   //
+   // If they match, apart from the MS two bits, then the FIFO is full. I've
+   // not seem this formulation used before. But by inspection it seems to be
+   // correct. Caveat Emptor!
+   assign wr_empty = (waddr_g ^ raddr_g2) == 0;
+   assign rd_empty = (raddr_g ^ waddr_g2) == 0;
+   assign wr_full  = (waddr_g ^ raddr_g2) == 3 << (A_WIDTH-1);
+   assign rd_full  = (raddr_g ^ waddr_g2) == 3 << (A_WIDTH-1);
 
-   // Output signal generation
+endmodule
+
+module ph_reg3
+  (
+   input        h_rst_b,
+   input        h_rd,
+   input        h_selectData,
+   input        h_phi2,
+
+   input [7:0]  p_data,
+   input        p_selectData,
+   input        p_phi2,
+   input        p_rdnw,
+   input        one_byte_mode,
+   output [7:0] h_data,
+   output       h_data_available,
+   output       p_empty,
+   output       p_full
+   );
+
+   // Internal flags
+   wire         rd_empty;    // empty flag, synchronised to the read domain
+   wire         rd_full;     // full flag, synchronised to the read domain
+   wire         wr_empty;    // empty flag, synchronised to the write domain
+   wire         wr_full;     // full flag, synchronised to the write domain
+
+   async_fifo #
+     (
+      .D_WIDTH(8),
+      .A_WIDTH(1),
+      .INIT_WADDR(1),
+      .INIT_RADDR(0)
+      )
+   ph_reg3_fifo
+     (
+      .rst(!h_rst_b),
+      .wr_clk(p_phi2),
+      .wr_en(p_selectData && !p_rdnw),
+      .wr_data(p_data),
+      .rd_clk(!h_phi2),
+      .rd_en(h_selectData && h_rd),
+      .rd_data(h_data),
+      .rd_empty(rd_empty),
+      .rd_full(rd_full),
+      .wr_empty(wr_empty),
+      .wr_full(wr_full)
+      );
 
    // Register 3 is intended to enable high speed transfers of large blocks of data across the tube.
    // It can operate in one or two byte mode, depending on the V flag. In one byte mode the status
@@ -130,9 +219,8 @@ module ph_reg3 #
    // until both bytes have been entered. PNMI, N and DRQ also remain active until the full two
    // byte operation is completed
 
-   assign p_empty          = wempty;
-   assign p_full           = one_byte_mode ? wfull   : !wempty;
-   assign h_data_available = one_byte_mode ? !rempty : rfull;
-   assign h_data           = data[raddr[0]];
+   assign p_empty          = wr_empty;
+   assign p_full           = one_byte_mode ? wr_full   : !wr_empty;
+   assign h_data_available = one_byte_mode ? !rd_empty : rd_full;
 
 endmodule
