@@ -86,7 +86,7 @@ module async_fifo #
    reg [A_WIDTH:0]  raddr_g2;  // gray coded, fully synchronised to write domain
 
    // FIFO Data RAM
-   reg [D_WIDTH-1:0] data[0:2^(A_WIDTH-1)-1];
+   reg [D_WIDTH-1:0] data[0:2^A_WIDTH-1];
 
    // Counter blocks for write address
    // - binary-coded output used for RAM write address
